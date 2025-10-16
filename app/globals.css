@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  background-color: #f8fafc;
+  color: #0f172a;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-inter);
+  background-color: var(--surface-color, #f8fafc);
+}
+
+* {
+  box-sizing: border-box;
+}
