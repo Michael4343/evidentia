@@ -21,7 +21,7 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
         <span aria-hidden="true">{collapsed ? "›" : "‹"}</span>
       </button>
       <div className={`flex items-center ${collapsed ? "justify-center" : "gap-3"} text-slate-900`}>
-        <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-primary/90 text-sm font-semibold text-primary-foreground shadow-sm">
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/90 text-sm font-semibold text-primary-foreground shadow-sm">
           Ev
         </span>
         {!collapsed && (
