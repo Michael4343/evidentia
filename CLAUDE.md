@@ -488,3 +488,333 @@ Step 10 complete: implemented the global authentication modal, wired the provide
 - `CLAUDE.md`
 
 Step 6 complete: replaced the placeholder auth handlers with Supabase-backed email/password & Google flows, exposed session-aware context helpers, refreshed header/sidebars/dropzone CTAs, and captured the integration notes in `docs/auth-modal.md` and `tasks/supabase-auth.md`.
+
+## Directory Snapshot (2025-02-20)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `globals.css`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+  - `paper/[doi]/experts/page.tsx`
+  - `paper/[doi]/patents/page.tsx`
+  - `paper/[doi]/similar-papers/page.tsx`
+  - `paper/[doi]/theses/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+- `lib/`
+  - `mock-data.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+- `CLAUDE.md`
+
+Step 11 started: captured the sidebar library plan in `tasks/sidebar-library.md`.
+
+## Directory Snapshot (2025-02-20 Upload Workflow)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `globals.css`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+  - `paper/[doi]/experts/page.tsx`
+  - `paper/[doi]/patents/page.tsx`
+  - `paper/[doi]/similar-papers/page.tsx`
+  - `paper/[doi]/theses/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+- `lib/`
+  - `mock-data.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+- `CLAUDE.md`
+
+Step 11a complete: wired the upload workflow to capture PDFs, persist object URLs, and hand callbacks into the dropzone.
+
+## Directory Snapshot (2025-02-20 Library Sidebar)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `globals.css`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+  - `paper/[doi]/experts/page.tsx`
+  - `paper/[doi]/patents/page.tsx`
+  - `paper/[doi]/similar-papers/page.tsx`
+  - `paper/[doi]/theses/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+- `lib/`
+  - `mock-data.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+- `CLAUDE.md`
+
+Step 11b complete: replaced the auth-focused sidebar with a clean library list that highlights and selects uploaded papers.
+
+## Directory Snapshot (2025-02-20 Paper Preview)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `globals.css`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+  - `paper/[doi]/experts/page.tsx`
+  - `paper/[doi]/patents/page.tsx`
+  - `paper/[doi]/similar-papers/page.tsx`
+  - `paper/[doi]/theses/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+- `lib/`
+  - `mock-data.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+- `CLAUDE.md`
+
+Step 11c complete: rendering the active paper inline with a lightweight PDF viewer, providing a compact re-upload dropzone, and updating the task tracker/documentation.
+
+## Directory Snapshot (2025-02-20 Auth Controls)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `globals.css`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+  - `paper/[doi]/experts/page.tsx`
+  - `paper/[doi]/patents/page.tsx`
+  - `paper/[doi]/similar-papers/page.tsx`
+  - `paper/[doi]/theses/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+- `lib/`
+  - `mock-data.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+- `CLAUDE.md`
+
+Step 11d complete: restored the auth button with icon-only collapse behavior and added a book glyph to the compact library header.

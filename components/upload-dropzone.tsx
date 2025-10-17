@@ -1,53 +1,111 @@
 "use client";
 
-import { useAuthModal } from "@/components/auth-modal-provider";
+import { useRef, useState } from "react";
 
-export function UploadDropzone() {
-  const { open, user, isAuthReady } = useAuthModal();
+interface UploadDropzoneProps {
+  onUpload?: (file: File) => void;
+  variant?: "default" | "compact";
+  title?: string;
+  description?: string;
+  helperText?: string;
+}
 
-  const handleAction = () => {
-    if (!user) {
-      open("signup");
+export function UploadDropzone({
+  onUpload,
+  variant = "default",
+  title,
+  description,
+  helperText
+}: UploadDropzoneProps) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  const handleFiles = (files: FileList | null) => {
+    const file = files?.[0];
+    if (!file) {
       return;
     }
-    console.info("Upload pipeline coming soon — authenticated user detected.");
+    if (file.type !== "application/pdf") {
+      console.warn("Only PDF uploads are supported right now.");
+      return;
+    }
+    onUpload?.(file);
   };
 
+  const isCompact = variant === "compact";
+  const resolvedTitle =
+    title ?? (isCompact ? "Upload another paper" : "Drop your Paper here (PDF please!)");
+  const resolvedDescription =
+    description ?? (isCompact ? "or pick a new PDF to replace the active one." : "or click to browse your computer.");
+  const resolvedHelper =
+    helperText ??
+    (isCompact
+      ? "We will swap the reader to your newest upload."
+      : "We will show your latest upload in the reader and add it to your sidebar list.");
+
   return (
-    <div className="mx-auto flex min-h-[60vh] w-full max-w-3xl flex-col items-center justify-center gap-6 text-center">
-      <header className="space-y-2">
-        <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
-          Validate Publication
-        </h1>
-        <p className="text-base text-slate-600">
-          Drop a paper (PDF please!) to start processing. We detect the DOI and compile similar papers, patents and PhD thesis (with data if available) to better understand if this work is reproducible!
-        </p>
-      </header>
+    <div
+      className={`w-full ${
+        isCompact
+          ? "flex flex-col items-center justify-center gap-4 text-center"
+          : "mx-auto flex min-h-[60vh] max-w-3xl flex-col items-center justify-center gap-6 text-center"
+      }`}
+    >
+      {!isCompact && (
+        <header className="space-y-2">
+          <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
+            Validate Publication
+          </h1>
+          <p className="text-base text-slate-600">
+            Drop a PDF to open it inside the reader. Each upload is saved to your sidebar library so you can jump back anytime.
+          </p>
+        </header>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={(event) => {
+          handleFiles(event.target.files);
+          if (event.target.value) {
+            event.target.value = "";
+          }
+        }}
+      />
       <button
         type="button"
-        onClick={handleAction}
+        onClick={() => {
+          inputRef.current?.click();
+        }}
         onDragOver={(event) => {
           event.preventDefault();
+          if (!isDragging) {
+            setIsDragging(true);
+          }
+        }}
+        onDragLeave={() => {
+          setIsDragging(false);
         }}
         onDrop={(event) => {
           event.preventDefault();
-          handleAction();
+          setIsDragging(false);
+          handleFiles(event.dataTransfer?.files ?? null);
         }}
-        disabled={!isAuthReady}
-        className="flex w-full max-w-xl flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed border-slate-200 bg-white/70 p-10 text-center transition-colors hover:border-primary/60 hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+        className={`flex w-full max-w-xl flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed bg-white/70 ${
+          isCompact ? "px-6 py-8" : "p-10"
+        } text-center transition-colors ${
+          isDragging ? "border-primary/60 bg-white" : "border-slate-200 hover:border-primary/60 hover:bg-white"
+        }`}
       >
         <span className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-xl text-primary">
           ⬆️
         </span>
         <div className="space-y-1">
-          <p className="text-base font-medium text-slate-900">Drop your Paper here (PDF please!)</p>
-          <p className="text-sm text-slate-500">or click to browse your computer.</p>
+          <p className="text-base font-medium text-slate-900">{resolvedTitle}</p>
+          <p className="text-sm text-slate-500">{resolvedDescription}</p>
         </div>
-        {user ? (
-          <p className="text-xs text-slate-400">Uploads process automatically once the pipeline is wired up.</p>
-        ) : (
-          <p className="text-xs text-slate-400">We will prompt you to create an account before processing.</p>
-        )}
+        <p className="text-xs text-slate-400">{resolvedHelper}</p>
       </button>
     </div>
   );
