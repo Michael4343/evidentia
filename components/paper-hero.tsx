@@ -1,7 +1,11 @@
-import { samplePaper } from "@/lib/mock-data";
+import { PaperDetail } from "@/lib/mock-data";
 
-export function PaperHero() {
-  const { title, authors, venue, year, abstract, status } = samplePaper;
+interface PaperHeroProps {
+  paper: PaperDetail;
+}
+
+export function PaperHero({ paper }: PaperHeroProps) {
+  const { title, authors, venue, year, abstract, status } = paper;
 
   return (
     <section className="space-y-6 rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">

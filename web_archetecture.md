@@ -1,5 +1,13 @@
 Interactive Paper Web App Architecture (Next.js + Supabase)
-Goals
+
+## Current Prototype Snapshot (2025-02-14)
+- We ship a single-page marketing experience: the hero dropzone lives at the top and a single preview card shows the reader mock.
+- No navigation tabs or sidebar components are active on the landing page; the preview intentionally keeps copy sparse and styling clean (white cards, subtle borders).
+- Supporting reader components and richer mock data remain in the codebase for future phases but are not rendered today.
+
+Use this document as the north star for the full product. Sections below capture the ambitious architecture we plan to grow into once we validate the minimalist SPA.
+
+## Goals
 
 Upload a PDF and create an interactive reading experience powered by GPT-5.
 
@@ -11,7 +19,7 @@ Real-time processing feedback.
 
 Tabs: Paper, Similar Papers, Similar Patents, PhD Theses, Expert Network.
 
-Tech Stack
+## Tech Stack
 
 Next.js App Router, React, TypeScript, Tailwind.
 
@@ -21,7 +29,7 @@ Worker for heavy PDF work and figure extraction.
 
 OpenAI GPT-5 and GPT-5 Vision for analysis and figure captions.
 
-High-Level Flow
+## High-Level Flow
 
 User drops a PDF on the landing page.
 

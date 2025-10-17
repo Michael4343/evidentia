@@ -1,5 +1,6 @@
 import { AnnotationSidebar } from "@/components/annotation-sidebar";
 import { PdfViewerMock } from "@/components/pdf-viewer-mock";
+import { samplePaper } from "@/lib/mock-data";
 
 const readerTips = [
   "Use the page navigator to jump between sections once processing completes.",
@@ -8,6 +9,8 @@ const readerTips = [
 ];
 
 export default function PaperPage() {
+  const paper = samplePaper;
+
   return (
     <div className="space-y-8">
       <section className="rounded-3xl border border-slate-200 bg-white/95 p-5 shadow-sm">
@@ -37,7 +40,7 @@ export default function PaperPage() {
             ))}
           </ul>
         </section>
-        <AnnotationSidebar />
+        <AnnotationSidebar comments={paper.comments} />
       </div>
     </div>
   );

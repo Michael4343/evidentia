@@ -1,56 +1,59 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { ReaderTabKey } from "@/lib/mock-data";
 
-const tabItems = [
-  { segment: undefined, href: (doi: string) => `/paper/${doi}`, label: "Paper" },
-  {
-    segment: "similar-papers",
-    href: (doi: string) => `/paper/${doi}/similar-papers`,
-    label: "Similar Papers"
-  },
-  {
-    segment: "patents",
-    href: (doi: string) => `/paper/${doi}/patents`,
-    label: "Similar Patents"
-  },
-  {
-    segment: "theses",
-    href: (doi: string) => `/paper/${doi}/theses`,
-    label: "PhD Theses"
-  },
-  {
-    segment: "experts",
-    href: (doi: string) => `/paper/${doi}/experts`,
-    label: "Expert Network"
-  }
+type TabVariant = "horizontal" | "vertical";
+
+const tabItems: Array<{ key: ReaderTabKey; label: string }> = [
+  { key: "paper", label: "Paper" },
+  { key: "similarPapers", label: "Similar Papers" },
+  { key: "patents", label: "Patents" },
+  { key: "theses", label: "PhD Theses" },
+  { key: "experts", label: "Expert Network" }
 ];
 
 interface PaperTabNavProps {
-  doi: string;
+  activeTab: ReaderTabKey;
+  onTabChange?: (tab: ReaderTabKey) => void;
+  variant?: TabVariant;
 }
 
-export function PaperTabNav({ doi }: PaperTabNavProps) {
-  const pathname = usePathname();
+export function PaperTabNav({ activeTab, onTabChange, variant = "horizontal" }: PaperTabNavProps) {
+  const isVertical = variant === "vertical";
 
   return (
-    <nav className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white/90 p-1.5 shadow-sm">
+    <nav
+      className={`${
+        isVertical
+          ? "flex flex-col gap-2"
+          : "flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white/90 p-1.5 shadow-sm"
+      }`}
+    >
       {tabItems.map((item) => {
-        const href = item.href(doi);
-        const isActive = pathname === href;
-        return (
-          <Link
-            key={item.label}
-            href={href}
-            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+        const isActive = item.key === activeTab;
+        const sharedClasses = "flex items-center gap-2 rounded-xl text-sm font-medium transition-colors";
+        const buttonClasses = isVertical
+          ? `${sharedClasses} justify-between px-4 py-3 text-left ${
               isActive
                 ? "bg-slate-900 text-white shadow"
                 : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-            }`}
+            }`
+          : `${sharedClasses} px-4 py-2 ${
+              isActive
+                ? "bg-slate-900 text-white shadow"
+                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            }`;
+
+        return (
+          <button
+            key={item.key}
+            type="button"
+            className={buttonClasses}
+            onClick={() => onTabChange?.(item.key)}
+            aria-pressed={isActive}
           >
             {item.label}
-          </Link>
+          </button>
         );
       })}
     </nav>
