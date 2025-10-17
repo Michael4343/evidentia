@@ -3,7 +3,7 @@ export function UploadDropzone() {
     <div className="mx-auto flex min-h-[60vh] w-full max-w-3xl flex-col items-center justify-center gap-6 text-center">
       <header className="space-y-2">
         <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
-          Is this research reproducible?
+          Validate this Research
         </h1>
         <p className="text-base text-slate-600">
           Drop a paper (PDF please!) to start processing. We detect the DOI and compile similar papers, patents and PhD thesis (with data if available) to better understand if this work is reproducible!
@@ -14,7 +14,7 @@ export function UploadDropzone() {
           ⬆️
         </span>
         <div className="space-y-1">
-          <p className="text-base font-medium text-slate-900">Drop your Paper here (PDF only!)</p>
+          <p className="text-base font-medium text-slate-900">Drop your Paper here (PDF please!)</p>
           <p className="text-sm text-slate-500">or click to browse your computer.</p>
         </div>
         <input type="file" accept="application/pdf" className="hidden" />

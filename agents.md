@@ -53,6 +53,11 @@ v1.0 → Production-ready
 - Keep copy tight and purposeful—avoid verbose supporting text.
 - Use tiles/cards only when they clarify grouping or hierarchy.
 
+### Current Prototype (2025-02-14)
+- Landing page is a single screen: hero dropzone plus a simple “Interactive reader preview” card with the PDF mock.
+- Avoid reintroducing tabs, sidebars, or heavy chrome until user feedback requires it; keep backgrounds white with light slate borders.
+- Mock reader components exist for future iterations but remain unused in the live layout.
+
 ### Tech Stack (When Established)
 - **Framework**: React/Next.js with TypeScript
 - **Styling**: Tailwind CSS, shadcn/ui
@@ -140,3 +145,77 @@ npm run lint     # Check code quality (run only when asked by the user)
 **Good code ships and works.** Start simple, iterate based on real needs, and maintain code quality without over-engineering. The best solution is often the simplest one that solves the problem.
 
 ALWAYS UPDATE CLAUDE.md AT THE END OF EACH STEP WITH THE NEW DIRECTORY STRUCTURE AND IF NECASSARY CREATE A DOC TO GO IN DOCS WITH THE MORE DETAILS OF WHAT YOU HAVE DONE. DO NOT START NEW SERVERS THERE WILL BE ONE RUNNING YOU CAN USE FOR TESTS!!!
+
+---
+
+## Directory Snapshot (2025-02-14)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `globals.css`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+  - `paper/[doi]/experts/page.tsx`
+  - `paper/[doi]/patents/page.tsx`
+  - `paper/[doi]/similar-papers/page.tsx`
+  - `paper/[doi]/theses/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `homepage-prototype.md`
+- `lib/`
+  - `mock-data.ts`
+- `tasks/`
+  - `homepage-single-app.md`
+  - `sidebar-debug.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+- `CLAUDE.md`
+
+## Directory Snapshot (2025-02-15)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `upload-dropzone.tsx`
+- `lib/mock-data.ts`
+- `tasks/`
+  - `single-page-sidebar-refactor.md`
+
+Step 1 complete: audited navigation-related components and noted reuse candidates for the unified SPA shell.
