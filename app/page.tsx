@@ -54,7 +54,8 @@ function PaperTabContent({
   isUploading,
   statusMessage,
   errorMessage,
-  helperText
+  helperText,
+  viewerClassName
 }: {
   onUpload: (file: File) => void;
   activePaper: UploadedPaper | null;
@@ -62,6 +63,7 @@ function PaperTabContent({
   statusMessage: string | null;
   errorMessage: string | null;
   helperText?: string;
+  viewerClassName?: string;
 }) {
   if (!activePaper) {
     return (
@@ -80,20 +82,13 @@ function PaperTabContent({
   }
 
   return (
-    <div className="space-y-4">
-      <PdfViewer
-        fileUrl={activePaper.url}
-        fileName={activePaper.fileName}
-        source={activePaper.source}
-        storagePath={activePaper.storagePath}
-        className="h-[80vh] w-full"
-      />
-      {(statusMessage || errorMessage) && (
-        <p className={`text-sm ${errorMessage ? "text-red-600" : "text-slate-500"}`}>
-          {errorMessage ?? statusMessage}
-        </p>
-      )}
-    </div>
+    <PdfViewer
+      fileUrl={activePaper.url}
+      fileName={activePaper.fileName}
+      source={activePaper.source}
+      storagePath={activePaper.storagePath}
+      className={viewerClassName ?? "h-[80vh] w-full"}
+    />
   );
 }
 
@@ -136,6 +131,7 @@ export default function LandingPage() {
     ? uploadedPapers.find((item) => item.id === activePaperId) ?? null
     : null;
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
+  const isPaperViewerActive = activeTab === "paper" && Boolean(activePaper);
   const dropzoneHelperText = !user
     ? "Sign in to save papers to your library."
     : isFetchingLibrary
@@ -351,6 +347,7 @@ export default function LandingPage() {
           statusMessage={uploadErrorMessage ? null : uploadStatusMessage}
           errorMessage={uploadErrorMessage}
           helperText={dropzoneHelperText}
+          viewerClassName={isPaperViewerActive ? "!h-full w-full flex-1" : undefined}
         />
       );
     }
@@ -373,7 +370,7 @@ export default function LandingPage() {
       />
       <div className="flex flex-1 flex-col">
         <main
-          className="flex-1 overflow-y-auto"
+          className="flex flex-1 flex-col"
           data-has-uploads={uploadedPapers.length > 0 ? "true" : "false"}
           data-active-paper={activePaperId ?? ""}
         >
@@ -386,7 +383,13 @@ export default function LandingPage() {
               />
             </div>
           </header>
-          <div className="px-4 pb-8 pt-4 sm:px-6 lg:px-10">
+          <div
+            className={
+              isPaperViewerActive
+                ? "flex flex-1 overflow-hidden"
+                : "flex-1 overflow-y-auto px-4 pb-8 pt-4 sm:px-6 lg:px-10"
+            }
+          >
             {renderActiveTab()}
           </div>
         </main>

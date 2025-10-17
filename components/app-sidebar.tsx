@@ -165,14 +165,19 @@ export function AppSidebar({
             <ul className="space-y-2">
               {papers.map((paper) => {
                 const isActive = paper.id === activeId;
+
+                // Build classes more explicitly to avoid Tailwind conflicts
                 const baseClasses = isCollapsed
-                  ? "mx-auto h-12 w-12 rounded-full border border-transparent bg-white/70 text-xs font-semibold text-slate-500"
-                  : "w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-left text-sm font-semibold text-slate-700";
-                const activeClasses = isActive
+                  ? "mx-auto h-12 w-12 rounded-full border text-xs font-semibold"
+                  : "w-full rounded-2xl border px-4 py-3 text-left text-sm font-semibold";
+
+                const stateClasses = isActive
                   ? isCollapsed
                     ? "border-slate-900 bg-slate-900 text-white shadow-md"
                     : "border-slate-900 bg-white text-slate-900 shadow-sm ring-1 ring-slate-900/20"
-                  : "hover:border-slate-300 hover:bg-white";
+                  : isCollapsed
+                    ? "border-transparent bg-white/70 text-slate-500 hover:border-slate-300 hover:bg-white"
+                    : "border-slate-200 bg-white/70 text-slate-700 hover:border-slate-300 hover:bg-white";
                 const trimmedName = paper.name?.trim() ?? "";
                 const cleanedFileName = (paper.fileName ?? "").replace(/\s+/g, " ").trim();
                 const baseLabel = cleanedFileName.replace(/\.pdf$/i, "");
@@ -193,11 +198,11 @@ export function AppSidebar({
                       onClick={() => {
                         onSelectPaper(paper.id);
                       }}
-                      className={`${baseClasses} transition-colors ${activeClasses} ${isCollapsed ? "flex items-center justify-center" : ""}`}
+                      className={`${baseClasses} ${stateClasses} transition-colors ${isCollapsed ? "flex items-center justify-center" : ""}`}
                       aria-pressed={isActive}
                     >
                       {isCollapsed ? (
-                        <span className="text-sm font-semibold" aria-hidden="true">
+                        <span aria-hidden="true">
                           {finalLabel.slice(0, 2).toUpperCase()}
                         </span>
                       ) : (

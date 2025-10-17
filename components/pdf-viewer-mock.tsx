@@ -1,6 +1,19 @@
-export function PdfViewerMock() {
+interface PdfViewerMockProps {
+  frameless?: boolean;
+  className?: string;
+}
+
+export function PdfViewerMock({ frameless = false, className }: PdfViewerMockProps) {
+  const containerClassNames = [
+    "relative w-full overflow-hidden bg-white",
+    frameless ? "h-[80vh]" : "rounded-3xl border border-slate-200 shadow-sm",
+    className ?? ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
+    <div className={containerClassNames}>
       <div className="absolute inset-y-0 left-0 w-14 bg-slate-900/95 p-3 text-xs text-slate-200">
         <div className="space-y-2">
           {Array.from({ length: 12 }).map((_, index) => (

@@ -1,159 +1,209 @@
 # CLAUDE.md - Project Development Guide
 
-This file provides guidance for Claude when working with code in this repository.
+**Primary Directive: Ship working code. Start simple. Validate before adding complexity.**
 
-## 🎯 Core Philosophy: Simple, Working, Maintainable
+## 🎯 Core Philosophy
 
-### Development Principles
-1. **Start Simple** - Build the simplest working solution first
-2. **Validate Early** - Get user feedback before over-engineering
-3. **Iterate Thoughtfully** - Add complexity only when needed
-4. **Document Clearly** - Make handoffs and maintenance easier
+### The Prototype-First Approach
+1. **Build the simplest thing that works** - No abstractions, no over-engineering
+2. **Get it in front of users immediately** - Real feedback beats perfect architecture
+3. **Add complexity only when pain is real** - Measure, don't assume
+4. **Working prototype > Perfect design** - Always
+
+### Reality Check
+- If you're building abstractions before you have working features, STOP
+- If you're optimizing before you have users complaining, STOP
+- If you're adding "nice to have" patterns before core functionality works, STOP
+- Ship first. Refine second. Perfect never.
 
 ## Planning & Execution
 
-### Before Starting
-- Write a brief implementation plan to `tasks/TASK_NAME.md`
-- Define the MVP scope clearly
-- Document assumptions and approach
-- Update the plan as you work
+### Before Starting Any Task
+1. Create a plan in `tasks/TASK_NAME.md` with:
+   - What's the absolute minimum to prove this works?
+   - What can we skip for v0.1?
+   - How will we know it's done?
+2. Default to the simplest approach
+3. Question every "should we also..." instinct
 
 ### Task Strategy
-- Focus on getting core functionality working first
-- Make incremental improvements
-- Test changes before marking complete
-- Document decisions for future reference
+- **Start**: Get ONE thing working end-to-end
+- **Then**: Handle the obvious failure case
+- **Finally**: Polish only what users will touch
+- **Never**: Add features "for later" or "just in case"
 
 ## Code Standards
 
-### Quality Guidelines
-- **Clarity** - Write readable, self-documenting code
-- **Consistency** - Match existing patterns in the codebase
-- **Simplicity** - Avoid premature optimization
-- **Completeness** - Ensure changes work end-to-end
-
 ### Progressive Development
 ```
-v0.1 → Basic working prototype
-v0.2 → Handle main use cases
-v0.3 → Add error handling
-v1.0 → Production-ready
+v0.1 → Barely works, proves the concept
+v0.2 → Works for the main use case
+v0.3 → Handles errors gracefully
+v1.0 → Production-ready with tests
 ```
+
+**Most features should ship at v0.2.** Resist v1.0 perfectionism.
 
 ### When to Add Complexity
-✅ Code is repeated 3+ times → Extract to function/component  
-✅ Prop drilling exceeds 3 levels → Consider state management  
-✅ Performance issues are measured → Optimize  
-✅ Multiple developers need clear interfaces → Add abstractions  
+Only add abstractions when:
+- ✅ Code is repeated 3+ times AND causing bugs
+- ✅ Prop drilling exceeds 3 levels AND slowing development
+- ✅ Performance issues are MEASURED and user-impacting
+- ✅ Multiple developers are blocked without the abstraction
 
-## Frontend Development
+## Project Context
 
-### UI Style Guidelines
-- Prioritise minimalist layouts; let the primary action own the page when possible.
-- Keep copy tight and purposeful—avoid verbose supporting text.
-- Use tiles/cards only when they clarify grouping or hierarchy.
-
-### Current Prototype (2025-02-14)
-- Landing page is a single screen: hero dropzone plus a simple “Interactive reader preview” card with the PDF mock.
-- Avoid reintroducing tabs, sidebars, or heavy chrome until user feedback requires it; keep backgrounds white with light slate borders.
-- Mock reader components exist for future iterations but remain unused in the live layout.
-
-### Tech Stack (When Established)
-- **Framework**: React/Next.js with TypeScript
-- **Styling**: Tailwind CSS, shadcn/ui
-- **State**: useState/Context for simple, Zustand for complex
-- **Icons**: Lucide or Heroicons
+### Tech Stack
+- **Framework**: Next.js 14+ with TypeScript
+- **Database**: Supabase (Postgres + Auth + Storage)
+- **Styling**: Tailwind CSS, shadcn/ui components
+- **State**: useState/Context (upgrade to Zustand only if needed)
+- **Icons**: Lucide React
 
 ### Directory Structure
-Start simple, evolve as needed:
 ```
-/src
-  /components    # Reusable UI components
-  /hooks         # Custom React hooks (when patterns emerge)
-  /lib           # Utilities and helpers
-  /app or /pages # Routes
+app/                    # Next.js app router pages
+components/             # React components
+lib/                    # Utilities and helpers
+  ├── supabase-browser.ts   # Supabase client
+  ├── user-papers.ts        # Paper persistence helpers
+  └── pdf-doi.ts            # DOI extraction
+docs/                   # Architecture decisions
+tasks/                  # Implementation plans
 ```
 
-## Development Workflow
+### Key Environment Variables
+```bash
+NEXT_PUBLIC_SUPABASE_URL=...
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+PERPLEXITY_API_KEY=...  # For research digest feature
+```
 
 ### Common Commands
 ```bash
-npm run dev      # Start development server
-npm run build    # Build for production
-npm run test     # Run tests
-npm run lint     # Check code quality (run only when asked by the user)
+npm run dev      # Development server (usually already running)
+npm run build    # Production build
+npm run lint     # Only run when user asks
 ```
 
-### Progress Communication
-1. Clarify the task requirements
-2. Outline the approach
-3. Implement incrementally
-4. Summarize what was completed
+**IMPORTANT**: DO NOT start new dev servers - one is already running!
 
-## Testing & Verification
+## UI Design Principles
+
+### Minimalist First
+- Let the primary action dominate the page
+- Avoid tiles/cards unless they clarify hierarchy
+- White backgrounds, light slate borders
+- Tight copy, no verbose supporting text
+
+### Current App State
+- **Homepage**: Hero upload dropzone
+- **Reader**: Collapsible sidebar (paper library) + full-width PDF viewer + tab navigation
+- **Auth**: Modal-based (email/password + Google OAuth)
+
+## Development Workflow
+
+### The Right Way
+1. Write minimal code to make it work
+2. Test manually
+3. Get user feedback
+4. Iterate based on real needs
+
+### The Wrong Way
+1. ❌ Design comprehensive architecture
+2. ❌ Build reusable abstractions
+3. ❌ Add error handling for edge cases
+4. ❌ Write tests before features work
+5. ❌ Optimize performance proactively
+
+## Testing & Shipping
 
 ### MVP Checklist
-- [ ] Core feature works as intended
-- [ ] No breaking errors
+- [ ] Core feature works for happy path
+- [ ] No breaking errors in console
 - [ ] Basic user flow is complete
+- [ ] SHIP IT
 
-### Production Checklist
-- [ ] Tests pass
-- [ ] Error handling in place
-- [ ] Documentation updated
-- [ ] Security considerations addressed
+### Production Checklist (only if needed)
+- [ ] Error handling for common failures
+- [ ] Security: env vars, input validation, HTTPS
+- [ ] Documentation: README, setup instructions
+- [ ] Tests for critical paths
 
 ## Best Practices
 
 ### Start With
-- Working code over perfect architecture
-- Inline styles before component libraries
-- Local state before state management
-- Manual testing before automation
+- Inline code > extracted functions
+- Props > context
+- useState > Zustand
+- Manual testing > automated tests
+- Comments in code > separate docs
 
-### Evolve To
-- Reusable components when patterns emerge
-- Proper error boundaries when stable
-- Optimized performance when measured
-- Comprehensive tests when validated
+### Evolve To (when patterns repeat)
+- Shared components
+- Proper state management
+- Error boundaries
+- Comprehensive tests
+- Performance optimization
 
-### Avoid
-- Over-engineering before validation
-- Abstractions for single-use cases
-- Premature performance optimization
-- Complex architecture without clear need
+### Never Do
+- Abstract before you have 3 examples
+- Optimize before you measure
+- Test before it works
+- Document before it's stable
+- Plan for scale before you have users
 
-## Security & Deployment
+## Supabase Integration
 
-### Key Considerations
-- Keep sensitive data in environment variables
-- Validate user inputs
-- Use HTTPS in production
-- Follow security best practices
+### Database Schema
+- **Table**: `user_papers` (id, user_id, doi, title, filename, created_at)
+- **Storage**: `papers` bucket with RLS policies
+- **Auth**: Email/password + OAuth providers
 
-### Operational Notes (Daily Digest)
-- `PERPLEXITY_API_KEY` is now required for the 9AM AEST research digest; store it alongside existing secrets.
-- Vercel cron runs the digest at `0 23 * * *` (UTC). Adjust if a timezone-aware scheduler becomes available for AEDT transitions.
+See `docs/supabase.md` for RLS policies and setup details.
 
-### Documentation
-- README with setup instructions
-- API documentation if applicable
-- Architecture decisions when relevant
-- Deployment instructions
+### Key Patterns
+```typescript
+// Client-side Supabase
+import { createClient } from './lib/supabase-browser'
+
+// Upload PDF
+const { data } = await supabase.storage
+  .from('papers')
+  .upload(`${userId}/${filename}`, file)
+
+// Insert metadata
+await supabase.from('user_papers')
+  .insert({ user_id, doi, filename, title })
+```
+
+## Documentation
+
+### What to Document
+- **Always**: Implementation plans in `tasks/` before coding
+- **When stable**: Architecture decisions in `docs/`
+- **Never**: Inline docs for unstable features
+
+### DO NOT
+- Create documentation files proactively
+- Write extensive README sections before features stabilize
+- Add code comments explaining "why we might need this later"
 
 ## Remember
-**Good code ships and works.** Start simple, iterate based on real needs, and maintain code quality without over-engineering. The best solution is often the simplest one that solves the problem.
 
-ALWAYS UPDATE CLAUDE.md AT THE END OF EACH STEP WITH THE NEW DIRECTORY STRUCTURE AND IF NECASSARY CREATE A DOC TO GO IN DOCS WITH THE MORE DETAILS OF WHAT YOU HAVE DONE. DO NOT START NEW SERVERS THERE WILL BE ONE RUNNING YOU CAN USE FOR TESTS!!!
+**The best code ships fast and works.**
 
----
+- Prototype beats architecture
+- User feedback beats assumptions
+- Simple beats clever
+- Done beats perfect
 
-## Directory Snapshot (2025-02-14)
+## Directory Snapshot (2025-10-18)
 - `app/`
   - `(marketing)/page.tsx`
+  - `globals.css`
   - `layout.tsx`
   - `page.tsx`
-  - `globals.css`
   - `paper/[doi]/layout.tsx`
   - `paper/[doi]/page.tsx`
   - `paper/[doi]/experts/page.tsx`
@@ -162,147 +212,17 @@ ALWAYS UPDATE CLAUDE.md AT THE END OF EACH STEP WITH THE NEW DIRECTORY STRUCTURE
   - `paper/[doi]/theses/page.tsx`
 - `components/`
   - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
   - `homepage-app.tsx`
   - `paper-hero.tsx`
   - `paper-reader-content.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `homepage-prototype.md`
-- `lib/`
-  - `mock-data.ts`
-- `tasks/`
-  - `homepage-single-app.md`
-  - `sidebar-debug.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-- `CLAUDE.md`
-
-## Directory Snapshot (2025-02-15)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
   - `paper-reader-shell.tsx`
   - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
   - `pdf-viewer.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `upload-dropzone.tsx`
-- `lib/mock-data.ts`
-- `tasks/`
-  - `single-page-sidebar-refactor.md`
-
-## Directory Snapshot (2025-02-16)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `homepage-prototype.md`
-- `lib/mock-data.ts`
-- `tasks/`
-  - `single-page-sidebar-refactor.md`
-  - `sidebar-shell-plan.md`
-
-Step 1 complete: audited navigation-related components and noted reuse candidates for the unified SPA shell.
-
-Step 2 complete: drafted collapsible sidebar plan with main-page tab strip for review.
-
-## Directory Snapshot (2025-02-17)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `homepage-prototype.md`
-- `lib/mock-data.ts`
-- `tasks/`
-  - `reader-header.md`
-  - `halo-tabs.md`
-  - `single-page-sidebar-refactor.md`
-  - `sidebar-shell-plan.md`
-
-Step 3 complete: implemented collapsible sidebar shell and moved reader buttons into main content header.
-
-Step 4 complete: implemented the halo-style horizontal reader tabs and logged the plan in `tasks/halo-tabs.md`.
-
-Step 5 complete: consolidated the reader hero, status, and halo tabs into a single `PaperReaderHeader` and documented the plan in `tasks/reader-header.md`.
-
-## Directory Snapshot (2025-02-18)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
   - `reader-sidebar.tsx`
   - `site-header.tsx`
   - `status-banner.tsx`
@@ -315,8 +235,6 @@ Step 5 complete: consolidated the reader hero, status, and halo tabs into a sing
   - `pdf-doi.ts`
   - `supabase-browser.ts`
   - `user-papers.ts`
-- `public/`
-  - `logo.png`
 - `tasks/`
   - `auth-modal.md`
   - `clean-webpage-format.md`
@@ -327,270 +245,8 @@ Step 5 complete: consolidated the reader hero, status, and halo tabs into a sing
   - `pdf-doi-persistence.md`
   - `pdf-title-link.md`
   - `pdf-upload-sidebar-button.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
   - `pdf-viewer-bugfix.md`
-
-Step 6 started: logged PDF viewer bugfix plan in `tasks/pdf-viewer-bugfix.md` and capturing current tree before debugging the inline preview issue.
-
-Step 7 in progress: replaced the inline `<object>` embed with a resilient `PdfViewer` component that fetches private Supabase PDFs when needed.
-
-Step 8 in progress: suppressing the PDF viewer toolbar by appending `toolbar=0` style parameters to the blob URL our reader embeds.
-
-## Directory Snapshot (2025-02-18)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `homepage-prototype.md`
-- `lib/mock-data.ts`
-- `tasks/`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `reader-header.md`
-  - `single-page-sidebar-refactor.md`
-  - `sidebar-shell-plan.md`
-
-Step 6 complete: simplified the sticky header and tab styling so the five primary buttons form a clean, consistent app header.
-
-## Directory Snapshot (2025-02-18 Update)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `homepage-prototype.md`
-- `lib/mock-data.ts`
-- `tasks/`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `reader-header.md`
-  - `single-page-sidebar-refactor.md`
-  - `sidebar-shell-plan.md`
-
-Step 7 complete: removed the horizontal tab wrapper chrome so the five primary buttons sit flush inside the app header.
-
-Step 8 complete: removed all tile/card styling from paper content sections to achieve clean webpage-style formatting. Updated `PaperReaderHeader`, `PaperHero`, and `TabHighlights` components to remove rounded borders, backgrounds, and shadows. Content now flows naturally without visual chrome, matching the minimalist "Validate this Research" design pattern.
-
-## Directory Snapshot (2025-02-19)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `homepage-prototype.md`
-- `lib/mock-data.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `reader-header.md`
-  - `single-page-sidebar-refactor.md`
-  - `sidebar-shell-plan.md`
-
-Step 9 complete: documented the authentication modal approach and added the working plan in `tasks/auth-modal.md`.
-## Directory Snapshot (2025-02-19 Update)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-- `lib/mock-data.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `reader-header.md`
-  - `single-page-sidebar-refactor.md`
-  - `sidebar-shell-plan.md`
-
-Step 10 complete: implemented the global authentication modal, wired the provider, and documented the integration triggers.
-
-## Directory Snapshot (2025-02-18)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `globals.css`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-  - `paper/[doi]/experts/page.tsx`
-  - `paper/[doi]/patents/page.tsx`
-  - `paper/[doi]/similar-papers/page.tsx`
-  - `paper/[doi]/theses/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-- `lib/`
-  - `mock-data.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-- `CLAUDE.md`
-
-Step 6 complete: replaced the placeholder auth handlers with Supabase-backed email/password & Google flows, exposed session-aware context helpers, refreshed header/sidebars/dropzone CTAs, and captured the integration notes in `docs/auth-modal.md` and `tasks/supabase-auth.md`.
-
-## Directory Snapshot (2025-02-20)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `globals.css`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-  - `paper/[doi]/experts/page.tsx`
-  - `paper/[doi]/patents/page.tsx`
-  - `paper/[doi]/similar-papers/page.tsx`
-  - `paper/[doi]/theses/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-- `lib/`
-  - `mock-data.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
+  - `pdf-viewer-full-width.md`
   - `reader-header.md`
   - `sidebar-debug.md`
   - `sidebar-library.md`
@@ -601,989 +257,5 @@ Step 6 complete: replaced the placeholder auth handlers with Supabase-backed ema
   - `single-page-sidebar-refactor.md`
   - `supabase-auth.md`
   - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-- `CLAUDE.md`
 
-Step 11 started: captured the sidebar library plan in `tasks/sidebar-library.md`.
-
-## Directory Snapshot (2025-02-20 Upload Workflow)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `globals.css`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-  - `paper/[doi]/experts/page.tsx`
-  - `paper/[doi]/patents/page.tsx`
-  - `paper/[doi]/similar-papers/page.tsx`
-  - `paper/[doi]/theses/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-- `lib/`
-  - `mock-data.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-- `CLAUDE.md`
-
-Step 11a complete: wired the upload workflow to capture PDFs, persist object URLs, and hand callbacks into the dropzone.
-
-## Directory Snapshot (2025-02-20 Library Sidebar)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `globals.css`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-  - `paper/[doi]/experts/page.tsx`
-  - `paper/[doi]/patents/page.tsx`
-  - `paper/[doi]/similar-papers/page.tsx`
-  - `paper/[doi]/theses/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-- `lib/`
-  - `mock-data.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-- `CLAUDE.md`
-
-Step 11b complete: replaced the auth-focused sidebar with a clean library list that highlights and selects uploaded papers.
-
-## Directory Snapshot (2025-02-20 Paper Preview)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `globals.css`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-  - `paper/[doi]/experts/page.tsx`
-  - `paper/[doi]/patents/page.tsx`
-  - `paper/[doi]/similar-papers/page.tsx`
-  - `paper/[doi]/theses/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-- `lib/`
-  - `mock-data.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-- `CLAUDE.md`
-
-Step 11c complete: rendering the active paper inline with a lightweight PDF viewer, providing a compact re-upload dropzone, and updating the task tracker/documentation.
-
-## Directory Snapshot (2025-02-20 Auth Controls)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `globals.css`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-  - `paper/[doi]/experts/page.tsx`
-  - `paper/[doi]/patents/page.tsx`
-  - `paper/[doi]/similar-papers/page.tsx`
-  - `paper/[doi]/theses/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-- `lib/`
-  - `mock-data.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-- `CLAUDE.md`
-
-Step 11d complete: restored the auth button with icon-only collapse behavior and added a book glyph to the compact library header.
-
-## Directory Snapshot (2025-02-20 Sidebar Upload Control)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `globals.css`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-  - `paper/[doi]/experts/page.tsx`
-  - `paper/[doi]/patents/page.tsx`
-  - `paper/[doi]/similar-papers/page.tsx`
-  - `paper/[doi]/theses/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-- `lib/`
-  - `mock-data.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `pdf-upload-sidebar-button.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-- `CLAUDE.md`
-
-Step 11e complete: moved the follow-up upload control into the sidebar, replaced the card with a full-width reader, and noted the changes in `tasks/pdf-upload-sidebar-button.md`.
-
-## Directory Snapshot (2025-02-20 PDF DOI Persistence Plan)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `globals.css`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-  - `paper/[doi]/experts/page.tsx`
-  - `paper/[doi]/patents/page.tsx`
-  - `paper/[doi]/similar-papers/page.tsx`
-  - `paper/[doi]/theses/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-- `lib/`
-  - `mock-data.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `pdf-upload-sidebar-button.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-  - `pdf-doi-persistence.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-- `CLAUDE.md`
-
-Step 12a complete: drafted the PDF DOI persistence plan in `tasks/pdf-doi-persistence.md`.
-
-## Directory Snapshot (2025-02-20 PDF DOI Persistence Implementation)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `globals.css`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-  - `paper/[doi]/experts/page.tsx`
-  - `paper/[doi]/patents/page.tsx`
-  - `paper/[doi]/similar-papers/page.tsx`
-  - `paper/[doi]/theses/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-  - `pdf-doi-persistence.md`
-  - `supabase.md`
-- `lib/`
-  - `mock-data.ts`
-  - `pdf-doi.ts`
-  - `supabase-browser.ts`
-  - `user-papers.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `pdf-upload-sidebar-button.md`
-  - `pdf-doi-persistence.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-- `CLAUDE.md`
-
-Step 12b complete: implemented DOI extraction, Supabase uploads, and library hydration; documented the flow in `docs/pdf-doi-persistence.md` and updated `tasks/pdf-doi-persistence.md`.
-
-## Directory Snapshot (2025-02-20 Supabase Policies)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `globals.css`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-  - `paper/[doi]/experts/page.tsx`
-  - `paper/[doi]/patents/page.tsx`
-  - `paper/[doi]/similar-papers/page.tsx`
-  - `paper/[doi]/theses/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-  - `pdf-doi-persistence.md`
-  - `supabase.md`
-- `lib/`
-  - `mock-data.ts`
-  - `pdf-doi.ts`
-  - `supabase-browser.ts`
-  - `user-papers.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `pdf-upload-sidebar-button.md`
-  - `pdf-doi-persistence.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-- `CLAUDE.md`
-
-Step 12c complete: captured Supabase bucket/table policies in `docs/supabase.md` and linked the reference in `agents.md`.
-
-## Directory Snapshot (2025-02-18)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `homepage-app.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-  - `pdf-doi-persistence.md`
-  - `supabase.md`
-- `lib/`
-  - `mock-data.ts`
-  - `pdf-doi.ts`
-  - `supabase-browser.ts`
-  - `user-papers.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `pdf-doi-extraction-fix.md`
-  - `pdf-upload-sidebar-button.md`
-  - `pdf-doi-persistence.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `CLAUDE.md`
-- `TODO.txt`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `public/`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-
-Step 13a complete: logged the DOI extraction remediation plan in `tasks/pdf-doi-extraction-fix.md`.
-
-## Directory Snapshot (2025-02-18, Step 13b)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-  - `pdf-doi-extraction-fix.md`
-  - `pdf-doi-persistence.md`
-  - `supabase.md`
-- `lib/`
-  - `mock-data.ts`
-  - `pdf-doi.ts`
-  - `supabase-browser.ts`
-  - `user-papers.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `pdf-doi-extraction-fix.md`
-  - `pdf-upload-sidebar-button.md`
-  - `pdf-doi-persistence.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `CLAUDE.md`
-- `TODO.txt`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `public/`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-
-Step 13b complete: drafted the lightweight DOI extraction proposal in `docs/pdf-doi-extraction-fix.md` for review.
-
-## Directory Snapshot (2025-02-18, Step 13c)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-  - `pdf-doi-extraction-fix.md`
-  - `pdf-doi-persistence.md`
-  - `supabase.md`
-- `lib/`
-  - `mock-data.ts`
-  - `pdf-doi.ts`
-  - `supabase-browser.ts`
-  - `user-papers.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `pdf-doi-extraction-fix.md`
-  - `pdf-upload-sidebar-button.md`
-  - `pdf-doi-persistence.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `.eslintrc.json`
-- `.gitignore`
-- `CLAUDE.md`
-- `TODO.txt`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `public/`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-
-Step 13c complete: swapped `lib/pdf-doi.ts` to the TextDecoder-based DOI scan and noted the change in `docs/pdf-doi-extraction-fix.md`.
-
-Step 14a complete: extracted titles alongside DOIs, threaded them through persistence, and updated the sidebar fallbacks.
-
-## Directory Snapshot (2025-02-18, Step 14a)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-  - `pdf-doi-extraction-fix.md`
-  - `pdf-doi-persistence.md`
-  - `pdf-title-extraction.md`
-  - `supabase.md`
-- `lib/`
-  - `mock-data.ts`
-  - `pdf-doi.ts`
-  - `supabase-browser.ts`
-  - `user-papers.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `pdf-doi-extraction-fix.md`
-  - `pdf-doi-persistence.md`
-  - `pdf-title-link.md`
-  - `pdf-upload-sidebar-button.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `CLAUDE.md`
-- `TODO.txt`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `public/`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-
-Step 14b complete: tweaked the library selection state so highlighted rows keep their titles visible.
-
-## Directory Snapshot (2025-02-18, Step 14b)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-  - `pdf-doi-extraction-fix.md`
-  - `pdf-doi-persistence.md`
-  - `pdf-title-extraction.md`
-  - `supabase.md`
-- `lib/`
-  - `mock-data.ts`
-  - `pdf-doi.ts`
-  - `supabase-browser.ts`
-  - `user-papers.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `pdf-doi-extraction-fix.md`
-  - `pdf-doi-persistence.md`
-  - `pdf-title-link.md`
-  - `pdf-upload-sidebar-button.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `CLAUDE.md`
-- `TODO.txt`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `public/`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
-
-Step 14c complete: rolled back PDF title extraction heuristics and restored filename-based labels per customer feedback.
-
-## Directory Snapshot (2025-02-18, Step 14c)
-- `app/`
-  - `(marketing)/page.tsx`
-  - `layout.tsx`
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-- `components/`
-  - `annotation-sidebar.tsx`
-  - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
-  - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
-  - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
-  - `upload-dropzone.tsx`
-- `docs/`
-  - `auth-modal.md`
-  - `homepage-prototype.md`
-  - `pdf-doi-extraction-fix.md`
-  - `pdf-doi-persistence.md`
-  - `pdf-title-extraction.md`
-  - `supabase.md`
-- `lib/`
-  - `mock-data.ts`
-  - `pdf-doi.ts`
-  - `supabase-browser.ts`
-  - `user-papers.ts`
-- `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `pdf-doi-extraction-fix.md`
-  - `pdf-doi-persistence.md`
-  - `pdf-title-link.md`
-  - `pdf-upload-sidebar-button.md`
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
-- `CLAUDE.md`
-- `TODO.txt`
-- `agents.md`
-- `next-env.d.ts`
-- `next.config.mjs`
-- `package-lock.json`
-- `package.json`
-- `postcss.config.mjs`
-- `public/`
-- `tailwind.config.ts`
-- `tsconfig.json`
-- `tsconfig.tsbuildinfo`
-- `web_archetecture.md`
+**If you're not slightly embarrassed by your v0.1, you waited too long to ship.**
