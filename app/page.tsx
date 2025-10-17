@@ -3,11 +3,10 @@
 import { useEffect, useState } from "react";
 
 import { AppSidebar } from "@/components/app-sidebar";
-import { PaperHero } from "@/components/paper-hero";
 import { PaperTabNav } from "@/components/paper-tab-nav";
 import { TabHighlights } from "@/components/tab-highlights";
 import { UploadDropzone } from "@/components/upload-dropzone";
-import { PaperDetail, ReaderTabKey, TabHighlightItem, samplePaper } from "@/lib/mock-data";
+import { ReaderTabKey, TabHighlightItem, samplePaper } from "@/lib/mock-data";
 
 const tabCopy: Record<Exclude<ReaderTabKey, "paper">, { heading: string; description: string; empty: string }> = {
   similarPapers: {
@@ -32,13 +31,8 @@ const tabCopy: Record<Exclude<ReaderTabKey, "paper">, { heading: string; descrip
   }
 };
 
-function PaperTabContent({ paper }: { paper: PaperDetail }) {
-  return (
-    <div className="space-y-8">
-      <UploadDropzone />
-      <PaperHero paper={paper} />
-    </div>
-  );
+function PaperTabContent() {
+  return <UploadDropzone />;
 }
 
 function HighlightsTabContent({
@@ -77,7 +71,7 @@ export default function LandingPage() {
 
   const renderActiveTab = () => {
     if (activeTab === "paper") {
-      return <PaperTabContent paper={paper} />;
+      return <PaperTabContent />;
     }
 
     const tabKey = activeTab as Exclude<ReaderTabKey, "paper">;

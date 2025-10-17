@@ -27,7 +27,6 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
         {!collapsed && (
           <div>
             <p className="text-base font-semibold">Evidentia</p>
-            <p className="text-xs text-slate-500">Interactive papers</p>
           </div>
         )}
       </div>
@@ -41,7 +40,7 @@ export function AppSidebar({ collapsed, onToggle }: AppSidebarProps) {
         <span className={collapsed ? "sr-only" : ""}>Sign in</span>
         {collapsed && (
           <span aria-hidden="true" className="text-base">
-            ↗
+            👤
           </span>
         )}
       </button>
