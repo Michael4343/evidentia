@@ -140,6 +140,7 @@ npm run lint     # Check code quality (run only when asked by the user)
 - API documentation if applicable
 - Architecture decisions when relevant
 - Deployment instructions
+- Supabase persistence details live in `docs/supabase.md` (bucket/table schemas and policies)
 
 ## Remember
 **Good code ships and works.** Start simple, iterate based on real needs, and maintain code quality without over-engineering. The best solution is often the simplest one that solves the problem.

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type ChangeEvent } from "react";
+import Image from "next/image";
 
 import { useAuthModal } from "@/components/auth-modal-provider";
 
@@ -9,6 +10,7 @@ interface SidebarPaperItem {
   name: string;
   fileName: string;
   uploadedAt: Date;
+  doi?: string | null;
 }
 
 interface AppSidebarProps {
@@ -17,6 +19,8 @@ interface AppSidebarProps {
   papers: SidebarPaperItem[];
   activePaperId: string | null;
   onSelectPaper: (paperId: string) => void;
+  onUpload?: (file: File) => void;
+  isLoading?: boolean;
 }
 
 export function AppSidebar({
@@ -24,13 +28,16 @@ export function AppSidebar({
   onToggle,
   papers,
   activePaperId,
-  onSelectPaper
+  onSelectPaper,
+  onUpload,
+  isLoading = false
 }: AppSidebarProps) {
   const isCollapsed = collapsed;
   const activeId = activePaperId;
   const hasPapers = papers.length > 0;
   const { open, user, signOut, isAuthReady } = useAuthModal();
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleAuthClick = async () => {
     if (user) {
@@ -50,24 +57,46 @@ export function AppSidebar({
     open("login");
   };
 
+  const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    void onUpload?.(file);
+    event.target.value = "";
+  };
+
+  const handleAddPaperClick = () => {
+    if (!onUpload) {
+      return;
+    }
+    fileInputRef.current?.click();
+  };
+
   return (
     <aside
-      className={`relative flex min-h-screen flex-col border-r border-slate-200 bg-white/95 pb-8 pt-8 shadow-sm transition-all duration-300 ${
+      className={`relative flex min-h-screen flex-col border-r border-slate-200 bg-white/95 pb-4 pt-4 shadow-sm transition-all duration-300 ${
         isCollapsed ? "w-20 px-4" : "w-64 px-6"
       }`}
     >
       <button
         type="button"
         onClick={onToggle}
-        className="absolute -right-3 top-8 inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-base font-semibold text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
+        className="absolute -right-3 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-base font-semibold text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
         aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
       >
         <span aria-hidden="true">{isCollapsed ? "›" : "‹"}</span>
       </button>
       <div className={`flex items-center ${isCollapsed ? "justify-center" : "gap-3"} text-slate-900`}>
-        <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/90 text-sm font-semibold text-primary-foreground shadow-sm">
-          Ev
-        </span>
+        <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full">
+          <Image
+            src="/logo.png"
+            alt="Evidentia logo"
+            width={32}
+            height={32}
+            className="rounded-full object-contain"
+          />
+        </div>
         {!isCollapsed && <p className="text-base font-semibold">Evidentia</p>}
       </div>
 
@@ -77,13 +106,13 @@ export function AppSidebar({
           void handleAuthClick();
         }}
         disabled={user ? isSigningOut : !isAuthReady}
-        className={`mt-8 flex items-center justify-center rounded-full border border-slate-200 text-sm font-semibold text-slate-600 transition hover:border-primary/40 hover:text-slate-900 ${
-          isCollapsed ? "h-10 w-10" : "h-10 w-full px-4"
+        className={`mt-4 flex items-center justify-center rounded-full border border-slate-200 text-sm font-semibold text-slate-600 transition hover:border-primary/40 hover:text-slate-900 ${
+          isCollapsed ? "h-12 w-12" : "h-10 w-full px-4"
         } ${user && isSigningOut ? "opacity-70" : ""}`}
         aria-label={user ? "Sign out" : "Sign in"}
       >
         {isCollapsed ? (
-          <span aria-hidden="true" className="text-base">
+          <span aria-hidden="true" className="text-lg">
             👤
           </span>
         ) : (
@@ -91,32 +120,71 @@ export function AppSidebar({
         )}
       </button>
 
-      <div className="mt-10 flex-1">
-        <p
-          className={`text-[11px] font-semibold uppercase tracking-wide text-slate-400 ${
-            isCollapsed ? "flex items-center justify-center gap-1" : ""
-          } ${isCollapsed ? "text-center" : ""}`}
-        >
-          {isCollapsed ? (
-            <span aria-hidden="true" className="text-base">
-              📚
-            </span>
-          ) : (
-            "Library"
-          )}
-          {isCollapsed && <span className="sr-only">Library</span>}
-        </p>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf,.pdf"
+        className="sr-only"
+        onChange={handleFileInputChange}
+      />
+      <button
+        type="button"
+        onClick={handleAddPaperClick}
+        disabled={!onUpload || isLoading}
+        className={`mt-3 flex items-center justify-center rounded-full border border-dashed border-slate-300 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50 ${
+          isCollapsed ? "h-12 w-12" : "h-12 w-full px-4"
+        }`}
+        aria-label="Add paper"
+      >
+        {isCollapsed ? (
+          <span aria-hidden="true" className="text-lg">
+            +
+          </span>
+        ) : (
+          <span>Add paper</span>
+        )}
+      </button>
+
+      <div className="mt-6 flex-1">
+        {isCollapsed ? (
+          <button
+            type="button"
+            onClick={onToggle}
+            className="mx-auto flex h-12 w-12 items-center justify-center rounded-full border border-slate-200 text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+            aria-label="Open library"
+          >
+            <span aria-hidden="true" className="text-lg">📚</span>
+          </button>
+        ) : (
+          <p className="text-sm font-semibold text-slate-500">
+            Library
+          </p>
+        )}
         <div className={`mt-4 ${isCollapsed ? "space-y-3" : "space-y-2"}`}>
           {hasPapers ? (
             <ul className="space-y-2">
               {papers.map((paper) => {
                 const isActive = paper.id === activeId;
                 const baseClasses = isCollapsed
-                  ? "w-full rounded-2xl border border-transparent bg-white/70 px-0 py-3 text-xs font-medium text-slate-500"
-                  : "w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-left text-sm text-slate-700";
+                  ? "mx-auto h-12 w-12 rounded-full border border-transparent bg-white/70 text-xs font-semibold text-slate-500"
+                  : "w-full rounded-2xl border border-slate-200 bg-white/70 px-4 py-3 text-left text-sm font-semibold text-slate-700";
                 const activeClasses = isActive
-                  ? "border-slate-900 bg-slate-900 text-white shadow-md"
+                  ? isCollapsed
+                    ? "border-slate-900 bg-slate-900 text-white shadow-md"
+                    : "border-slate-900 bg-white text-slate-900 shadow-sm ring-1 ring-slate-900/20"
                   : "hover:border-slate-300 hover:bg-white";
+                const trimmedName = paper.name?.trim() ?? "";
+                const cleanedFileName = (paper.fileName ?? "").replace(/\s+/g, " ").trim();
+                const baseLabel = cleanedFileName.replace(/\.pdf$/i, "");
+                const displayLabel =
+                  trimmedName.length > 0
+                    ? trimmedName
+                    : baseLabel.length > 0
+                      ? baseLabel
+                      : cleanedFileName.length > 0
+                        ? cleanedFileName
+                        : paper.name ?? paper.fileName ?? paper.id;
+                const finalLabel = displayLabel || paper.doi || "Untitled paper";
 
                 return (
                   <li key={paper.id}>
@@ -125,33 +193,28 @@ export function AppSidebar({
                       onClick={() => {
                         onSelectPaper(paper.id);
                       }}
-                      className={`${baseClasses} transition-colors ${activeClasses}`}
+                      className={`${baseClasses} transition-colors ${activeClasses} ${isCollapsed ? "flex items-center justify-center" : ""}`}
                       aria-pressed={isActive}
                     >
                       {isCollapsed ? (
-                        <span className="flex items-center justify-center text-sm font-semibold" aria-hidden="true">
-                          {paper.name.slice(0, 2).toUpperCase()}
+                        <span className="text-sm font-semibold" aria-hidden="true">
+                          {finalLabel.slice(0, 2).toUpperCase()}
                         </span>
                       ) : (
-                        <div className="flex flex-col">
-                          <span className="truncate font-medium">{paper.name}</span>
-                          <span className="truncate text-xs text-slate-400">{paper.fileName}</span>
-                        </div>
+                        <span className="truncate">{finalLabel}</span>
                       )}
-                      <span className="sr-only">Select {paper.fileName}</span>
+                      <span className="sr-only">Select {finalLabel}</span>
                     </button>
                   </li>
                 );
               })}
             </ul>
           ) : (
-            <div
-              className={`rounded-2xl border border-dashed border-slate-200 bg-white/60 px-4 py-6 text-center text-xs text-slate-400 ${
-                isCollapsed ? "px-0" : ""
-              }`}
-            >
-              {isCollapsed ? "No papers" : "No papers yet. Upload a PDF to see it here."}
-            </div>
+            !isCollapsed && (
+              <div className="rounded-2xl border border-dashed border-slate-200 bg-white/60 px-4 py-6 text-center text-xs text-slate-400">
+                {isLoading ? "Loading your papers…" : "No papers yet. Upload a PDF to see it here."}
+              </div>
+            )
           )}
         </div>
       </div>

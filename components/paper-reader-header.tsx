@@ -19,9 +19,9 @@ export function PaperReaderHeader({
   const { title, authors, venue, year, status, abstract } = paper;
 
   return (
-    <header className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-6">
-        <div className="space-y-3">
+    <header className="space-y-2">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
             {venue} · {year}
           </p>

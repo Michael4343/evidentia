@@ -209,6 +209,7 @@ ALWAYS UPDATE CLAUDE.md AT THE END OF EACH STEP WITH THE NEW DIRECTORY STRUCTURE
   - `paper-reader-content.tsx`
   - `paper-reader-shell.tsx`
   - `paper-tab-nav.tsx`
+  - `pdf-viewer.tsx`
   - `pdf-viewer-mock.tsx`
   - `reader-sidebar.tsx`
   - `site-header.tsx`
@@ -282,6 +283,67 @@ Step 3 complete: implemented collapsible sidebar shell and moved reader buttons 
 Step 4 complete: implemented the halo-style horizontal reader tabs and logged the plan in `tasks/halo-tabs.md`.
 
 Step 5 complete: consolidated the reader hero, status, and halo tabs into a single `PaperReaderHeader` and documented the plan in `tasks/reader-header.md`.
+
+## Directory Snapshot (2025-02-18)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `homepage-prototype.md`
+- `lib/`
+  - `mock-data.ts`
+  - `pdf-doi.ts`
+  - `supabase-browser.ts`
+  - `user-papers.ts`
+- `public/`
+  - `logo.png`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `pdf-doi-extraction-fix.md`
+  - `pdf-doi-persistence.md`
+  - `pdf-title-link.md`
+  - `pdf-upload-sidebar-button.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+  - `pdf-viewer-bugfix.md`
+
+Step 6 started: logged PDF viewer bugfix plan in `tasks/pdf-viewer-bugfix.md` and capturing current tree before debugging the inline preview issue.
+
+Step 7 in progress: replaced the inline `<object>` embed with a resilient `PdfViewer` component that fetches private Supabase PDFs when needed.
+
+Step 8 in progress: suppressing the PDF viewer toolbar by appending `toolbar=0` style parameters to the blob URL our reader embeds.
 
 ## Directory Snapshot (2025-02-18)
 - `app/`
@@ -818,3 +880,710 @@ Step 11c complete: rendering the active paper inline with a lightweight PDF view
 - `CLAUDE.md`
 
 Step 11d complete: restored the auth button with icon-only collapse behavior and added a book glyph to the compact library header.
+
+## Directory Snapshot (2025-02-20 Sidebar Upload Control)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `globals.css`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+  - `paper/[doi]/experts/page.tsx`
+  - `paper/[doi]/patents/page.tsx`
+  - `paper/[doi]/similar-papers/page.tsx`
+  - `paper/[doi]/theses/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+- `lib/`
+  - `mock-data.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `pdf-upload-sidebar-button.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+- `CLAUDE.md`
+
+Step 11e complete: moved the follow-up upload control into the sidebar, replaced the card with a full-width reader, and noted the changes in `tasks/pdf-upload-sidebar-button.md`.
+
+## Directory Snapshot (2025-02-20 PDF DOI Persistence Plan)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `globals.css`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+  - `paper/[doi]/experts/page.tsx`
+  - `paper/[doi]/patents/page.tsx`
+  - `paper/[doi]/similar-papers/page.tsx`
+  - `paper/[doi]/theses/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+- `lib/`
+  - `mock-data.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `pdf-upload-sidebar-button.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+  - `pdf-doi-persistence.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+- `CLAUDE.md`
+
+Step 12a complete: drafted the PDF DOI persistence plan in `tasks/pdf-doi-persistence.md`.
+
+## Directory Snapshot (2025-02-20 PDF DOI Persistence Implementation)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `globals.css`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+  - `paper/[doi]/experts/page.tsx`
+  - `paper/[doi]/patents/page.tsx`
+  - `paper/[doi]/similar-papers/page.tsx`
+  - `paper/[doi]/theses/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+  - `pdf-doi-persistence.md`
+  - `supabase.md`
+- `lib/`
+  - `mock-data.ts`
+  - `pdf-doi.ts`
+  - `supabase-browser.ts`
+  - `user-papers.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `pdf-upload-sidebar-button.md`
+  - `pdf-doi-persistence.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+- `CLAUDE.md`
+
+Step 12b complete: implemented DOI extraction, Supabase uploads, and library hydration; documented the flow in `docs/pdf-doi-persistence.md` and updated `tasks/pdf-doi-persistence.md`.
+
+## Directory Snapshot (2025-02-20 Supabase Policies)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `globals.css`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+  - `paper/[doi]/experts/page.tsx`
+  - `paper/[doi]/patents/page.tsx`
+  - `paper/[doi]/similar-papers/page.tsx`
+  - `paper/[doi]/theses/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+  - `pdf-doi-persistence.md`
+  - `supabase.md`
+- `lib/`
+  - `mock-data.ts`
+  - `pdf-doi.ts`
+  - `supabase-browser.ts`
+  - `user-papers.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `pdf-upload-sidebar-button.md`
+  - `pdf-doi-persistence.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+- `CLAUDE.md`
+
+Step 12c complete: captured Supabase bucket/table policies in `docs/supabase.md` and linked the reference in `agents.md`.
+
+## Directory Snapshot (2025-02-18)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `homepage-app.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+  - `pdf-doi-persistence.md`
+  - `supabase.md`
+- `lib/`
+  - `mock-data.ts`
+  - `pdf-doi.ts`
+  - `supabase-browser.ts`
+  - `user-papers.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `pdf-doi-extraction-fix.md`
+  - `pdf-upload-sidebar-button.md`
+  - `pdf-doi-persistence.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `CLAUDE.md`
+- `TODO.txt`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `public/`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+
+Step 13a complete: logged the DOI extraction remediation plan in `tasks/pdf-doi-extraction-fix.md`.
+
+## Directory Snapshot (2025-02-18, Step 13b)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+  - `pdf-doi-extraction-fix.md`
+  - `pdf-doi-persistence.md`
+  - `supabase.md`
+- `lib/`
+  - `mock-data.ts`
+  - `pdf-doi.ts`
+  - `supabase-browser.ts`
+  - `user-papers.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `pdf-doi-extraction-fix.md`
+  - `pdf-upload-sidebar-button.md`
+  - `pdf-doi-persistence.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `CLAUDE.md`
+- `TODO.txt`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `public/`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+
+Step 13b complete: drafted the lightweight DOI extraction proposal in `docs/pdf-doi-extraction-fix.md` for review.
+
+## Directory Snapshot (2025-02-18, Step 13c)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+  - `pdf-doi-extraction-fix.md`
+  - `pdf-doi-persistence.md`
+  - `supabase.md`
+- `lib/`
+  - `mock-data.ts`
+  - `pdf-doi.ts`
+  - `supabase-browser.ts`
+  - `user-papers.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `pdf-doi-extraction-fix.md`
+  - `pdf-upload-sidebar-button.md`
+  - `pdf-doi-persistence.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `CLAUDE.md`
+- `TODO.txt`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `public/`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+
+Step 13c complete: swapped `lib/pdf-doi.ts` to the TextDecoder-based DOI scan and noted the change in `docs/pdf-doi-extraction-fix.md`.
+
+Step 14a complete: extracted titles alongside DOIs, threaded them through persistence, and updated the sidebar fallbacks.
+
+## Directory Snapshot (2025-02-18, Step 14a)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+  - `pdf-doi-extraction-fix.md`
+  - `pdf-doi-persistence.md`
+  - `pdf-title-extraction.md`
+  - `supabase.md`
+- `lib/`
+  - `mock-data.ts`
+  - `pdf-doi.ts`
+  - `supabase-browser.ts`
+  - `user-papers.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `pdf-doi-extraction-fix.md`
+  - `pdf-doi-persistence.md`
+  - `pdf-title-link.md`
+  - `pdf-upload-sidebar-button.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `CLAUDE.md`
+- `TODO.txt`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `public/`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+
+Step 14b complete: tweaked the library selection state so highlighted rows keep their titles visible.
+
+## Directory Snapshot (2025-02-18, Step 14b)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+  - `pdf-doi-extraction-fix.md`
+  - `pdf-doi-persistence.md`
+  - `pdf-title-extraction.md`
+  - `supabase.md`
+- `lib/`
+  - `mock-data.ts`
+  - `pdf-doi.ts`
+  - `supabase-browser.ts`
+  - `user-papers.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `pdf-doi-extraction-fix.md`
+  - `pdf-doi-persistence.md`
+  - `pdf-title-link.md`
+  - `pdf-upload-sidebar-button.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `CLAUDE.md`
+- `TODO.txt`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `public/`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+
+Step 14c complete: rolled back PDF title extraction heuristics and restored filename-based labels per customer feedback.
+
+## Directory Snapshot (2025-02-18, Step 14c)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+  - `pdf-doi-extraction-fix.md`
+  - `pdf-doi-persistence.md`
+  - `pdf-title-extraction.md`
+  - `supabase.md`
+- `lib/`
+  - `mock-data.ts`
+  - `pdf-doi.ts`
+  - `supabase-browser.ts`
+  - `user-papers.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `pdf-doi-extraction-fix.md`
+  - `pdf-doi-persistence.md`
+  - `pdf-title-link.md`
+  - `pdf-upload-sidebar-button.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-library.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `CLAUDE.md`
+- `TODO.txt`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `public/`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`

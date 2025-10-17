@@ -2,9 +2,10 @@
 
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
-import { createClient, type Session, type SupabaseClient, type User } from "@supabase/supabase-js";
+import { type Session, type SupabaseClient, type User } from "@supabase/supabase-js";
 
 import { AuthModal, type AuthMode } from "@/components/auth-modal";
+import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 
 interface EmailAuthResult {
   requiresEmailConfirmation?: boolean;
@@ -28,28 +29,6 @@ interface AuthModalProviderProps {
   children: ReactNode;
 }
 
-let cachedSupabaseClient: SupabaseClient | null = null;
-let warnedAboutConfig = false;
-
-function getSupabaseClient(): SupabaseClient | null {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseAnonKey) {
-    if (!warnedAboutConfig) {
-      console.error("Supabase environment variables are not configured. Authentication is disabled.");
-      warnedAboutConfig = true;
-    }
-    return null;
-  }
-
-  if (!cachedSupabaseClient) {
-    cachedSupabaseClient = createClient(supabaseUrl, supabaseAnonKey);
-  }
-
-  return cachedSupabaseClient;
-}
-
 export function AuthModalProvider({ children }: AuthModalProviderProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [mode, setMode] = useState<AuthMode>("login");
@@ -57,7 +36,7 @@ export function AuthModalProvider({ children }: AuthModalProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
 
-  const supabase = useMemo(() => getSupabaseClient(), []);
+  const supabase = useMemo<SupabaseClient | null>(() => getSupabaseBrowserClient(), []);
 
   useEffect(() => {
     if (!supabase) {

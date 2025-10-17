@@ -29,7 +29,7 @@ export function UploadDropzone({
       console.warn("Only PDF uploads are supported right now.");
       return;
     }
-    onUpload?.(file);
+    void onUpload?.(file);
   };
 
   const isCompact = variant === "compact";
@@ -48,7 +48,7 @@ export function UploadDropzone({
       className={`w-full ${
         isCompact
           ? "flex flex-col items-center justify-center gap-4 text-center"
-          : "mx-auto flex min-h-[60vh] max-w-3xl flex-col items-center justify-center gap-6 text-center"
+          : "mx-auto flex min-h-[40vh] max-w-3xl flex-col items-center justify-center gap-4 text-center"
       }`}
     >
       {!isCompact && (
@@ -93,7 +93,7 @@ export function UploadDropzone({
           handleFiles(event.dataTransfer?.files ?? null);
         }}
         className={`flex w-full max-w-xl flex-col items-center justify-center gap-4 rounded-3xl border-2 border-dashed bg-white/70 ${
-          isCompact ? "px-6 py-8" : "p-10"
+          isCompact ? "px-6 py-8" : "p-6"
         } text-center transition-colors ${
           isDragging ? "border-primary/60 bg-white" : "border-slate-200 hover:border-primary/60 hover:bg-white"
         }`}

@@ -9,13 +9,13 @@ interface TabHighlightsProps {
 
 export function TabHighlights({ heading, description, items, emptyMessage }: TabHighlightsProps) {
   return (
-    <section className="space-y-6">
+    <section className="space-y-4">
       <header className="space-y-2">
         <h2 className="text-lg font-semibold text-slate-900">{heading}</h2>
         <p className="text-sm text-slate-500">{description}</p>
       </header>
       {items.length ? (
-        <ul className="space-y-6">
+        <ul className="space-y-4">
           {items.map((item) => (
             <li key={item.title} className="space-y-2">
               <p className="text-sm font-semibold text-slate-900">{item.title}</p>
