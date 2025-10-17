@@ -218,4 +218,32 @@ ALWAYS UPDATE CLAUDE.md AT THE END OF EACH STEP WITH THE NEW DIRECTORY STRUCTURE
 - `tasks/`
   - `single-page-sidebar-refactor.md`
 
+## Directory Snapshot (2025-02-16)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `homepage-prototype.md`
+- `lib/mock-data.ts`
+- `tasks/`
+  - `single-page-sidebar-refactor.md`
+  - `sidebar-shell-plan.md`
+
 Step 1 complete: audited navigation-related components and noted reuse candidates for the unified SPA shell.
+
+Step 2 complete: drafted collapsible sidebar plan with main-page tab strip for review.

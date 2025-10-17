@@ -246,4 +246,6 @@ ALWAYS UPDATE CLAUDE.md AT THE END OF EACH STEP WITH THE NEW DIRECTORY STRUCTURE
 
 Step 1 complete: audited navigation-related components and noted reuse candidates for the unified SPA shell.
 
-Step 2 complete: drafted sidebar shell plan for review.
+Step 2 complete: drafted collapsible sidebar plan with main-page tab strip for review.
+
+Step 3 complete: implemented collapsible sidebar shell and moved reader buttons into main content header.

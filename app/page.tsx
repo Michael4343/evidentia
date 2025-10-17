@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { PaperHero } from "@/components/paper-hero";
@@ -31,14 +31,6 @@ const tabCopy: Record<Exclude<ReaderTabKey, "paper">, { heading: string; descrip
     empty: "Expert recommendations will unlock once the network is live."
   }
 };
-
-const tabOptions: Array<{ key: ReaderTabKey; label: string }> = [
-  { key: "paper", label: "Paper" },
-  { key: "similarPapers", label: "Similar Papers" },
-  { key: "patents", label: "Patents" },
-  { key: "theses", label: "PhD Theses" },
-  { key: "experts", label: "Expert Network" }
-];
 
 function PaperTabContent({ paper }: { paper: PaperDetail }) {
   return (
@@ -72,9 +64,16 @@ function HighlightsTabContent({
 
 export default function LandingPage() {
   const [activeTab, setActiveTab] = useState<ReaderTabKey>("paper");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const paper = samplePaper;
   const tabHighlightsByKey = paper.tabHighlights ?? {};
-  const tabSummaries = paper.tabSummaries ?? {};
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia("(max-width: 1023px)");
+    if (mediaQuery.matches) {
+      setSidebarCollapsed(true);
+    }
+  }, []);
 
   const renderActiveTab = () => {
     if (activeTab === "paper") {
@@ -88,24 +87,18 @@ export default function LandingPage() {
 
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-100 text-slate-900">
-      <AppSidebar activeTab={activeTab} onTabChange={setActiveTab} tabSummaries={tabSummaries} />
+      <AppSidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed((prev) => !prev)}
+      />
       <div className="flex flex-1 flex-col">
-        <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/80 px-4 py-4 backdrop-blur lg:hidden">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-2xl bg-primary/90 text-sm font-semibold text-primary-foreground shadow-sm">
-                Ev
-              </span>
-              <span className="text-base font-semibold">Evidentia</span>
-            </div>
-            <button className="rounded-full border border-slate-200 px-3 py-1 text-sm font-medium text-slate-600 transition hover:border-primary/40 hover:text-slate-900">
-              Sign in
-            </button>
+        <main className="flex-1 overflow-y-auto">
+          <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 px-4 py-5 backdrop-blur sm:px-6 lg:px-10">
+            <PaperTabNav activeTab={activeTab} onTabChange={setActiveTab} variant="horizontal" />
           </div>
-          <PaperTabNav activeTab={activeTab} onTabChange={setActiveTab} variant="horizontal" />
-        </header>
-        <main className="flex-1 overflow-y-auto px-4 pb-16 pt-8 sm:px-6 lg:px-10">
-          {renderActiveTab()}
+          <div className="px-4 pb-16 pt-8 sm:px-6 lg:px-10">
+            {renderActiveTab()}
+          </div>
         </main>
         <footer className="border-t border-slate-200 bg-white/80 px-4 py-6 text-sm text-slate-500 sm:px-6 lg:px-10">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">

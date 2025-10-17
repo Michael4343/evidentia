@@ -67,34 +67,34 @@ export const processingStages = [
 const tabHighlightDefaults: Record<Exclude<ReaderTabKey, "paper">, TabHighlightItem[]> = {
   similarPapers: [
     {
-      title: "Open-source reproducibility checks",
-      description: "Gathering preprints that replicated the core architecture within the past 6 months."
+      title: "Related research paper",
+      description: "Description of how this paper connects to and builds upon existing research."
     },
     {
-      title: "Benchmark deltas",
-      description: "Comparing datasets, metrics, and compute budgets side-by-side with peers."
+      title: "Comparative study",
+      description: "Summary of research that uses similar methods or addresses related questions."
     }
   ],
   patents: [
     {
-      title: "Transformer distillation pipeline",
-      description: "US-2025-11832 outlines a similar compression approach for edge inference."
+      title: "Related patent application",
+      description: "Description of patent that references similar methods or applications."
     }
   ],
   theses: [
     {
-      title: "Contrastive vision pre-training",
-      description: "Doctoral work exploring sample efficiency under limited compute."
+      title: "Relevant doctoral research",
+      description: "Summary of thesis work exploring related topics or methodologies."
     }
   ],
   experts: [
     {
-      title: "Dr. Lina Cheng",
-      description: "Has audited 12 transformer-based pipelines across industry deployments."
+      title: "Expert Researcher",
+      description: "Description of relevant expertise and experience in this research area."
     },
     {
-      title: "Prof. Adewale Ige",
-      description: "Focuses on responsible AI verification practices for research teams."
+      title: "Domain Specialist",
+      description: "Overview of the specialist's background and verification experience."
     }
   ]
 };
@@ -102,17 +102,17 @@ const tabHighlightDefaults: Record<Exclude<ReaderTabKey, "paper">, TabHighlightI
 export const mockPaperDetails: PaperDetail[] = [
   {
     id: "paper-1",
-    slug: "self-supervised-vision-transformers",
-    title: "Self-Supervised Vision Transformers",
-    doi: "10.48550/arXiv.2403.01234",
-    owner: "Evidentia Labs",
-    uploadedAt: "3h ago",
-    venue: "arXiv",
+    slug: "sample-research-paper",
+    title: "Sample Research Paper Title",
+    doi: "10.1234/sample.doi.12345",
+    owner: "Research Lab",
+    uploadedAt: "Recently",
+    venue: "Conference",
     year: 2025,
     status: "Ready",
-    authors: ["Linnea Ortega", "Jamal Khatri", "Priya Nair"],
+    authors: ["Author One", "Author Two", "Author Three"],
     abstract:
-      "Vision transformers can learn robust representations via masked token prediction and contrastive distillation. The reader prototype surfaces the abstract for unauthenticated readers and gates the full PDF interactions behind sign-in.",
+      "This is a placeholder abstract that describes the research methodology, key findings, and contributions. The actual abstract content will be extracted from uploaded papers.",
     tabSummaries: {
       similarPapers: "+4",
       patents: "+1",
@@ -123,14 +123,14 @@ export const mockPaperDetails: PaperDetail[] = [
       {
         id: "c1",
         author: "You",
-        text: "Flag the ablation on page 5 for verification once the expert network is live.",
+        text: "Sample annotation comment about a specific section or claim.",
         page: 5,
         timestamp: "Just now"
       },
       {
         id: "c2",
-        author: "Hannah Lee",
-        text: "Add context about dataset licensing before sharing externally.",
+        author: "Collaborator",
+        text: "Example note from a team member about methodology or results.",
         page: 9,
         timestamp: "5m ago"
       }
@@ -144,17 +144,17 @@ export const mockPaperDetails: PaperDetail[] = [
   },
   {
     id: "paper-2",
-    slug: "causal-eval-toolkit",
-    title: "Causal Eval Toolkit for Generative Models",
-    doi: "10.1145/1234567.890123",
-    owner: "Verification Lab",
+    slug: "another-sample-paper",
+    title: "Another Sample Research Paper",
+    doi: "10.1145/sample.67890",
+    owner: "Research Lab",
     uploadedAt: "1d ago",
-    venue: "NeurIPS",
+    venue: "Journal",
     year: 2024,
     status: "Processing",
-    authors: ["Marcus Bell", "Sofia Mehta"],
+    authors: ["Author A", "Author B"],
     abstract:
-      "A lightweight evaluation harness that scores generative model claims using causal interventions and dataset provenance checks.",
+      "This placeholder represents a paper currently being processed. The abstract and metadata will be populated once analysis is complete.",
     tabSummaries: {
       similarPapers: "+6",
       patents: "Pending",
@@ -164,8 +164,8 @@ export const mockPaperDetails: PaperDetail[] = [
     comments: [
       {
         id: "c3",
-        author: "Marcus Bell",
-        text: "Need to double-check the causal graph assumptions before sharing with partners.",
+        author: "Team Member",
+        text: "Sample comment noting areas that need review or verification.",
         page: 3,
         timestamp: "1h ago"
       }
@@ -173,31 +173,31 @@ export const mockPaperDetails: PaperDetail[] = [
     tabHighlights: {
       similarPapers: [
         {
-          title: "Intervention-based benchmarks",
-          description: "Compares claim verification pipelines that run intervention sets on synthetic data."
+          title: "Related research example",
+          description: "Description of how similar papers connect to this research topic."
         }
       ],
       experts: [
         {
-          title: "Dr. Helena Ortiz",
-          description: "Leads the reproducibility task force for causal ML tooling."
+          title: "Expert Name",
+          description: "Brief description of the expert's relevant experience and expertise."
         }
       ]
     }
   },
   {
     id: "paper-3",
-    slug: "graph-agents-retrieval",
-    title: "Graph Agents for Retrieval-Augmented Verification",
-    doi: "10.1109/TKDE.2025.1234567",
-    owner: "GraphLab",
+    slug: "third-sample-paper",
+    title: "Third Sample Research Paper",
+    doi: "10.1109/sample.2025.123",
+    owner: "Research Lab",
     uploadedAt: "5d ago",
-    venue: "IEEE TKDE",
+    venue: "Journal",
     year: 2025,
     status: "Ready",
-    authors: ["Allegra Sun", "Peter Holm", "Ravi Desai"],
+    authors: ["Author X", "Author Y", "Author Z"],
     abstract:
-      "Agents coordinate over a knowledge graph to resolve conflicting evidence when validating research claims across multiple corpora.",
+      "Placeholder abstract describing the research problem, methodology, and key contributions. Actual content will be extracted from uploaded documents.",
     tabSummaries: {
       similarPapers: "+3",
       patents: "+2",
@@ -207,15 +207,15 @@ export const mockPaperDetails: PaperDetail[] = [
     comments: [
       {
         id: "c4",
-        author: "Peter Holm",
-        text: "Surface the graph traversal animation in the next demo build.",
+        author: "Team Member",
+        text: "Sample comment about a specific section or finding.",
         page: 7,
         timestamp: "2d ago"
       },
       {
         id: "c5",
-        author: "Verification Bot",
-        text: "Queued verification of theorem 2.1 with external reviewers.",
+        author: "Reviewer",
+        text: "Example note from a reviewer or collaborator.",
         page: 12,
         timestamp: "3d ago"
       }
@@ -223,14 +223,14 @@ export const mockPaperDetails: PaperDetail[] = [
     tabHighlights: {
       patents: [
         {
-          title: "Knowledge graph dispute resolver",
-          description: "Patent application WO/2025/019876 cites a similar reasoning pipeline."
+          title: "Related patent example",
+          description: "Description of how patent applications connect to this research."
         }
       ],
       theses: [
         {
-          title: "Collaborative graph search",
-          description: "Thesis outlines distributed graph traversal for fact checking."
+          title: "Related thesis work",
+          description: "Summary of how doctoral research explores similar topics."
         }
       ]
     }

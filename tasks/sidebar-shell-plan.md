@@ -1,54 +1,52 @@
-# Sidebar Shell Implementation Plan (v0.1)
+# Sidebar Shell Implementation Plan (v0.3)
 
 ## Goal
-Design a compact, collapsible left sidebar that absorbs the current header content ("Evidentia" brand and primary sign-in call-to-action) while keeping the five reader tabs as the primary navigation for the second-column content area.
+Deliver a calm, minimal left sidebar that carries the brand + auth entry while a collapsible toggle keeps the column unobtrusive, and the five reader buttons live in the main page header for clarity.
 
 ## User Requirements
-- Sidebar hosts the Evidentia brand mark at the very top and a prominent "Sign In" entry directly beneath it.
-- A small toggle affordance lets users collapse the sidebar to an icon-only rail; the main content remains visible on the right.
-- The five reader tabs (Paper, Similar Papers, Patents, PhD Theses, Expert Network) continue to control the main page content.
-- Layout stays minimal and elegant—white background, light borders, subtle depth.
-- No new routes or server processes; changes live within the existing single-page experience.
+- Sidebar shows the Evidentia wordmark at the top with a gentle supporting tagline.
+- A single primary `Sign In` button sits immediately beneath the brand block.
+- A slim toggle affordance keeps the sidebar collapsible; when collapsed, only the icon mark and toggle remain visible.
+- The five reader buttons (Paper, Similar Papers, Patents, PhD Theses, Expert Network) render in the main content column, likely as a horizontal strip beneath the top padding.
+- Layout keeps a simple, elegant feel with white backgrounds, light borders, and minimal chrome.
 
 ## Proposed Layout Structure
 1. **Shell Container**
-   - Two-column flex layout: sidebar (fixed width, collapsible) + main content (flex-1).
-   - Maintain sticky behaviour for the sidebar so navigation stays anchored on scroll.
+   - Two-column flex: sidebar at ~240px when expanded, ~72px when collapsed; content column flex-1.
+   - Soft divider using a 1px slate border; subtle shadow only on hover/open if needed.
 2. **Sidebar Content Stack**
-   - Brand row with mark + "Evidentia" text; collapse state shows only the mark.
-   - "Sign In" button directly below the brand row.
-   - Navigation list for the five tabs with active styling carried over.
-   - Optional footer space reserved for future actions (e.g., upload, settings).
-3. **Toggle Control**
-   - Floating button aligned to the sidebar edge (visible on desktop) that toggles between expanded (show text labels) and collapsed (icons/initials only).
-   - On mobile, reuse the existing top bar pattern but respect the collapsed state when the sidebar is visible.
+   - Brand block: small circular "Ev" badge, `Evidentia` wordmark, optional `Interactive papers` caption in muted text.
+   - `Sign In` button styled as a light ghost or outline pill to keep the feel airy.
+   - Toggle button pinned near the outer edge (top-right or mid-height) to collapse/expand the column.
+   - Sidebar intentionally omits the reader buttons once they move to the main page; reserve lower space for future secondary actions if needed.
+3. **Main Content Alignment**
+   - Introduce a main-column header strip that houses the five reader buttons; align it with existing spacing so the page still feels single-surface.
+   - Remove the redundant desktop header; keep current mobile top bar until a dedicated mobile treatment is designed.
 
 ## Implementation Steps
-1. **Refactor Layout Wiring**
-   - Update `app/page.tsx` to source layout state (active tab, sidebar collapsed) and pass the new props to `AppSidebar`.
-   - Remove the redundant mobile header brand/sign in block if the sidebar covers that role.
-2. **Enhance `AppSidebar` Component**
-   - Introduce a `collapsed` prop and internal class toggles for width, text visibility, and spacing.
-   - Restructure the markup: brand row → sign-in button → nav stacked list; ensure accessible labels remain when collapsed (e.g., `aria-label`).
-   - Add the toggle button inside the sidebar (top-right) with an icon that flips depending on state.
-3. **Style Polish & Motion**
-   - Tailwind classes for smooth width/opacity transitions, subtle border shadow, consistent padding.
-   - Ensure focus states are legible in both expanded and collapsed modes.
-4. **Responsive Behaviour**
-   - Preserve an overlay mobile menu for sub-`lg` breakpoints (either via sheet or existing approach) so users can still access navigation.
-   - Verify the content column uses the full width when the sidebar is collapsed on desktop.
+1. **State & Layout Wiring**
+   - Manage `collapsed` state in `app/page.tsx` (expanded by default) and pass it to the sidebar component.
+   - Ensure content column reacts to the collapsed width so spacing stays balanced.
+2. **Sidebar Component Update**
+   - Update `AppSidebar` to show brand + sign-in stack and new toggle button; hide text labels when collapsed while keeping accessible labels.
+   - Add smooth transition classes for width, opacity, and positioning.
+3. **Main Content Header**
+   - Move the reader buttons (`Paper`…`Expert Network`) into a horizontal `PaperTabNav` strip within the main column, above the tab content.
+   - Align typography and spacing with the simplified sidebar.
+4. **Styling Polish**
+   - Refine padding, border, and hover states across sidebar and main header to maintain the elegant, minimal tone.
 
 ## Testing Plan
-- Manual pass in desktop widths: expand/collapse toggles, active tab styling, focus management via keyboard.
-- Manual pass in narrow viewport to confirm mobile fallback still works.
-- Basic accessibility spot-check: ensure buttons have labels and tab order makes sense.
+- Manual desktop pass: confirm sidebar toggle behaviour, tab switching, active highlight, and that the header content is no longer duplicated.
+- Manual narrow-width pass: ensure the existing mobile top bar still exposes navigation appropriately.
+- Quick keyboard traversal to confirm tab order and focus rings remain visible.
 
 ## Documentation & Follow-up
-- Update `CLAUDE.md` directory snapshot after implementation.
-- Capture final interaction summary in `docs/` if additional rationale is needed.
-- Surface any follow-up tasks (icon set, auth wiring) once UX is validated.
+- Update `CLAUDE.md` snapshot after implementation.
+- Note the simplified direction in project docs if the design language shifts further.
+- Revisit potential enhancements (icons, collapse, secondary actions) only if future feedback asks for them.
 
 ## Open Questions
-- Should the collapsed state persist across sessions (local storage) or reset on reload? (Default: reset.)
-- Any additional sidebar entries (e.g., settings/help) planned for near-term iterations?
-- Confirm whether the mobile view should expose the collapsed control or remain full-width drawer only.
+- Should the collapsed sidebar auto-expand on hover or stay click-toggle only?
+- Do we want future secondary actions (e.g., upload, settings) in the sidebar once real auth is present?
+- Should the main-page tab strip stay horizontal or adapt to a stacked layout on smaller yet still `lg` breakpoints?
