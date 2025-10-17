@@ -351,3 +351,140 @@ Step 6 complete: simplified the sticky header and tab styling so the five primar
 Step 7 complete: removed the horizontal tab wrapper chrome so the five primary buttons sit flush inside the app header.
 
 Step 8 complete: removed all tile/card styling from paper content sections to achieve clean webpage-style formatting. Updated `PaperReaderHeader`, `PaperHero`, and `TabHighlights` components to remove rounded borders, backgrounds, and shadows. Content now flows naturally without visual chrome, matching the minimalist "Validate this Research" design pattern.
+
+## Directory Snapshot (2025-02-19)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `homepage-prototype.md`
+- `lib/mock-data.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `reader-header.md`
+  - `single-page-sidebar-refactor.md`
+  - `sidebar-shell-plan.md`
+
+Step 9 complete: documented the authentication modal approach and added the working plan in `tasks/auth-modal.md`.
+## Directory Snapshot (2025-02-19 Update)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+- `lib/mock-data.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `reader-header.md`
+  - `single-page-sidebar-refactor.md`
+  - `sidebar-shell-plan.md`
+
+Step 10 complete: implemented the global authentication modal, wired the provider, and documented the integration triggers.
+
+## Directory Snapshot (2025-02-18)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `globals.css`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+  - `paper/[doi]/experts/page.tsx`
+  - `paper/[doi]/patents/page.tsx`
+  - `paper/[doi]/similar-papers/page.tsx`
+  - `paper/[doi]/theses/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `auth-modal-provider.tsx`
+  - `auth-modal.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `auth-modal.md`
+  - `homepage-prototype.md`
+- `lib/`
+  - `mock-data.ts`
+- `tasks/`
+  - `auth-modal.md`
+  - `clean-webpage-format.md`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `homepage-single-app.md`
+  - `reader-header.md`
+  - `sidebar-debug.md`
+  - `sidebar-shell-plan.md`
+  - `sidebar-sidebar.md`
+  - `single-page-app.md`
+  - `single-page-prototype.md`
+  - `single-page-sidebar-refactor.md`
+  - `supabase-auth.md`
+  - `v0_ui_mock.md`
+- `.eslintrc.json`
+- `.gitignore`
+- `agents.md`
+- `next-env.d.ts`
+- `next.config.mjs`
+- `package-lock.json`
+- `package.json`
+- `postcss.config.mjs`
+- `tailwind.config.ts`
+- `tsconfig.json`
+- `tsconfig.tsbuildinfo`
+- `web_archetecture.md`
+- `CLAUDE.md`
+
+Step 6 complete: replaced the placeholder auth handlers with Supabase-backed email/password & Google flows, exposed session-aware context helpers, refreshed header/sidebars/dropzone CTAs, and captured the integration notes in `docs/auth-modal.md` and `tasks/supabase-auth.md`.

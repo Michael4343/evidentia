@@ -1,5 +1,7 @@
 "use client";
 
+import { useAuthModal } from "@/components/auth-modal-provider";
+
 import { useState } from "react";
 import { mockPaperLibrary, ReaderTabKey } from "@/lib/mock-data";
 
@@ -16,7 +18,9 @@ function getInitials(title: string) {
 }
 
 export function ReaderSidebar({ activeSlug, onSelectPaper }: ReaderSidebarProps) {
+  const { open, user, signOut, isAuthReady } = useAuthModal();
   const [collapsed, setCollapsed] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
   const library = mockPaperLibrary;
   const tabOrder: Exclude<ReaderTabKey, "paper">[] = [
     "similarPapers",
@@ -29,6 +33,22 @@ export function ReaderSidebar({ activeSlug, onSelectPaper }: ReaderSidebarProps)
     patents: "Patents",
     theses: "PhD theses",
     experts: "Experts"
+  };
+
+  const userInitial = user?.email?.[0]?.toUpperCase() ?? "U";
+
+  const handleSignOut = async () => {
+    if (isSigningOut) {
+      return;
+    }
+    setIsSigningOut(true);
+    try {
+      await signOut();
+    } catch (error) {
+      console.error("Sign out failed", error);
+    } finally {
+      setIsSigningOut(false);
+    }
   };
 
   return (
@@ -65,11 +85,41 @@ export function ReaderSidebar({ activeSlug, onSelectPaper }: ReaderSidebarProps)
           {!collapsed && <span className="text-base font-semibold text-slate-900">Evidentia</span>}
         </div>
         {!collapsed && (
-          <button className="rounded-full border border-slate-200 px-3 py-1 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900">
-            Sign up
-          </button>
+          user ? (
+            <button
+              type="button"
+              onClick={handleSignOut}
+              disabled={isSigningOut}
+              className="rounded-full border border-slate-200 px-3 py-1 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSigningOut ? "Signing out…" : "Sign out"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => open("signup")}
+              disabled={!isAuthReady}
+              className="rounded-full border border-slate-200 px-3 py-1 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Sign up
+            </button>
+          )
         )}
       </div>
+
+      {user && (
+        <div className={`flex items-center ${collapsed ? "justify-center gap-2 px-4" : "gap-3 px-5"} pb-4 text-slate-700`}>
+          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white">
+            {userInitial}
+          </span>
+          {!collapsed && (
+            <div>
+              <p className="text-xs uppercase tracking-wide text-slate-400">Signed in</p>
+              <p className="text-sm font-semibold text-slate-700">{user.email}</p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className={`px-5 ${collapsed ? "text-center" : ""}`}>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">Your papers</p>

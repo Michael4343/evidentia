@@ -1,5 +1,9 @@
 "use client";
 
+import { useState } from "react";
+
+import { useAuthModal } from "@/components/auth-modal-provider";
+
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -13,6 +17,24 @@ const navLinks = [
 
 export function SiteHeader() {
   const pathname = usePathname();
+  const { open, user, signOut, isAuthReady } = useAuthModal();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+
+  const userInitial = user?.email?.[0]?.toUpperCase() ?? "U";
+
+  const handleSignOut = async () => {
+    if (isSigningOut) {
+      return;
+    }
+    setIsSigningOut(true);
+    try {
+      await signOut();
+    } catch (error) {
+      console.error("Sign out failed", error);
+    } finally {
+      setIsSigningOut(false);
+    }
+  };
 
   return (
     <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/70">
@@ -41,10 +63,35 @@ export function SiteHeader() {
             );
           })}
         </nav>
-        <div className="flex items-center gap-2">
-          <button className="rounded-full border border-slate-200 px-3 py-1 text-sm font-medium text-slate-600 transition-colors hover:border-primary/30 hover:text-slate-900">
-            Sign in
-          </button>
+        <div className="flex items-center gap-3">
+          {user ? (
+            <>
+              <span className="hidden h-9 w-9 items-center justify-center rounded-full bg-slate-900 text-sm font-semibold text-white sm:inline-flex">
+                {userInitial}
+              </span>
+              <div className="hidden text-right sm:flex sm:flex-col sm:items-end">
+                <span className="text-[11px] uppercase tracking-wide text-slate-400">Signed in</span>
+                <span className="max-w-[180px] truncate text-sm font-semibold text-slate-700">{user.email}</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleSignOut}
+                disabled={isSigningOut}
+                className="rounded-full border border-slate-200 px-3 py-1 text-sm font-medium text-slate-600 transition-colors hover:border-slate-300 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSigningOut ? "Signing out…" : "Sign out"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => open("login")}
+              disabled={!isAuthReady}
+              className="rounded-full border border-slate-200 px-3 py-1 text-sm font-medium text-slate-600 transition-colors hover:border-primary/30 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Sign in
+            </button>
+          )}
         </div>
       </div>
     </header>
