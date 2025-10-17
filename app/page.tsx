@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { PaperTabNav } from "@/components/paper-tab-nav";
 import { TabHighlights } from "@/components/tab-highlights";
 import { UploadDropzone } from "@/components/upload-dropzone";
+import { useAuthModal } from "@/components/auth-modal-provider";
 import { ReaderTabKey, TabHighlightItem, samplePaper } from "@/lib/mock-data";
 
 const tabCopy: Record<Exclude<ReaderTabKey, "paper">, { heading: string; description: string; empty: string }> = {
@@ -59,15 +60,18 @@ function HighlightsTabContent({
 export default function LandingPage() {
   const [activeTab, setActiveTab] = useState<ReaderTabKey>("paper");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const { user } = useAuthModal();
+  const prevUserRef = useRef(user);
   const paper = samplePaper;
   const tabHighlightsByKey = paper.tabHighlights ?? {};
 
+  // Open sidebar when user logs in
   useEffect(() => {
-    const mediaQuery = window.matchMedia("(max-width: 1023px)");
-    if (mediaQuery.matches) {
-      setSidebarCollapsed(true);
+    if (!prevUserRef.current && user) {
+      setSidebarCollapsed(false);
     }
-  }, []);
+    prevUserRef.current = user;
+  }, [user]);
 
   const renderActiveTab = () => {
     if (activeTab === "paper") {
