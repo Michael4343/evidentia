@@ -247,3 +247,38 @@ ALWAYS UPDATE CLAUDE.md AT THE END OF EACH STEP WITH THE NEW DIRECTORY STRUCTURE
 Step 1 complete: audited navigation-related components and noted reuse candidates for the unified SPA shell.
 
 Step 2 complete: drafted collapsible sidebar plan with main-page tab strip for review.
+
+## Directory Snapshot (2025-02-17)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `homepage-prototype.md`
+- `lib/mock-data.ts`
+- `tasks/`
+  - `reader-header.md`
+  - `halo-tabs.md`
+  - `single-page-sidebar-refactor.md`
+  - `sidebar-shell-plan.md`
+
+Step 3 complete: implemented collapsible sidebar shell and moved reader buttons into main content header.
+
+Step 4 complete: implemented the halo-style horizontal reader tabs and logged the plan in `tasks/halo-tabs.md`.
+
+Step 5 complete: consolidated the reader hero, status, and halo tabs into a single `PaperReaderHeader` and documented the plan in `tasks/reader-header.md`.

@@ -93,9 +93,15 @@ export default function LandingPage() {
       />
       <div className="flex flex-1 flex-col">
         <main className="flex-1 overflow-y-auto">
-          <div className="sticky top-0 z-10 border-b border-slate-200 bg-white/85 px-4 py-5 backdrop-blur sm:px-6 lg:px-10">
-            <PaperTabNav activeTab={activeTab} onTabChange={setActiveTab} variant="horizontal" />
-          </div>
+          <header className="sticky top-0 z-10 border-b border-slate-200 bg-white/95 backdrop-blur">
+            <div className="mx-auto flex w-full max-w-6xl items-center justify-center gap-4 px-4 py-4 sm:px-6 lg:px-10">
+              <PaperTabNav
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+                variant="horizontal"
+              />
+            </div>
+          </header>
           <div className="px-4 pb-16 pt-8 sm:px-6 lg:px-10">
             {renderActiveTab()}
           </div>

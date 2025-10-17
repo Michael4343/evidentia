@@ -260,6 +260,43 @@ Step 2 complete: drafted collapsible sidebar plan with main-page tab strip for r
   - `homepage-app.tsx`
   - `paper-hero.tsx`
   - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `homepage-prototype.md`
+- `lib/mock-data.ts`
+- `tasks/`
+  - `reader-header.md`
+  - `halo-tabs.md`
+  - `single-page-sidebar-refactor.md`
+  - `sidebar-shell-plan.md`
+
+Step 3 complete: implemented collapsible sidebar shell and moved reader buttons into main content header.
+
+Step 4 complete: implemented the halo-style horizontal reader tabs and logged the plan in `tasks/halo-tabs.md`.
+
+Step 5 complete: consolidated the reader hero, status, and halo tabs into a single `PaperReaderHeader` and documented the plan in `tasks/reader-header.md`.
+
+## Directory Snapshot (2025-02-18)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
   - `paper-reader-shell.tsx`
   - `paper-tab-nav.tsx`
   - `pdf-viewer-mock.tsx`
@@ -272,9 +309,45 @@ Step 2 complete: drafted collapsible sidebar plan with main-page tab strip for r
 - `lib/mock-data.ts`
 - `tasks/`
   - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `reader-header.md`
   - `single-page-sidebar-refactor.md`
   - `sidebar-shell-plan.md`
 
-Step 3 complete: implemented collapsible sidebar shell and moved reader buttons into main content header.
+Step 6 complete: simplified the sticky header and tab styling so the five primary buttons form a clean, consistent app header.
 
-Step 4 complete: implemented the halo-style horizontal reader tabs and logged the plan in `tasks/halo-tabs.md`.
+## Directory Snapshot (2025-02-18 Update)
+- `app/`
+  - `(marketing)/page.tsx`
+  - `layout.tsx`
+  - `page.tsx`
+  - `paper/[doi]/layout.tsx`
+  - `paper/[doi]/page.tsx`
+- `components/`
+  - `annotation-sidebar.tsx`
+  - `app-sidebar.tsx`
+  - `homepage-app.tsx`
+  - `paper-hero.tsx`
+  - `paper-reader-content.tsx`
+  - `paper-reader-header.tsx`
+  - `paper-reader-shell.tsx`
+  - `paper-tab-nav.tsx`
+  - `pdf-viewer-mock.tsx`
+  - `reader-sidebar.tsx`
+  - `site-header.tsx`
+  - `status-banner.tsx`
+  - `tab-highlights.tsx`
+  - `upload-dropzone.tsx`
+- `docs/`
+  - `homepage-prototype.md`
+- `lib/mock-data.ts`
+- `tasks/`
+  - `halo-tabs.md`
+  - `header-cleanup.md`
+  - `reader-header.md`
+  - `single-page-sidebar-refactor.md`
+  - `sidebar-shell-plan.md`
+
+Step 7 complete: removed the horizontal tab wrapper chrome so the five primary buttons sit flush inside the app header.
+
+Step 8 complete: removed all tile/card styling from paper content sections to achieve clean webpage-style formatting. Updated `PaperReaderHeader`, `PaperHero`, and `TabHighlights` components to remove rounded borders, backgrounds, and shadows. Content now flows naturally without visual chrome, matching the minimalist "Validate this Research" design pattern.

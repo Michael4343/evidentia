@@ -8,7 +8,7 @@ export function PaperHero({ paper }: PaperHeroProps) {
   const { title, authors, venue, year, abstract, status } = paper;
 
   return (
-    <section className="space-y-6 rounded-3xl border border-slate-200 bg-white/90 p-6 shadow-sm">
+    <section className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="space-y-3">
           <p className="text-xs font-semibold uppercase tracking-[0.3em] text-slate-400">
@@ -22,11 +22,11 @@ export function PaperHero({ paper }: PaperHeroProps) {
           {status}
         </span>
       </div>
-      <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-5">
+      <div className="space-y-3">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">
           Abstract (public)
         </p>
-        <p className="mt-3 text-sm leading-relaxed text-slate-700">{abstract}</p>
+        <p className="text-sm leading-relaxed text-slate-700">{abstract}</p>
       </div>
     </section>
   );

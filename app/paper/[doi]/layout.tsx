@@ -1,8 +1,6 @@
 import { ReactNode } from "react";
 
-import { PaperHero } from "@/components/paper-hero";
-import { PaperTabNav } from "@/components/paper-tab-nav";
-import { StatusBanner } from "@/components/status-banner";
+import { PaperReaderHeader } from "@/components/paper-reader-header";
 import { samplePaper } from "@/lib/mock-data";
 
 interface PaperLayoutProps {
@@ -15,9 +13,7 @@ export default function PaperLayout({ children }: PaperLayoutProps) {
 
   return (
     <div className="space-y-8 pb-16">
-      <StatusBanner />
-      <PaperHero paper={paper} />
-      <PaperTabNav activeTab="paper" onTabChange={undefined} />
+      <PaperReaderHeader paper={paper} activeTab="paper" />
       <div className="grid gap-6">{children}</div>
     </div>
   );

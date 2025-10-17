@@ -3,9 +3,7 @@
 import { ReactNode } from "react";
 
 import { ReaderSidebar } from "@/components/reader-sidebar";
-import { PaperHero } from "@/components/paper-hero";
-import { PaperTabNav } from "@/components/paper-tab-nav";
-import { StatusBanner } from "@/components/status-banner";
+import { PaperReaderHeader } from "@/components/paper-reader-header";
 import { PaperDetail, ReaderTabKey } from "@/lib/mock-data";
 
 interface PaperReaderShellProps {
@@ -30,9 +28,11 @@ export function PaperReaderShell({
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
         <ReaderSidebar activeSlug={activeSlug} onSelectPaper={onSelectPaper} />
         <div className="flex-1 space-y-8">
-          <StatusBanner />
-          <PaperHero paper={paper} />
-          <PaperTabNav activeTab={activeTab} onTabChange={onSelectTab} />
+          <PaperReaderHeader
+            paper={paper}
+            activeTab={activeTab}
+            onSelectTab={onSelectTab}
+          />
           <div className="grid gap-6">{children}</div>
         </div>
       </div>
