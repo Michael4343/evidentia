@@ -26,12 +26,12 @@ export function PaperTabNav({ activeTab, onTabChange, variant = "horizontal" }: 
       className={`${
         isVertical
           ? "flex flex-col gap-2"
-          : "flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white/90 p-1.5 shadow-sm"
+          : "relative flex flex-wrap items-center gap-1.5 rounded-full bg-white/70 p-1.5 shadow-[0_12px_30px_rgba(15,23,42,0.12)] ring-1 ring-inset ring-slate-200/60 backdrop-blur transition-shadow duration-200 hover:shadow-[0_18px_46px_rgba(15,23,42,0.18)] hover:ring-slate-200/90"
       }`}
     >
       {tabItems.map((item) => {
         const isActive = item.key === activeTab;
-        const sharedClasses = "flex items-center gap-2 rounded-xl text-sm font-medium transition-colors";
+        const sharedClasses = "flex items-center gap-2 rounded-full text-sm font-medium transition-colors transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900";
         const buttonClasses = isVertical
           ? `${sharedClasses} justify-between px-4 py-3 text-left ${
               isActive
@@ -40,8 +40,8 @@ export function PaperTabNav({ activeTab, onTabChange, variant = "horizontal" }: 
             }`
           : `${sharedClasses} px-4 py-2 ${
               isActive
-                ? "bg-slate-900 text-white shadow"
-                : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                ? "bg-slate-900 text-white shadow-[0_8px_22px_rgba(15,23,42,0.35)]"
+                : "text-slate-600 hover:bg-white/90 hover:text-slate-900"
             }`;
 
         return (
