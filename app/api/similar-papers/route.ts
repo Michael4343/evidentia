@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const MAX_TEXT_LENGTH = 10_000;
+const MAX_TEXT_LENGTH = 20_000;
 
 interface PaperPayload {
   title?: string | null;
@@ -86,7 +86,7 @@ function buildPrompt(paper: PaperPayload): string {
       : "- Optional: Abstract: not provided";
 
   return [
-    "You are running a deep-research pass to gather every detail needed for Evidentia’s reproducibility briefing and method crosswalk. Focus on completeness and factual accuracy rather than polished prose. Use plain English. Avoid domain-specific or medical jargon; prefer general words like \"equipment\", \"materials\", \"samples\", \"procedure\", \"quality checks\".",
+    "You are building a Similar Papers crosswalk for Evidentia. Focus entirely on method-level overlap and actionable signals that help a founder understand how related teams ran comparable work. Use concise, plain English.",
     "",
     "Inputs",
     `- Title: ${title}`,
@@ -94,53 +94,32 @@ function buildPrompt(paper: PaperPayload): string {
     `- Authors: ${authors}`,
     abstractLine,
     "",
-    "Output",
-    "Produce a detailed research dossier that a human operator can later transform into structured data. Use headings and bullet lists where helpful, but strict formatting is not required. Keep the entire response under roughly 1,800 tokens (about 1,200 words) while covering every checklist item.",
+    "Deliverables",
+    "- Summarise the source paper's methods (2-3 sentences) and call out the 3-5 method signals we will use when pitching it to founders (keyMethods array).",
+    "- Surface 5-10 high-signal similar papers. Method overlap beats topical similarity.",
     "",
-    "Tasks",
+    "Search playbook",
+    "- Derive neutral method terms from the PDF (sample model, preparation steps, equipment classes, control style, readout type, QC practices).",
+    "- Generate 4-6 diversified search queries mixing those terms with synonyms (e.g., \"aggregates micro-CT stable isotope probing\").",
+    "- Prioritise papers that:",
+    '  - Describe materials, equipment, controls, readouts, and QC steps clearly',
+    '  - Provide supplementary protocols, data, or code',
+    '  - Are accessible via arXiv, publisher OA versions, or lab websites',
+    "- Keep language plain; avoid jargon unless it is unavoidable (then explain it).",
     "",
-    "PART 1 - Reproducibility (plain language)",
+    "For each selected paper (5-10 total):",
+    "- identifier: DOI, Semantic Scholar ID, or other stable handle.",
+    "- whyRelevant: 2-3 sentences explaining the method overlap and what a founder should copy or avoid.",
+    "- overlapHighlights: 3-4 bullet fragments (<=12 words) naming concrete overlaps (e.g., 'Micro-CT pore segmentation', '13C glucose SIP').",
+    "- methodMatrix: fill every field; if a point is missing, return 'not reported'.",
+    "- clusterLabel: choose “Sample and model”, “Field deployments”, or “Insight primers” and explain the reasoning in whyRelevant.",
     "",
-    "1.1 Overall verdict",
-    '- State the overall reproducibility level using the pattern “Highly reproducible for…”, “Moderately reproducible with…”, or “Limited reproducibility due to…”. Add the plain-language gating factor.',
+    "Answer with a concise narrative that a cleanup agent can later structure into JSON. Do not format as JSON yourself.",
+    "Highlight the key method signals for the source paper (3-5 bullet points).",
+    "For each similar paper (5-10 total) write 2-3 sentences explaining the method overlap, note the cluster label rationale, list 3 short overlap bullets, and quote any concrete gaps or uncertainties.",
+    "Stay within ~1,800 tokens overall; be specific but efficient.",
     "",
-    "1.2 Feasibility snapshot",
-    "- Create 5-7 yes/no capability checks a typical lab or team can use to self-assess.",
-    "- Each item must:",
-    '  - Start with "Do you have", "Can you", or "Are you equipped to"',
-    '  - Target a specific capability, resource, or infrastructure need',
-    '  - Include a one-sentence "why this matters" note',
-    '  - Be concrete and checkable',
-    "- Use general terms. Do not use technical or medical jargon.",
-    "- Present as a list so the operator can extract question, importance, and supporting rationale.",
-    "",
-    "PART 2 - Method & finding crosswalk (build a small related set)",
-    "",
-    "Goal: Find 3-5 papers whose methods are similar to the input paper. Prioritise method overlap over topic keywords and capture the information needed for Evidentia’s crosswalk.",
-    "",
-    "Search approach",
-    "- Derive neutral method terms from the input (e.g., sample type, preparation steps, equipment class, control style, readout type).",
-    "- Create 3-5 search queries that mix these terms with general synonyms.",
-    "- Prefer papers that:",
-    '  - Clearly describe materials, equipment, steps, controls, readouts, and quality checks',
-    '  - Include code, data, or supplementary methods',
-    '  - Have non-paywalled summaries when possible',
-    "- Keep language plain in all outputs.",
-    "",
-    "For each selected paper, compile the following details so the operator can later structure them:",
-    "- Identifier (Semantic Scholar ID, DOI, or stable hash).",
-    '- Title, concise author list (“Surname et al.” for 3+ authors).',
-    "- Venue and year.",
-    "- Citation count (or note if not reported).",
-    '- Cluster label: choose “Sample and model”, “Field deployments”, or “Insight primers” and explain why it fits.',
-    "- Two to three sentences summarising why the methods align.",
-    '- Highlight line: if the abstract yields a key signal use “Signal from abstract: …”, else “Signal from editorial or summary in <venue>”.',
-    '- Matrix covering sampleModel, materialsRatios, equipmentSetup, procedureSteps, controls, outputsMetrics, qualityChecks, outcomeSummary using plain language. Mark any missing info as “not reported”.',
-    "",
-    "Housekeeping",
-    "- Capture sources for every fact (links, DOIs, or figure/table references).",
-    "- Note any uncertainties or gaps so the operator can follow up.",
-    "- Output format beyond clear headings/lists is flexible—the priority is gathering complete, well-cited information."
+    "Return the narrative summary now."
   ].join("\n");
 }
 

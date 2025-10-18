@@ -6,6 +6,8 @@ import { AppSidebar } from "@/components/app-sidebar";
 import { PaperTabNav } from "@/components/paper-tab-nav";
 import { PdfViewer } from "@/components/pdf-viewer";
 import { UploadDropzone } from "@/components/upload-dropzone";
+import { MockSimilarPapersShowcase } from "@/components/mock-similar-papers-showcase";
+import { MOCK_SAMPLE_PAPER_ID, MOCK_SAMPLE_PAPER_META } from "@/lib/mock-sample-paper";
 import { useAuthModal } from "@/components/auth-modal-provider";
 import { ReaderTabKey } from "@/lib/reader-tabs";
 import { extractDoiFromPdf } from "@/lib/pdf-doi";
@@ -14,6 +16,21 @@ import { parseUploadError, validateFileSize } from "@/lib/upload-errors";
 import { deleteUserPaper, fetchUserPapers, persistUserPaper, type UserPaperRecord } from "@/lib/user-papers";
 
 const RESEARCH_CACHE_VERSION = "v1";
+
+const MOCK_UPLOADED_PAPER_BASE = {
+  id: MOCK_SAMPLE_PAPER_META.id,
+  name: MOCK_SAMPLE_PAPER_META.name,
+  fileName: MOCK_SAMPLE_PAPER_META.fileName,
+  url: MOCK_SAMPLE_PAPER_META.pdfUrl,
+  uploadedAt: new Date("2024-01-01T00:00:00Z"),
+  size: 0,
+  doi: MOCK_SAMPLE_PAPER_META.doi,
+  source: "local" as const
+};
+
+function isMockPaper(paper: UploadedPaper | null | undefined) {
+  return paper?.id === MOCK_SAMPLE_PAPER_ID;
+}
 
 type CacheStage = "similarPapers" | "groups" | "contacts" | "theses";
 
@@ -120,6 +137,10 @@ interface UploadedPaper {
   storagePath?: string;
   source: "local" | "remote";
 }
+
+const MOCK_UPLOADED_PAPER: UploadedPaper = {
+  ...MOCK_UPLOADED_PAPER_BASE
+};
 
 interface ExtractedText {
   pages: number | null;
@@ -310,6 +331,14 @@ function SimilarPapersPanel({
     );
   }
 
+  if (isMockPaper(paper)) {
+    return (
+      <div className="flex-1 overflow-auto p-6">
+        <MockSimilarPapersShowcase />
+      </div>
+    );
+  }
+
   if (!extraction || extraction.status === "loading") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
@@ -397,6 +426,17 @@ function ResearchGroupsPanel({
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
         <p className="text-base font-medium text-slate-700">Upload a PDF to research related groups.</p>
         <p className="text-sm text-slate-500">We need a paper selected before running the deep search.</p>
+      </div>
+    );
+  }
+
+  if (isMockPaper(paper)) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+        <p className="text-base font-medium text-slate-700">Coming soon</p>
+        <p className="text-sm text-slate-500">
+          Research groups will appear here once we wire this tab to the new crosswalk flow.
+        </p>
       </div>
     );
   }
@@ -527,11 +567,22 @@ function ResearchGroupsPanel({
 
 function ResearcherThesesPanel({
   state,
-  hasResearchGroups
+  hasResearchGroups,
+  isMock
 }: {
   state: ResearcherThesesState | undefined;
   hasResearchGroups: boolean;
+  isMock: boolean;
 }) {
+  if (isMock) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+        <p className="text-base font-medium text-slate-700">Coming soon</p>
+        <p className="text-sm text-slate-500">Researcher theses will appear here after we wire the new crosswalk prompts.</p>
+      </div>
+    );
+  }
+
   if (!hasResearchGroups) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
@@ -690,11 +741,24 @@ function ResearcherThesesPanel({
 
 function PatentsPanel({
   state,
-  paper
+  paper,
+  isMock
 }: {
   state: ExtractionState | undefined;
   paper: UploadedPaper | null;
+  isMock: boolean;
 }) {
+  if (isMock) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <p className="text-base font-medium text-slate-700">Patents tab coming soon</p>
+        <p className="max-w-md text-sm text-slate-500">
+          We’ll plug this into the Similar Papers crosswalk as soon as the patent prompts stabilise. For now the sample view is intentionally blank.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-1 flex-col overflow-auto">
       <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
@@ -712,7 +776,18 @@ function PatentsPanel({
   );
 }
 
-function ExpertNetworkPanel({ paper }: { paper: UploadedPaper | null }) {
+function ExpertNetworkPanel({ paper, isMock }: { paper: UploadedPaper | null; isMock: boolean }) {
+  if (isMock) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <p className="text-base font-medium text-slate-700">Expert review preview</p>
+        <p className="max-w-md text-sm text-slate-500">
+          We’re building expert matching on top of the crosswalk workflow. This sample keeps the UI simple while we wire the backend.
+        </p>
+      </div>
+    );
+  }
+
   if (!paper) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
@@ -867,21 +942,39 @@ export default function LandingPage() {
   const prevUserRef = useRef(user);
   const objectUrlsRef = useRef<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [uploadedPapers, setUploadedPapers] = useState<UploadedPaper[]>([]);
-  const [activePaperId, setActivePaperId] = useState<string | null>(null);
+  const [uploadedPapers, setUploadedPapers] = useState<UploadedPaper[]>([MOCK_UPLOADED_PAPER]);
+  const [activePaperId, setActivePaperId] = useState<string | null>(MOCK_SAMPLE_PAPER_ID);
   const [isSavingPaper, setIsSavingPaper] = useState(false);
   const [uploadStatusMessage, setUploadStatusMessage] = useState<string | null>(null);
   const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
   const [isFetchingLibrary, setIsFetchingLibrary] = useState(false);
   const [isStatusDismissed, setIsStatusDismissed] = useState(false);
-  const [extractionStates, setExtractionStates] = useState<Record<string, ExtractionState>>({});
-  const [similarPapersStates, setSimilarPapersStates] = useState<Record<string, SimilarPapersState>>({});
-  const [researchGroupsStates, setResearchGroupsStates] = useState<Record<string, ResearchGroupsState>>({});
-  const [researchContactsStates, setResearchContactsStates] = useState<Record<string, ResearchGroupContactsState>>({});
-  const [researchThesesStates, setResearchThesesStates] = useState<Record<string, ResearcherThesesState>>({});
+  const [extractionStates, setExtractionStates] = useState<Record<string, ExtractionState>>({
+    [MOCK_SAMPLE_PAPER_ID]: {
+      status: "success",
+      data: {
+        pages: null,
+        info: null,
+        text: "Static Evidentia sample paper"
+      }
+    }
+  });
+  const [similarPapersStates, setSimilarPapersStates] = useState<Record<string, SimilarPapersState>>({
+    [MOCK_SAMPLE_PAPER_ID]: { status: "success", text: "" }
+  });
+  const [researchGroupsStates, setResearchGroupsStates] = useState<Record<string, ResearchGroupsState>>({
+    [MOCK_SAMPLE_PAPER_ID]: { status: "success", text: "" }
+  });
+  const [researchContactsStates, setResearchContactsStates] = useState<Record<string, ResearchGroupContactsState>>({
+    [MOCK_SAMPLE_PAPER_ID]: { status: "success", contacts: [] }
+  });
+  const [researchThesesStates, setResearchThesesStates] = useState<Record<string, ResearcherThesesState>>({
+    [MOCK_SAMPLE_PAPER_ID]: { status: "success", researchers: [] }
+  });
   const activePaper = activePaperId
     ? uploadedPapers.find((item) => item.id === activePaperId) ?? null
     : null;
+  const isActivePaperMock = isMockPaper(activePaper);
   const activeExtraction = activePaper ? extractionStates[activePaper.id] : undefined;
   const activeSimilarPapersState = activePaper ? similarPapersStates[activePaper.id] : undefined;
   const activeResearchGroupState = activePaper ? researchGroupsStates[activePaper.id] : undefined;
@@ -903,7 +996,7 @@ export default function LandingPage() {
   }, []);
 
   useEffect(() => {
-    if (!activePaper) {
+    if (!activePaper || isMockPaper(activePaper)) {
       return;
     }
 
@@ -974,6 +1067,21 @@ export default function LandingPage() {
   const runExtraction = useCallback(
     async (paper: UploadedPaper, options?: { file?: File }) => {
       if (!paper) {
+        return;
+      }
+
+      if (isMockPaper(paper)) {
+        setExtractionStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "success",
+            data: {
+              pages: null,
+              info: null,
+              text: "Static Evidentia sample paper"
+            }
+          }
+        }));
         return;
       }
 
@@ -1119,7 +1227,7 @@ export default function LandingPage() {
 
   const runSimilarPapers = useCallback(
     async (paper: UploadedPaper, extraction: ExtractedText) => {
-      if (!paper || !extraction || typeof extraction.text !== "string" || extraction.text.trim().length === 0) {
+      if (!paper || isMockPaper(paper) || !extraction || typeof extraction.text !== "string" || extraction.text.trim().length === 0) {
         return;
       }
 
@@ -1218,7 +1326,7 @@ export default function LandingPage() {
       paper: UploadedPaper,
       contacts: Array<{ group: string; people: Array<{ name: string | null; email: string | null }> }>
     ) => {
-      if (!paper) {
+      if (!paper || isMockPaper(paper)) {
         return;
       }
 
@@ -1315,7 +1423,7 @@ export default function LandingPage() {
   );
 
   const runResearchGroupContacts = useCallback(async (paper: UploadedPaper, researchText: string) => {
-    if (!paper || researchText.trim().length === 0) {
+    if (!paper || isMockPaper(paper) || researchText.trim().length === 0) {
       return;
     }
 
@@ -1407,7 +1515,7 @@ export default function LandingPage() {
   }, [runResearcherTheses]);
 
   const runResearchGroups = useCallback(async (paper: UploadedPaper, extraction: ExtractedText) => {
-    if (!paper || !extraction?.text) {
+    if (!paper || isMockPaper(paper) || !extraction?.text) {
       return;
     }
 
@@ -1516,15 +1624,32 @@ export default function LandingPage() {
   useEffect(() => {
     if (!user) {
       clearObjectUrls();
-      setUploadedPapers([]);
-      setActivePaperId(null);
+      setUploadedPapers([MOCK_UPLOADED_PAPER]);
+      setActivePaperId(MOCK_SAMPLE_PAPER_ID);
       setUploadStatusMessage(null);
       setUploadErrorMessage(null);
-      setExtractionStates({});
-      setSimilarPapersStates({});
-      setResearchGroupsStates({});
-      setResearchContactsStates({});
-      setResearchThesesStates({});
+      setExtractionStates({
+        [MOCK_SAMPLE_PAPER_ID]: {
+          status: "success",
+          data: {
+            pages: null,
+            info: null,
+            text: "Static Evidentia sample paper"
+          }
+        }
+      });
+      setSimilarPapersStates({
+        [MOCK_SAMPLE_PAPER_ID]: { status: "success", text: "" }
+      });
+      setResearchGroupsStates({
+        [MOCK_SAMPLE_PAPER_ID]: { status: "success", text: "" }
+      });
+      setResearchContactsStates({
+        [MOCK_SAMPLE_PAPER_ID]: { status: "success", contacts: [] }
+      });
+      setResearchThesesStates({
+        [MOCK_SAMPLE_PAPER_ID]: { status: "success", researchers: [] }
+      });
       return;
     }
 
@@ -1572,6 +1697,42 @@ export default function LandingPage() {
           return prev;
         });
 
+        setExtractionStates((prev) => {
+          if (!(MOCK_SAMPLE_PAPER_ID in prev)) {
+            return prev;
+          }
+          const { [MOCK_SAMPLE_PAPER_ID]: _omitted, ...rest } = prev;
+          return rest;
+        });
+        setSimilarPapersStates((prev) => {
+          if (!(MOCK_SAMPLE_PAPER_ID in prev)) {
+            return prev;
+          }
+          const { [MOCK_SAMPLE_PAPER_ID]: _omitted, ...rest } = prev;
+          return rest;
+        });
+        setResearchGroupsStates((prev) => {
+          if (!(MOCK_SAMPLE_PAPER_ID in prev)) {
+            return prev;
+          }
+          const { [MOCK_SAMPLE_PAPER_ID]: _omitted, ...rest } = prev;
+          return rest;
+        });
+        setResearchContactsStates((prev) => {
+          if (!(MOCK_SAMPLE_PAPER_ID in prev)) {
+            return prev;
+          }
+          const { [MOCK_SAMPLE_PAPER_ID]: _omitted, ...rest } = prev;
+          return rest;
+        });
+        setResearchThesesStates((prev) => {
+          if (!(MOCK_SAMPLE_PAPER_ID in prev)) {
+            return prev;
+          }
+          const { [MOCK_SAMPLE_PAPER_ID]: _omitted, ...rest } = prev;
+          return rest;
+        });
+
         setUploadStatusMessage(null);
       })
       .catch((error) => {
@@ -1596,7 +1757,7 @@ export default function LandingPage() {
   }, [clearObjectUrls, supabase, user]);
 
   useEffect(() => {
-    if (!activePaper) {
+    if (!activePaper || isMockPaper(activePaper)) {
       return;
     }
 
@@ -1737,7 +1898,10 @@ export default function LandingPage() {
             source: record.storage_path ? "remote" : "local"
           };
 
-          setUploadedPapers((prev) => [nextPaper, ...prev.filter((item) => item.id !== nextPaper.id)]);
+          setUploadedPapers((prev) => [
+            nextPaper,
+            ...prev.filter((item) => item.id !== nextPaper.id && !isMockPaper(item))
+          ]);
           setActivePaperId(nextPaper.id);
           setActiveTab("paper");
           void runExtraction(nextPaper, { file });
@@ -1762,7 +1926,10 @@ export default function LandingPage() {
             source: "local"
           };
 
-          setUploadedPapers((prev) => [...prev, nextPaper]);
+          setUploadedPapers((prev) => [
+            nextPaper,
+            ...prev.filter((item) => item.id !== nextPaper.id && !isMockPaper(item))
+          ]);
           setActivePaperId(id);
           setActiveTab("paper");
           void runExtraction(nextPaper, { file });
@@ -1821,6 +1988,10 @@ export default function LandingPage() {
 
   const handleDeletePaper = useCallback(
     async (paperId: string) => {
+      if (paperId === MOCK_SAMPLE_PAPER_ID) {
+        return;
+      }
+
       if (!user || !supabase) {
         return;
       }
@@ -1941,16 +2112,17 @@ export default function LandingPage() {
         <ResearcherThesesPanel
           state={activeResearchThesesState}
           hasResearchGroups={Boolean(activeResearchGroupState && activeResearchGroupState.status === "success")}
+          isMock={Boolean(isActivePaperMock)}
         />
       );
     }
 
     if (activeTab === "experts") {
-      return <ExpertNetworkPanel paper={activePaper} />;
+      return <ExpertNetworkPanel paper={activePaper} isMock={Boolean(isActivePaperMock)} />;
     }
 
     if (activeTab === "patents") {
-      return <PatentsPanel state={activeExtraction} paper={activePaper} />;
+      return <PatentsPanel state={activeExtraction} paper={activePaper} isMock={Boolean(isActivePaperMock)} />;
     }
 
     return <ExtractionDebugPanel state={activeExtraction} paper={activePaper} />;

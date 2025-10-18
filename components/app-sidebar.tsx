@@ -4,6 +4,7 @@ import { useState } from "react";
 import Image from "next/image";
 
 import { useAuthModal } from "@/components/auth-modal-provider";
+import { MOCK_SAMPLE_PAPER_ID } from "@/lib/mock-sample-paper";
 
 interface SidebarPaperItem {
   id: string;
@@ -148,6 +149,7 @@ export function AppSidebar({
             <ul className="space-y-2">
               {papers.map((paper) => {
                 const isActive = paper.id === activeId;
+                const isSamplePaper = paper.id === MOCK_SAMPLE_PAPER_ID;
 
                 // Build classes more explicitly to avoid Tailwind conflicts
                 const baseClasses = isCollapsed
@@ -173,7 +175,7 @@ export function AppSidebar({
                 const finalLabel = displayLabel || paper.doi || "Untitled paper";
 
                 const isHovered = hoveredPaperId === paper.id;
-                const showDeleteButton = isHovered && !isCollapsed && onDeletePaper;
+                const showDeleteButton = isHovered && !isCollapsed && onDeletePaper && !isSamplePaper;
 
                 return (
                   <li key={paper.id}>
@@ -193,7 +195,7 @@ export function AppSidebar({
                         </span>
                       ) : (
                         <>
-                          <span className="truncate pr-8">{finalLabel}</span>
+                          <span className="pr-8 break-words">{finalLabel}</span>
                           {showDeleteButton && (
                             <button
                               type="button"
