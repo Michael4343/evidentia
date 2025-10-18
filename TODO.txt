@@ -1,5 +1,15 @@
+CODEX
+GPT 5 agent to search for research groups related to a paper
+search research groups for relevant PhD thesis
 
 
+compile similar papers
+compile similar patents
+
+
+
+CLAUDE 
+error compiling for pdf upload
 
 
 

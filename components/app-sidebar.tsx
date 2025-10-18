@@ -20,6 +20,7 @@ interface AppSidebarProps {
   activePaperId: string | null;
   onSelectPaper: (paperId: string) => void;
   onShowUpload?: () => void;
+  onDeletePaper?: (paperId: string) => void;
   isLoading?: boolean;
 }
 
@@ -30,6 +31,7 @@ export function AppSidebar({
   activePaperId,
   onSelectPaper,
   onShowUpload,
+  onDeletePaper,
   isLoading = false
 }: AppSidebarProps) {
   const isCollapsed = collapsed;
@@ -37,6 +39,7 @@ export function AppSidebar({
   const hasPapers = papers.length > 0;
   const { open, user, signOut, isAuthReady } = useAuthModal();
   const [isSigningOut, setIsSigningOut] = useState(false);
+  const [hoveredPaperId, setHoveredPaperId] = useState<string | null>(null);
 
   const handleAuthClick = async () => {
     if (user) {
@@ -152,9 +155,7 @@ export function AppSidebar({
                   : "w-full rounded-2xl border px-4 py-3 text-left text-sm font-semibold";
 
                 const stateClasses = isActive
-                  ? isCollapsed
-                    ? "border-slate-900 bg-slate-900 text-white shadow-md"
-                    : "border-slate-900 bg-white text-slate-900 shadow-sm ring-1 ring-slate-900/20"
+                  ? "border-slate-900 bg-slate-900 text-white shadow-md"
                   : isCollapsed
                     ? "border-transparent bg-white/70 text-slate-500 hover:border-slate-300 hover:bg-white"
                     : "border-slate-200 bg-white/70 text-slate-700 hover:border-slate-300 hover:bg-white";
@@ -171,6 +172,9 @@ export function AppSidebar({
                         : paper.name ?? paper.fileName ?? paper.id;
                 const finalLabel = displayLabel || paper.doi || "Untitled paper";
 
+                const isHovered = hoveredPaperId === paper.id;
+                const showDeleteButton = isHovered && !isCollapsed && onDeletePaper;
+
                 return (
                   <li key={paper.id}>
                     <button
@@ -178,7 +182,9 @@ export function AppSidebar({
                       onClick={() => {
                         onSelectPaper(paper.id);
                       }}
-                      className={`${baseClasses} ${stateClasses} transition-colors ${isCollapsed ? "flex items-center justify-center" : ""}`}
+                      onMouseEnter={() => setHoveredPaperId(paper.id)}
+                      onMouseLeave={() => setHoveredPaperId(null)}
+                      className={`${baseClasses} ${stateClasses} relative transition-colors ${isCollapsed ? "flex items-center justify-center" : ""}`}
                       aria-pressed={isActive}
                     >
                       {isCollapsed ? (
@@ -186,7 +192,37 @@ export function AppSidebar({
                           {finalLabel.slice(0, 2).toUpperCase()}
                         </span>
                       ) : (
-                        <span className="truncate">{finalLabel}</span>
+                        <>
+                          <span className="truncate pr-8">{finalLabel}</span>
+                          {showDeleteButton && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeletePaper(paper.id);
+                              }}
+                              className={`absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full transition-colors ${
+                                isActive
+                                  ? "text-white/70 hover:text-white hover:bg-white/20"
+                                  : "text-slate-400 hover:text-red-600 hover:bg-red-50"
+                              }`}
+                              aria-label={`Delete ${finalLabel}`}
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="h-4 w-4"
+                              >
+                                <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M10 11v6M14 11v6" />
+                              </svg>
+                            </button>
+                          )}
+                        </>
                       )}
                       <span className="sr-only">Select {finalLabel}</span>
                     </button>

@@ -5,14 +5,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppSidebar } from "@/components/app-sidebar";
 import { PaperTabNav } from "@/components/paper-tab-nav";
 import { PdfViewer } from "@/components/pdf-viewer";
-import { TabHighlights } from "@/components/tab-highlights";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { useAuthModal } from "@/components/auth-modal-provider";
-import { ReaderTabKey, TabHighlightItem, samplePaper } from "@/lib/mock-data";
+import { ReaderTabKey } from "@/lib/reader-tabs";
 import { extractDoiFromPdf } from "@/lib/pdf-doi";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { parseUploadError, validateFileSize } from "@/lib/upload-errors";
-import { fetchUserPapers, persistUserPaper, type UserPaperRecord } from "@/lib/user-papers";
+import { deleteUserPaper, fetchUserPapers, persistUserPaper, type UserPaperRecord } from "@/lib/user-papers";
 
 interface UploadedPaper {
   id: string;
@@ -26,28 +25,33 @@ interface UploadedPaper {
   source: "local" | "remote";
 }
 
-const tabCopy: Record<Exclude<ReaderTabKey, "paper">, { heading: string; description: string; empty: string }> = {
-  similarPapers: {
-    heading: "Similar papers",
-    description: "Compare neighbouring research that validates or challenges this paper's claims.",
-    empty: "Similar papers will populate once the processing pipeline promotes related work."
-  },
-  patents: {
-    heading: "Patent landscape",
-    description: "Track intellectual property that references or builds on this approach.",
-    empty: "No related patents yet. We'll surface applications as they appear."
-  },
-  theses: {
-    heading: "PhD theses",
-    description: "Survey doctoral research that explores the same methods or datasets.",
-    empty: "No theses are linked to this paper yet."
-  },
-  experts: {
-    heading: "Experts to loop in",
-    description: "Connect with reviewers who specialise in this domain for verification.",
-    empty: "Expert recommendations will unlock once the network is live."
+interface ExtractedText {
+  pages: number | null;
+  info: Record<string, any> | null;
+  text: string;
+}
+
+type ExtractionState =
+  | { status: "loading" }
+  | { status: "success"; data: ExtractedText }
+  | { status: "error"; message: string; hint?: string };
+
+function sanitizeFileName(...values: Array<string | null | undefined>) {
+  for (const raw of values) {
+    if (!raw) {
+      continue;
+    }
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const nameOnly = trimmed.split(/[\\/]/).filter(Boolean).pop();
+    if (nameOnly && nameOnly.length > 0) {
+      return nameOnly;
+    }
   }
-};
+  return "paper.pdf";
+}
 
 function PaperTabContent({
   onUpload,
@@ -82,23 +86,68 @@ function PaperTabContent({
   );
 }
 
-function HighlightsTabContent({
-  tab,
-  items
+function ExtractionDebugPanel({
+  state,
+  paper
 }: {
-  tab: Exclude<ReaderTabKey, "paper">;
-  items: TabHighlightItem[];
+  state: ExtractionState | undefined;
+  paper: UploadedPaper | null;
 }) {
-  const copy = tabCopy[tab];
+  if (!paper) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+        <p className="text-base font-medium text-slate-700">Upload a PDF to extract text.</p>
+        <p className="text-sm text-slate-500">The extracted text will appear here once processing completes.</p>
+      </div>
+    );
+  }
+
+  if (!state || state.status === "loading") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+        <div className="space-y-1">
+          <p className="text-base font-medium text-slate-700">Extracting text from PDF…</p>
+          <p className="text-xs text-slate-500">This should only take a few seconds.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-1">
+          <p className="text-base font-semibold text-red-700">Extraction failed</p>
+          <p className="text-sm text-red-600">{state.message}</p>
+          {state.hint && <p className="text-xs text-red-500">{state.hint}</p>}
+        </div>
+      </div>
+    );
+  }
+
+  const { data } = state;
 
   return (
-    <div className="space-y-6">
-      <TabHighlights
-        heading={copy.heading}
-        description={copy.description}
-        items={items}
-        emptyMessage={copy.empty}
-      />
+    <div className="flex-1 space-y-4 overflow-auto p-6">
+      {/* Metadata Section */}
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <h3 className="mb-2 text-sm font-semibold text-slate-800">Document Info</h3>
+        <div className="space-y-1 text-sm text-slate-600">
+          <p>Pages: {data.pages ?? "Unknown"}</p>
+          {data.info?.Title && <p>Title: {data.info.Title}</p>}
+          {data.info?.Author && <p>Author: {data.info.Author}</p>}
+        </div>
+      </div>
+
+      {/* Extracted Text Section */}
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <h3 className="mb-2 text-sm font-semibold text-slate-800">Extracted Text</h3>
+        <pre className="max-h-[600px] overflow-auto whitespace-pre-wrap rounded bg-slate-950/5 p-4 text-xs leading-relaxed text-slate-800">
+          {data.text}
+        </pre>
+      </div>
     </div>
   );
 }
@@ -109,6 +158,7 @@ export default function LandingPage() {
   const { user, open } = useAuthModal();
   const prevUserRef = useRef(user);
   const objectUrlsRef = useRef<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [uploadedPapers, setUploadedPapers] = useState<UploadedPaper[]>([]);
   const [activePaperId, setActivePaperId] = useState<string | null>(null);
   const [isSavingPaper, setIsSavingPaper] = useState(false);
@@ -116,11 +166,11 @@ export default function LandingPage() {
   const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
   const [isFetchingLibrary, setIsFetchingLibrary] = useState(false);
   const [isStatusDismissed, setIsStatusDismissed] = useState(false);
-  const paper = samplePaper;
-  const tabHighlightsByKey = paper.tabHighlights ?? {};
+  const [extractionStates, setExtractionStates] = useState<Record<string, ExtractionState>>({});
   const activePaper = activePaperId
     ? uploadedPapers.find((item) => item.id === activePaperId) ?? null
     : null;
+  const activeExtraction = activePaper ? extractionStates[activePaper.id] : undefined;
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const isPaperViewerActive = activeTab === "paper" && Boolean(activePaper);
   const dropzoneHelperText = !user
@@ -135,6 +185,116 @@ export default function LandingPage() {
     });
     objectUrlsRef.current = [];
   }, []);
+
+  const runExtraction = useCallback(
+    async (paper: UploadedPaper, options?: { file?: File }) => {
+      if (!paper) {
+        return;
+      }
+
+      setExtractionStates((prev) => ({
+        ...prev,
+        [paper.id]: { status: "loading" }
+      }));
+
+      try {
+        let workingFile: File | null = options?.file ?? null;
+
+        if (!workingFile && !paper.storagePath) {
+          if (!paper.url) {
+            throw new Error("Missing PDF URL for extraction.");
+          }
+
+          const pdfResponse = await fetch(paper.url, {
+            credentials: paper.source === "remote" ? "include" : "same-origin",
+            cache: "no-store"
+          });
+
+          if (!pdfResponse.ok) {
+            throw new Error(`Failed to download PDF for extraction (status ${pdfResponse.status}).`);
+          }
+
+          const blob = await pdfResponse.blob();
+          workingFile = new File([blob], sanitizeFileName(paper.fileName, "paper.pdf"), {
+            type: "application/pdf"
+          });
+        }
+
+        const fileName = sanitizeFileName(paper.fileName, workingFile?.name, "paper.pdf");
+
+        const formData = new FormData();
+        formData.append("filename", fileName);
+
+        if (paper.storagePath) {
+          formData.append("storagePath", paper.storagePath);
+        }
+
+        if (paper.url) {
+          formData.append("fileUrl", paper.url);
+        }
+
+        if (workingFile) {
+          formData.append("file", workingFile, fileName);
+        }
+
+        const response = await fetch("/api/extract-text", {
+          method: "POST",
+          body: formData
+        });
+
+        if (!response.ok) {
+          let message = "Failed to extract text from PDF.";
+          let hint: string | undefined;
+          try {
+            const errorPayload = await response.json();
+            if (typeof errorPayload?.error === "string") {
+              message = errorPayload.error;
+            }
+            if (typeof errorPayload?.hint === "string") {
+              hint = errorPayload.hint;
+            }
+          } catch (parseError) {
+            console.warn("Extraction error payload parsing failed", parseError);
+          }
+
+          setExtractionStates((prev) => ({
+            ...prev,
+            [paper.id]: {
+              status: "error",
+              message,
+              hint
+            }
+          }));
+          return;
+        }
+
+        const payload = (await response.json()) as ExtractedText;
+
+        if (!payload?.text) {
+          throw new Error("Extraction response did not include text.");
+        }
+
+        setExtractionStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "success",
+            data: payload
+          }
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to extract text from PDF.";
+        console.error("Extraction error", error);
+        setExtractionStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "error",
+            message
+          }
+        }));
+      }
+    },
+    []
+  );
 
   // Open sidebar when user logs in
   useEffect(() => {
@@ -230,6 +390,18 @@ export default function LandingPage() {
     };
   }, [clearObjectUrls, supabase, user]);
 
+  useEffect(() => {
+    if (!activePaper) {
+      return;
+    }
+
+    const state = extractionStates[activePaper.id];
+
+    if (!state) {
+      void runExtraction(activePaper);
+    }
+  }, [activePaper, extractionStates, runExtraction]);
+
   const handlePaperUpload = useCallback(
     async (file: File) => {
       if (isSavingPaper) {
@@ -297,6 +469,7 @@ export default function LandingPage() {
           setUploadedPapers((prev) => [nextPaper, ...prev.filter((item) => item.id !== nextPaper.id)]);
           setActivePaperId(nextPaper.id);
           setActiveTab("paper");
+          void runExtraction(nextPaper, { file });
           setUploadStatusMessage(
             doi
               ? `Saved and linked DOI ${doi}`
@@ -321,6 +494,7 @@ export default function LandingPage() {
           setUploadedPapers((prev) => [...prev, nextPaper]);
           setActivePaperId(id);
           setActiveTab("paper");
+          void runExtraction(nextPaper, { file });
         }
       } catch (error) {
         console.error("Failed to process upload", error);
@@ -330,7 +504,7 @@ export default function LandingPage() {
         setIsSavingPaper(false);
       }
     },
-    [isSavingPaper, open, setActiveTab, supabase, user]
+    [isSavingPaper, open, runExtraction, setActiveTab, supabase, user]
   );
 
   const handleSelectPaper = useCallback(
@@ -344,7 +518,72 @@ export default function LandingPage() {
   const handleShowUpload = useCallback(() => {
     setActivePaperId(null);
     setActiveTab("paper");
+    // Trigger file picker immediately
+    setTimeout(() => {
+      fileInputRef.current?.click();
+    }, 0);
   }, [setActivePaperId, setActiveTab]);
+
+  const handleDeletePaper = useCallback(
+    async (paperId: string) => {
+      if (!user || !supabase) {
+        return;
+      }
+
+      const paperToDelete = uploadedPapers.find((p) => p.id === paperId);
+      if (!paperToDelete) {
+        return;
+      }
+
+      // Show browser confirmation
+      const paperName = paperToDelete.name || "this paper";
+      const confirmed = window.confirm(`Delete "${paperName}"? This cannot be undone.`);
+      if (!confirmed) {
+        return;
+      }
+
+      try {
+        // Optimistically remove from UI
+        setUploadedPapers((prev) => prev.filter((p) => p.id !== paperId));
+
+        // If deleted paper was active, select another or show upload
+        if (activePaperId === paperId) {
+          const remainingPapers = uploadedPapers.filter((p) => p.id !== paperId);
+          setActivePaperId(remainingPapers[0]?.id ?? null);
+        }
+
+        // Delete from Supabase
+        if (paperToDelete.storagePath) {
+          await deleteUserPaper({
+            client: supabase,
+            userId: user.id,
+            paperId,
+            storagePath: paperToDelete.storagePath
+          });
+        }
+
+        setUploadStatusMessage(`Deleted "${paperName}"`);
+        setUploadErrorMessage(null);
+        setIsStatusDismissed(false);
+      } catch (error) {
+        console.error("Failed to delete paper", error);
+        const parsedError = parseUploadError(error);
+        setUploadErrorMessage(parsedError.message);
+
+        // Revert optimistic update on error
+        setUploadedPapers((prev) => {
+          const exists = prev.find((p) => p.id === paperId);
+          if (!exists && paperToDelete) {
+            return [paperToDelete, ...prev].sort(
+              (a, b) => b.uploadedAt.getTime() - a.uploadedAt.getTime()
+            );
+          }
+          return prev;
+        });
+      }
+    },
+    [activePaperId, supabase, uploadedPapers, user]
+  );
 
   const resolvedStatusText =
     uploadErrorMessage ??
@@ -370,13 +609,27 @@ export default function LandingPage() {
       );
     }
 
-    const tabKey = activeTab as Exclude<ReaderTabKey, "paper">;
-    const items = tabHighlightsByKey[tabKey] ?? [];
-    return <HighlightsTabContent tab={tabKey} items={items} />;
+    return <ExtractionDebugPanel state={activeExtraction} paper={activePaper} />;
   };
 
   return (
     <div className="flex min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-100 text-slate-900">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) {
+            void handlePaperUpload(file);
+          }
+          // Reset input so the same file can be selected again
+          if (event.target.value) {
+            event.target.value = "";
+          }
+        }}
+      />
       <AppSidebar
         collapsed={sidebarCollapsed}
         onToggle={() => setSidebarCollapsed((prev) => !prev)}
@@ -384,6 +637,7 @@ export default function LandingPage() {
         activePaperId={activePaperId}
         onSelectPaper={handleSelectPaper}
         onShowUpload={handleShowUpload}
+        onDeletePaper={handleDeletePaper}
         isLoading={isFetchingLibrary}
       />
       <div className="flex flex-1 flex-col">

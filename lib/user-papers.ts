@@ -129,3 +129,35 @@ export async function fetchUserPapers(client: SupabaseClient, userId: string) {
 
   return withUrls;
 }
+
+export interface DeletePaperInput {
+  client: SupabaseClient;
+  userId: string;
+  paperId: string;
+  storagePath: string;
+}
+
+export async function deleteUserPaper({ client, userId, paperId, storagePath }: DeletePaperInput) {
+  // Delete from storage bucket first
+  const deleteStorageResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .remove([storagePath]);
+
+  if (deleteStorageResult.error) {
+    console.warn("Failed to delete file from storage", deleteStorageResult.error);
+    // Continue with DB deletion even if storage deletion fails
+  }
+
+  // Delete from database
+  const deleteDbResult = await client
+    .from("user_papers")
+    .delete()
+    .eq("id", paperId)
+    .eq("user_id", userId);
+
+  if (deleteDbResult.error) {
+    throw deleteDbResult.error;
+  }
+
+  return { success: true };
+}

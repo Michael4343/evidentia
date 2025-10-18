@@ -1,16 +1,8 @@
 "use client";
 
-import { ReaderTabKey } from "@/lib/mock-data";
+import { readerTabs, type ReaderTabKey } from "@/lib/reader-tabs";
 
 type TabVariant = "horizontal" | "vertical";
-
-const tabItems: Array<{ key: ReaderTabKey; label: string }> = [
-  { key: "paper", label: "Paper" },
-  { key: "similarPapers", label: "Similar Papers" },
-  { key: "patents", label: "Patents" },
-  { key: "theses", label: "PhD Theses" },
-  { key: "experts", label: "Expert Network" }
-];
 
 type HorizontalAlignment = "center" | "start";
 
@@ -37,7 +29,7 @@ export function PaperTabNav({
 
   return (
     <nav className={navClasses}>
-      {tabItems.map((item) => {
+      {readerTabs.map((item) => {
         const isActive = item.key === activeTab;
         const sharedClasses = "flex items-center gap-2 rounded-full text-sm font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900";
         const buttonClasses = isVertical
