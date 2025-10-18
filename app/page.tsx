@@ -688,64 +688,172 @@ function ResearcherThesesPanel({
   );
 }
 
-function ExpertNetworkPanel({ paper }: { paper: UploadedPaper | null }) {
-  const mockExperts = [
-    {
-      role: "Leading Researcher",
-      institution: "Top-tier Research University",
-      focus: "Primary research area from paper"
-    },
-    {
-      role: "Senior Professor",
-      institution: "Technical Institute",
-      focus: "Related methodology and applications"
-    },
-    {
-      role: "Research Scientist",
-      institution: "International Research Lab",
-      focus: "Adjacent field and cross-disciplinary work"
-    },
-    {
-      role: "Department Head",
-      institution: "Engineering School",
-      focus: "Applied research in domain area"
-    },
-    {
-      role: "Principal Investigator",
-      institution: "Research Center",
-      focus: "Theoretical foundations"
-    }
-  ];
+function PatentsPanel({
+  state,
+  paper
+}: {
+  state: ExtractionState | undefined;
+  paper: UploadedPaper | null;
+}) {
+  return (
+    <div className="flex flex-1 flex-col overflow-auto">
+      <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
+        <div className="mx-auto max-w-5xl">
+          <h2 className="text-lg font-semibold text-slate-800">Patents</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            This section currently displays raw PDF text extraction as a placeholder. We are actively working on implementing patent search and analysis features.
+          </p>
+        </div>
+      </div>
+      <div className="flex-1 overflow-auto">
+        <ExtractionDebugPanel state={state} paper={paper} />
+      </div>
+    </div>
+  );
+}
 
+function ExpertNetworkPanel({ paper }: { paper: UploadedPaper | null }) {
   if (!paper) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-        <p className="text-base font-medium text-slate-700">Upload a PDF to find relevant experts.</p>
-        <p className="text-sm text-slate-500">We&apos;ll show experts working in related fields once you select a paper.</p>
+        <p className="text-base font-medium text-slate-700">Upload a PDF to request expert consultation.</p>
+        <p className="text-sm text-slate-500">We&apos;ll connect you with relevant experts once you select a paper.</p>
       </div>
     );
   }
 
   return (
     <div className="flex-1 overflow-auto p-6">
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-6">
-          <h2 className="text-lg font-semibold text-slate-800">Expert Network</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Researchers and experts working in related areas
+      <div className="mx-auto max-w-3xl">
+        {/* Header with placeholder notice */}
+        <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
+          <p className="text-sm text-blue-800">
+            This is a preview of the Expert Review feature. We are actively building the expert matching and scheduling system.
           </p>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {mockExperts.map((expert, index) => (
-            <div
-              key={index}
-              className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md"
-            >
-              <h3 className="text-base font-semibold text-slate-900">{expert.role}</h3>
-              <p className="mt-2 text-sm font-medium text-slate-700">{expert.institution}</p>
-              <p className="mt-1 text-sm text-slate-600">{expert.focus}</p>
+
+        {/* Expert Review Section */}
+        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="mb-6 flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-800">Expert Review</h2>
+              <p className="mt-1 text-sm text-slate-600">Schedule a consultation with a domain expert to validate these findings.</p>
             </div>
-          ))}
+            <button
+              disabled
+              className="rounded-full bg-slate-900 px-5 py-2 text-sm font-medium text-white opacity-50 cursor-not-allowed"
+            >
+              Request a call
+            </button>
+          </div>
+
+          {/* Request Form */}
+          <div className="space-y-5">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Topic or question
+              </label>
+              <textarea
+                disabled
+                placeholder="Prefilled from current paper/protocol, editable"
+                className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600 cursor-not-allowed"
+                rows={3}
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Outcome</label>
+                <select disabled className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600 cursor-not-allowed">
+                  <option>Quick advice</option>
+                  <option>Method triage</option>
+                  <option>Go or no go</option>
+                  <option>Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-2">Duration</label>
+                <select disabled className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600 cursor-not-allowed">
+                  <option>30 minutes</option>
+                  <option>60 minutes</option>
+                  <option>90 minutes</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Urgency</label>
+              <div className="flex gap-3">
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input type="radio" disabled className="cursor-not-allowed" name="urgency" />
+                  This week
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input type="radio" disabled className="cursor-not-allowed" name="urgency" />
+                  Next week
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-600">
+                  <input type="radio" disabled className="cursor-not-allowed" name="urgency" />
+                  Flexible
+                </label>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Availability windows
+              </label>
+              <textarea
+                disabled
+                placeholder="e.g., Mon-Wed 2-5pm EST, Thu anytime"
+                className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600 cursor-not-allowed"
+                rows={2}
+              />
+            </div>
+
+            <div className="flex gap-6">
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox" disabled className="cursor-not-allowed rounded" />
+                NDA required
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox" disabled className="cursor-not-allowed rounded" />
+                Share project context with expert
+              </label>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Conflicts of interest to avoid
+              </label>
+              <input
+                type="text"
+                disabled
+                placeholder="e.g., Companies, institutions, or individuals"
+                className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600 cursor-not-allowed"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Contact email
+              </label>
+              <input
+                type="email"
+                disabled
+                placeholder="Auto-filled from account"
+                className="w-full rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600 cursor-not-allowed"
+              />
+            </div>
+
+            <button
+              disabled
+              className="w-full rounded-lg bg-slate-900 px-4 py-3 text-sm font-medium text-white opacity-50 cursor-not-allowed"
+            >
+              Submit request
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1839,6 +1947,10 @@ export default function LandingPage() {
 
     if (activeTab === "experts") {
       return <ExpertNetworkPanel paper={activePaper} />;
+    }
+
+    if (activeTab === "patents") {
+      return <PatentsPanel state={activeExtraction} paper={activePaper} />;
     }
 
     return <ExtractionDebugPanel state={activeExtraction} paper={activePaper} />;

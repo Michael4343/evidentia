@@ -1,6 +1,4 @@
 CODEX
-put into production
-compile similar papers
 upgrade prompts
 share with anders
 implement UI
