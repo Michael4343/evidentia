@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const MAX_TEXT_LENGTH = 12_000;
+const MAX_TEXT_LENGTH = 10_000;
 
 interface PaperPayload {
   title?: string | null;
@@ -95,7 +95,7 @@ function buildPrompt(paper: PaperPayload): string {
     abstractLine,
     "",
     "Output",
-    "Produce a detailed research dossier that a human operator can later transform into structured data. Use headings and bullet lists where helpful, but strict formatting is not required.",
+    "Produce a detailed research dossier that a human operator can later transform into structured data. Use headings and bullet lists where helpful, but strict formatting is not required. Keep the entire response under roughly 1,800 tokens (about 1,200 words) while covering every checklist item.",
     "",
     "Tasks",
     "",
@@ -215,7 +215,7 @@ export async function POST(request: Request) {
           tools: [{ type: "web_search", search_context_size: "medium" }],
           tool_choice: "auto",
           input: assembledPrompt,
-          max_output_tokens: 4_096
+          max_output_tokens: 6_144
         }),
         signal: controller.signal
       });
@@ -248,19 +248,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to read model response." }, { status: 502 });
     }
 
-    if (payload?.status === "incomplete" && payload?.incomplete_details?.reason) {
-      console.warn("[similar-papers] Model response incomplete", payload.incomplete_details);
-      return NextResponse.json(
-        {
-          error:
-            payload.incomplete_details.reason === "max_output_tokens"
-              ? "Similar paper search hit the output limit. Try again in a moment."
-              : `Similar paper search ended early: ${payload.incomplete_details.reason}`
-        },
-        { status: 502 }
-      );
-    }
-
     let outputText = typeof payload?.output_text === "string" ? payload.output_text.trim() : "";
 
     if (!outputText && Array.isArray(payload?.output)) {
@@ -273,6 +260,23 @@ export async function POST(request: Request) {
         )
         .join("\n")
         .trim();
+    }
+
+    if (payload?.status === "incomplete" && payload?.incomplete_details?.reason) {
+      console.warn("[similar-papers] Model response incomplete", payload.incomplete_details);
+      if (outputText) {
+        outputText = `${outputText}\n\n[Note: Response truncated because the model hit its output limit. Consider rerunning if key details are missing.]`;
+      } else {
+        return NextResponse.json(
+          {
+            error:
+              payload.incomplete_details.reason === "max_output_tokens"
+                ? "Similar paper search hit the output limit before completing. Try again in a moment."
+                : `Similar paper search ended early: ${payload.incomplete_details.reason}`
+          },
+          { status: 502 }
+        );
+      }
     }
 
     if (!outputText) {
