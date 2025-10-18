@@ -13,6 +13,57 @@ import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { parseUploadError, validateFileSize } from "@/lib/upload-errors";
 import { deleteUserPaper, fetchUserPapers, persistUserPaper, type UserPaperRecord } from "@/lib/user-papers";
 
+const RESEARCH_CACHE_VERSION = "v1";
+
+type CacheStage = "groups" | "contacts" | "theses";
+
+function getCacheKey(paperId: string, stage: CacheStage) {
+  return `paper-cache:${RESEARCH_CACHE_VERSION}:${paperId}:${stage}`;
+}
+
+function readCachedState<T>(paperId: string, stage: CacheStage): T | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(getCacheKey(paperId, stage));
+    if (!raw) {
+      return null;
+    }
+
+    const payload = JSON.parse(raw);
+
+    if (!payload || payload.version !== RESEARCH_CACHE_VERSION) {
+      return null;
+    }
+
+    return payload.data as T;
+  } catch (error) {
+    console.warn(`[cache] Failed to read ${stage}`, error);
+    return null;
+  }
+}
+
+function writeCachedState<T>(paperId: string, stage: CacheStage, data: T) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      getCacheKey(paperId, stage),
+      JSON.stringify({
+        version: RESEARCH_CACHE_VERSION,
+        timestamp: Date.now(),
+        data
+      })
+    );
+  } catch (error) {
+    console.warn(`[cache] Failed to write ${stage}`, error);
+  }
+}
+
 interface UploadedPaper {
   id: string;
   name: string;
@@ -31,10 +82,47 @@ interface ExtractedText {
   text: string;
 }
 
+interface ResearcherThesisRecord {
+  name: string | null;
+  email: string | null;
+  group: string | null;
+  latest_publication: {
+    title: string | null;
+    year: number | null;
+    venue: string | null;
+    url: string | null;
+  };
+  phd_thesis: {
+    title: string | null;
+    year: number | null;
+    institution: string | null;
+    url: string | null;
+  } | null;
+  data_publicly_available: "yes" | "no" | "unknown";
+}
+
 type ExtractionState =
   | { status: "loading" }
   | { status: "success"; data: ExtractedText }
   | { status: "error"; message: string; hint?: string };
+
+type ResearchGroupsState =
+  | { status: "loading" }
+  | { status: "success"; text: string }
+  | { status: "error"; message: string };
+
+type ResearchGroupContactsState =
+  | { status: "loading" }
+  | { status: "success"; contacts: Array<{ group: string; people: Array<{ name: string | null; email: string | null }> }> }
+  | { status: "error"; message: string };
+
+type ResearcherThesesState =
+  | { status: "loading" }
+  | {
+      status: "success";
+      researchers: ResearcherThesisRecord[];
+    }
+  | { status: "error"; message: string };
 
 function sanitizeFileName(...values: Array<string | null | undefined>) {
   for (const raw of values) {
@@ -152,6 +240,379 @@ function ExtractionDebugPanel({
   );
 }
 
+function ResearchGroupsPanel({
+  paper,
+  extraction,
+  state,
+  contacts,
+  onRetry
+}: {
+  paper: UploadedPaper | null;
+  extraction: ExtractionState | undefined;
+  state: ResearchGroupsState | undefined;
+  contacts: ResearchGroupContactsState | undefined;
+  onRetry: () => void;
+}) {
+  if (!paper) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+        <p className="text-base font-medium text-slate-700">Upload a PDF to research related groups.</p>
+        <p className="text-sm text-slate-500">We need a paper selected before running the deep search.</p>
+      </div>
+    );
+  }
+
+  if (!extraction || extraction.status === "loading") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+        <div className="space-y-1">
+          <p className="text-base font-medium text-slate-700">Preparing extracted text…</p>
+          <p className="text-xs text-slate-500">We’ll run the search as soon as extraction finishes.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (extraction.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-1">
+          <p className="text-base font-semibold text-red-700">Text extraction failed</p>
+          <p className="text-sm text-red-600">
+            {extraction.message || "We couldn’t extract text from this PDF, so the search can’t run."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!state || state.status === "loading") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+        <div className="space-y-1">
+          <p className="text-base font-medium text-slate-700">Researching active groups…</p>
+          <p className="text-xs text-slate-500">GPT-5 is compiling relevant organisations.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-1">
+          <p className="text-base font-semibold text-red-700">Research request failed</p>
+          <p className="text-sm text-red-600">{state.message}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-auto p-6 space-y-6">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <h3 className="mb-3 text-sm font-semibold text-slate-800">Research Groups</h3>
+        <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+          {state.text}
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <h3 className="mb-3 text-sm font-semibold text-slate-800">Group Contacts</h3>
+        {!contacts || contacts.status === "loading" ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-6 text-center text-sm text-slate-600">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+            <p>Looking up contact details…</p>
+          </div>
+        ) : contacts.status === "error" ? (
+          <div className="space-y-2 text-sm text-red-600">
+            <p className="font-semibold">Contact lookup failed</p>
+            <p>{contacts.message}</p>
+          </div>
+        ) : contacts.contacts.length === 0 ? (
+          <p className="text-sm text-slate-600">No contact emails were listed in the research summaries.</p>
+        ) : (
+          <div className="space-y-6">
+            {contacts.contacts.map((group) => (
+              <div key={group.group} className="space-y-2">
+                <p className="text-sm font-semibold text-slate-800">{group.group}</p>
+                {group.people.length === 0 ? (
+                  <p className="text-sm text-slate-600">No emails mentioned for this group.</p>
+                ) : (
+                  <div className="overflow-auto rounded border border-slate-200">
+                    <table className="min-w-full divide-y divide-slate-200 text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-700">Name</th>
+                          <th className="px-3 py-2 text-left font-semibold text-slate-700">Email</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {group.people.map((person, index) => (
+                          <tr key={`${group.group}-${person.email}-${index}`}>
+                            <td className="px-3 py-2 text-slate-700">{person.name ?? "—"}</td>
+                            <td className="px-3 py-2 text-slate-700">
+                              {person.email ? (
+                                <a href={`mailto:${person.email}`} className="text-primary hover:underline">
+                                  {person.email}
+                                </a>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ResearcherThesesPanel({
+  state,
+  hasResearchGroups
+}: {
+  state: ResearcherThesesState | undefined;
+  hasResearchGroups: boolean;
+}) {
+  if (!hasResearchGroups) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+        <p className="text-base font-medium text-slate-700">Run the Research Groups tab first.</p>
+        <p className="text-sm text-slate-500">We need group results before we can look for theses.</p>
+      </div>
+    );
+  }
+
+  if (!state || state.status === "loading") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+        <p className="text-sm text-slate-600">Collecting latest publications and theses…</p>
+      </div>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-1">
+          <p className="text-base font-semibold text-red-700">Researcher lookup failed</p>
+          <p className="text-sm text-red-600">{state.message}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const researchers = state.researchers;
+
+  if (researchers.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+        <p className="text-sm text-slate-600">No researcher publications or theses were found in the current summaries.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-auto p-6 space-y-4">
+      {researchers.map((researcher, index) => (
+        <div
+          key={`${researcher.name ?? researcher.email ?? index}`}
+          className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
+        >
+          <div className="mb-2 flex flex-col gap-1">
+            <p className="text-base font-semibold text-slate-800">
+              {researcher.name ?? researcher.email ?? "Unnamed researcher"}
+            </p>
+            <div className="text-sm text-slate-600">
+              {researcher.group && <p>Group: {researcher.group}</p>}
+              {researcher.email && (
+                <p>
+                  Email: {" "}
+                  <a href={`mailto:${researcher.email}`} className="text-primary hover:underline">
+                    {researcher.email}
+                  </a>
+                </p>
+              )}
+              <p>Data publicly available: {researcher.data_publicly_available}</p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded border border-slate-100 p-3">
+              <p className="text-sm font-semibold text-slate-700">Latest publication</p>
+              {researcher.latest_publication?.title ? (
+                <dl className="mt-2 space-y-1 text-sm text-slate-600">
+                  <div>
+                    <dt className="font-medium text-slate-700">Title</dt>
+                    <dd>{researcher.latest_publication.title}</dd>
+                  </div>
+                  {researcher.latest_publication.year !== null && (
+                    <div>
+                      <dt className="font-medium text-slate-700">Year</dt>
+                      <dd>{researcher.latest_publication.year}</dd>
+                    </div>
+                  )}
+                  {researcher.latest_publication.venue && (
+                    <div>
+                      <dt className="font-medium text-slate-700">Venue</dt>
+                      <dd>{researcher.latest_publication.venue}</dd>
+                    </div>
+                  )}
+                  {researcher.latest_publication.url && (
+                    <div>
+                      <dt className="font-medium text-slate-700">Link</dt>
+                      <dd>
+                        <a
+                          href={researcher.latest_publication.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          {researcher.latest_publication.url}
+                        </a>
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              ) : (
+                <p className="mt-2 text-sm text-slate-600">No recent publication details found.</p>
+              )}
+            </div>
+
+            <div className="rounded border border-slate-100 p-3">
+              <p className="text-sm font-semibold text-slate-700">PhD thesis</p>
+              {researcher.phd_thesis ? (
+                <dl className="mt-2 space-y-1 text-sm text-slate-600">
+                  {researcher.phd_thesis.title && (
+                    <div>
+                      <dt className="font-medium text-slate-700">Title</dt>
+                      <dd>{researcher.phd_thesis.title}</dd>
+                    </div>
+                  )}
+                  {researcher.phd_thesis.year !== null && (
+                    <div>
+                      <dt className="font-medium text-slate-700">Year</dt>
+                      <dd>{researcher.phd_thesis.year}</dd>
+                    </div>
+                  )}
+                  {researcher.phd_thesis.institution && (
+                    <div>
+                      <dt className="font-medium text-slate-700">Institution</dt>
+                      <dd>{researcher.phd_thesis.institution}</dd>
+                    </div>
+                  )}
+                  {researcher.phd_thesis.url && (
+                    <div>
+                      <dt className="font-medium text-slate-700">Link</dt>
+                      <dd>
+                        <a
+                          href={researcher.phd_thesis.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          {researcher.phd_thesis.url}
+                        </a>
+                      </dd>
+                    </div>
+                  )}
+                </dl>
+              ) : (
+                <p className="mt-2 text-sm text-slate-600">No thesis information found.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ExpertNetworkPanel({ paper }: { paper: UploadedPaper | null }) {
+  const mockExperts = [
+    {
+      role: "Leading Researcher",
+      institution: "Top-tier Research University",
+      focus: "Primary research area from paper"
+    },
+    {
+      role: "Senior Professor",
+      institution: "Technical Institute",
+      focus: "Related methodology and applications"
+    },
+    {
+      role: "Research Scientist",
+      institution: "International Research Lab",
+      focus: "Adjacent field and cross-disciplinary work"
+    },
+    {
+      role: "Department Head",
+      institution: "Engineering School",
+      focus: "Applied research in domain area"
+    },
+    {
+      role: "Principal Investigator",
+      institution: "Research Center",
+      focus: "Theoretical foundations"
+    }
+  ];
+
+  if (!paper) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+        <p className="text-base font-medium text-slate-700">Upload a PDF to find relevant experts.</p>
+        <p className="text-sm text-slate-500">We'll show experts working in related fields once you select a paper.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-auto p-6">
+      <div className="mx-auto max-w-5xl">
+        <div className="mb-6">
+          <h2 className="text-lg font-semibold text-slate-800">Expert Network</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Researchers and experts working in related areas
+          </p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {mockExperts.map((expert, index) => (
+            <div
+              key={index}
+              className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm transition hover:shadow-md"
+            >
+              <h3 className="text-base font-semibold text-slate-900">{expert.role}</h3>
+              <p className="mt-2 text-sm font-medium text-slate-700">{expert.institution}</p>
+              <p className="mt-1 text-sm text-slate-600">{expert.focus}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LandingPage() {
   const [activeTab, setActiveTab] = useState<ReaderTabKey>("paper");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -167,10 +628,16 @@ export default function LandingPage() {
   const [isFetchingLibrary, setIsFetchingLibrary] = useState(false);
   const [isStatusDismissed, setIsStatusDismissed] = useState(false);
   const [extractionStates, setExtractionStates] = useState<Record<string, ExtractionState>>({});
+  const [researchGroupsStates, setResearchGroupsStates] = useState<Record<string, ResearchGroupsState>>({});
+  const [researchContactsStates, setResearchContactsStates] = useState<Record<string, ResearchGroupContactsState>>({});
+  const [researchThesesStates, setResearchThesesStates] = useState<Record<string, ResearcherThesesState>>({});
   const activePaper = activePaperId
     ? uploadedPapers.find((item) => item.id === activePaperId) ?? null
     : null;
   const activeExtraction = activePaper ? extractionStates[activePaper.id] : undefined;
+  const activeResearchGroupState = activePaper ? researchGroupsStates[activePaper.id] : undefined;
+  const activeResearchContactsState = activePaper ? researchContactsStates[activePaper.id] : undefined;
+  const activeResearchThesesState = activePaper ? researchThesesStates[activePaper.id] : undefined;
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const isPaperViewerActive = activeTab === "paper" && Boolean(activePaper);
   const dropzoneHelperText = !user
@@ -186,6 +653,61 @@ export default function LandingPage() {
     objectUrlsRef.current = [];
   }, []);
 
+  useEffect(() => {
+    if (!activePaper) {
+      return;
+    }
+
+    const paperId = activePaper.id;
+
+    if (!activeResearchGroupState) {
+      const cachedGroups = readCachedState<{ text: string }>(paperId, "groups");
+      if (cachedGroups?.text) {
+        setResearchGroupsStates((prev) => ({
+          ...prev,
+          [paperId]: {
+            status: "success",
+            text: cachedGroups.text
+          }
+        }));
+      }
+    }
+
+    if (!activeResearchContactsState) {
+      const cachedContacts = readCachedState<{
+        contacts: Array<{ group: string; people: Array<{ name: string | null; email: string | null }> }>;
+      }>(paperId, "contacts");
+
+      if (cachedContacts?.contacts) {
+        setResearchContactsStates((prev) => ({
+          ...prev,
+          [paperId]: {
+            status: "success",
+            contacts: cachedContacts.contacts
+          }
+        }));
+      }
+    }
+
+    if (!activeResearchThesesState) {
+      const cachedTheses = readCachedState<{ researchers: ResearcherThesisRecord[] }>(paperId, "theses");
+      if (cachedTheses?.researchers) {
+        setResearchThesesStates((prev) => ({
+          ...prev,
+          [paperId]: {
+            status: "success",
+            researchers: cachedTheses.researchers
+          }
+        }));
+      }
+    }
+  }, [
+    activePaper,
+    activeResearchGroupState,
+    activeResearchContactsState,
+    activeResearchThesesState
+  ]);
+
   const runExtraction = useCallback(
     async (paper: UploadedPaper, options?: { file?: File }) => {
       if (!paper) {
@@ -196,6 +718,33 @@ export default function LandingPage() {
         ...prev,
         [paper.id]: { status: "loading" }
       }));
+
+      setResearchGroupsStates((prev) => {
+        if (!(paper.id in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[paper.id];
+        return next;
+      });
+
+      setResearchContactsStates((prev) => {
+        if (!(paper.id in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[paper.id];
+        return next;
+      });
+
+      setResearchThesesStates((prev) => {
+        if (!(paper.id in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[paper.id];
+        return next;
+      });
 
       try {
         let workingFile: File | null = options?.file ?? null;
@@ -296,6 +845,289 @@ export default function LandingPage() {
     []
   );
 
+  const runResearcherTheses = useCallback(
+    async (
+      paper: UploadedPaper,
+      contacts: Array<{ group: string; people: Array<{ name: string | null; email: string | null }> }>
+    ) => {
+      if (!paper) {
+        return;
+      }
+
+      const researchersPayload = contacts.filter((entry) => entry.people.length > 0);
+
+      if (researchersPayload.length === 0) {
+        setResearchThesesStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "success",
+            researchers: []
+          }
+        }));
+        return;
+      }
+
+      console.log("[researcher-theses] starting fetch", {
+        paperId: paper.id,
+        groups: researchersPayload.length
+      });
+
+      setResearchThesesStates((prev) => ({
+        ...prev,
+        [paper.id]: { status: "loading" }
+      }));
+
+      try {
+        const response = await fetch("/api/researcher-theses", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            contacts: researchersPayload
+          })
+        });
+
+        if (!response.ok) {
+          let message = "Failed to fetch researcher details.";
+          try {
+            const errorPayload = await response.json();
+            if (typeof errorPayload?.error === "string") {
+              message = errorPayload.error;
+            }
+          } catch (parseError) {
+            console.warn("[researcher-theses] error payload parsing failed", parseError);
+          }
+          throw new Error(message);
+        }
+
+        const payload = (await response.json()) as {
+          researchers?: ResearcherThesisRecord[];
+        };
+
+        const researchers = Array.isArray(payload?.researchers)
+          ? payload.researchers
+          : [];
+
+        console.log("[researcher-theses] fetch success", {
+          paperId: paper.id,
+          researchers: researchers.length
+        });
+
+        writeCachedState(paper.id, "theses", { researchers });
+
+        setResearchThesesStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "success",
+            researchers
+          }
+        }));
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Failed to fetch researcher details.";
+
+        console.error("[researcher-theses] fetch error", {
+          paperId: paper.id,
+          error
+        });
+
+        setResearchThesesStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "error",
+            message
+          }
+        }));
+      }
+    },
+    []
+  );
+
+  const runResearchGroupContacts = useCallback(async (paper: UploadedPaper, researchText: string) => {
+    if (!paper || researchText.trim().length === 0) {
+      return;
+    }
+
+    console.log("[research-group-contacts] starting fetch", {
+      paperId: paper.id,
+      textLength: researchText.length
+    });
+
+    setResearchContactsStates((prev) => ({
+      ...prev,
+      [paper.id]: { status: "loading" }
+    }));
+
+    try {
+      const response = await fetch("/api/research-group-contacts", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          text: researchText
+        })
+      });
+
+      if (!response.ok) {
+        let message = "Failed to fetch contact details.";
+        try {
+          const errorPayload = await response.json();
+          if (typeof errorPayload?.error === "string") {
+            message = errorPayload.error;
+          }
+        } catch (parseError) {
+          console.warn("[research-group-contacts] error payload parsing failed", parseError);
+        }
+        throw new Error(message);
+      }
+
+      const payload = (await response.json()) as {
+        contacts?: Array<{ group: string; people: Array<{ name: string | null; email: string | null }> }>;
+      };
+
+      const contacts = Array.isArray(payload?.contacts) ? payload.contacts : [];
+
+      console.log("[research-group-contacts] fetch success", {
+        paperId: paper.id,
+        groups: contacts.length
+      });
+
+      writeCachedState(paper.id, "contacts", { contacts });
+
+      setResearchContactsStates((prev) => ({
+        ...prev,
+        [paper.id]: {
+          status: "success",
+          contacts
+        }
+      }));
+
+      if (contacts.length > 0) {
+        void runResearcherTheses(paper, contacts);
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Failed to fetch contact details.";
+
+      console.error("[research-group-contacts] fetch error", {
+        paperId: paper.id,
+        error
+      });
+
+      setResearchContactsStates((prev) => ({
+        ...prev,
+        [paper.id]: {
+          status: "error",
+          message
+        }
+      }));
+
+      setResearchThesesStates((prev) => ({
+        ...prev,
+        [paper.id]: {
+          status: "error",
+          message: "Contact lookup failed, so thesis details are unavailable."
+        }
+      }));
+    }
+  }, [runResearcherTheses]);
+
+  const runResearchGroups = useCallback(async (paper: UploadedPaper, extraction: ExtractedText) => {
+    if (!paper || !extraction?.text) {
+      return;
+    }
+
+    console.log("[research-groups] starting fetch", {
+      paperId: paper.id,
+      extractionTextLength: extraction.text.length
+    });
+
+    setResearchGroupsStates((prev) => ({
+      ...prev,
+      [paper.id]: { status: "loading" }
+    }));
+
+    try {
+      const response = await fetch("/api/research-groups", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          paperId: paper.id,
+          paperName: paper.name,
+          doi: paper.doi,
+          text: extraction.text,
+          metadata: {
+            pages: extraction.pages,
+            info: extraction.info
+          }
+        })
+      });
+
+      if (!response.ok) {
+        let message = "Failed to fetch research groups.";
+        try {
+          const errorPayload = await response.json();
+          if (typeof errorPayload?.error === "string") {
+            message = errorPayload.error;
+          }
+        } catch (parseError) {
+          console.warn("Research groups error payload parsing failed", parseError);
+        }
+        throw new Error(message);
+      }
+
+      const payload = (await response.json()) as { text?: string | null };
+      const outputText = typeof payload?.text === "string" ? payload.text.trim() : "";
+
+      if (!outputText) {
+        throw new Error("Research response did not include text.");
+      }
+
+      console.log("[research-groups] fetch success", {
+        paperId: paper.id,
+        textPreview: outputText.slice(0, 120)
+      });
+
+      writeCachedState(paper.id, "groups", { text: outputText });
+
+      setResearchGroupsStates((prev) => ({
+        ...prev,
+        [paper.id]: {
+          status: "success",
+          text: outputText
+        }
+      }));
+
+      void runResearchGroupContacts(paper, outputText);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Failed to gather research groups.";
+
+      console.error("[research-groups] fetch error", {
+        paperId: paper.id,
+        error
+      });
+
+      setResearchGroupsStates((prev) => ({
+        ...prev,
+        [paper.id]: {
+          status: "error",
+          message
+        }
+      }));
+    }
+  }, [runResearchGroupContacts]);
+
   // Open sidebar when user logs in
   useEffect(() => {
     if (!prevUserRef.current && user) {
@@ -320,6 +1152,10 @@ export default function LandingPage() {
       setActivePaperId(null);
       setUploadStatusMessage(null);
       setUploadErrorMessage(null);
+      setExtractionStates({});
+      setResearchGroupsStates({});
+      setResearchContactsStates({});
+      setResearchThesesStates({});
       return;
     }
 
@@ -401,6 +1237,56 @@ export default function LandingPage() {
       void runExtraction(activePaper);
     }
   }, [activePaper, extractionStates, runExtraction]);
+
+  useEffect(() => {
+    if (activeTab !== "researchGroups") {
+      return;
+    }
+
+    if (!activePaper) {
+      return;
+    }
+
+    if (!activeExtraction || activeExtraction.status !== "success") {
+      return;
+    }
+
+    if (activeResearchGroupState) {
+      return;
+    }
+
+    void runResearchGroups(activePaper, activeExtraction.data);
+  }, [activeTab, activePaper, activeExtraction, activeResearchGroupState, runResearchGroups]);
+
+  useEffect(() => {
+    if (activeTab !== "theses") {
+      return;
+    }
+
+    if (!activePaper) {
+      return;
+    }
+
+    if (activeResearchThesesState) {
+      return;
+    }
+
+    if (!activeResearchContactsState || activeResearchContactsState.status !== "success") {
+      return;
+    }
+
+    if (activeResearchContactsState.contacts.length === 0) {
+      return;
+    }
+
+    void runResearcherTheses(activePaper, activeResearchContactsState.contacts);
+  }, [
+    activeTab,
+    activePaper,
+    activeResearchContactsState,
+    activeResearchThesesState,
+    runResearcherTheses
+  ]);
 
   const handlePaperUpload = useCallback(
     async (file: File) => {
@@ -524,6 +1410,18 @@ export default function LandingPage() {
     }, 0);
   }, [setActivePaperId, setActiveTab]);
 
+  const handleRetryResearchGroups = useCallback(() => {
+    if (!activePaper) {
+      return;
+    }
+
+    if (!activeExtraction || activeExtraction.status !== "success") {
+      return;
+    }
+
+    void runResearchGroups(activePaper, activeExtraction.data);
+  }, [activePaper, activeExtraction, runResearchGroups]);
+
   const handleDeletePaper = useCallback(
     async (paperId: string) => {
       if (!user || !supabase) {
@@ -616,6 +1514,31 @@ export default function LandingPage() {
           viewerClassName={isPaperViewerActive ? "!h-full w-full flex-1" : undefined}
         />
       );
+    }
+
+    if (activeTab === "researchGroups") {
+      return (
+        <ResearchGroupsPanel
+          paper={activePaper}
+          extraction={activeExtraction}
+          state={activeResearchGroupState}
+          contacts={activeResearchContactsState}
+          onRetry={handleRetryResearchGroups}
+        />
+      );
+    }
+
+    if (activeTab === "theses") {
+      return (
+        <ResearcherThesesPanel
+          state={activeResearchThesesState}
+          hasResearchGroups={Boolean(activeResearchGroupState && activeResearchGroupState.status === "success")}
+        />
+      );
+    }
+
+    if (activeTab === "experts") {
+      return <ExpertNetworkPanel paper={activePaper} />;
     }
 
     return <ExtractionDebugPanel state={activeExtraction} paper={activePaper} />;

@@ -1,9 +1,10 @@
 CODEX
-GPT 5 agent to search for research groups related to a paper
-search research groups for relevant PhD thesis
-
-
+put into production
 compile similar papers
+upgrade prompts
+share with anders
+implement UI
+
 compile similar patents
 
 
