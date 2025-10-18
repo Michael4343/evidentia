@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, type ChangeEvent } from "react";
+import { useState } from "react";
 import Image from "next/image";
 
 import { useAuthModal } from "@/components/auth-modal-provider";
@@ -19,7 +19,7 @@ interface AppSidebarProps {
   papers: SidebarPaperItem[];
   activePaperId: string | null;
   onSelectPaper: (paperId: string) => void;
-  onUpload?: (file: File) => void;
+  onShowUpload?: () => void;
   isLoading?: boolean;
 }
 
@@ -29,7 +29,7 @@ export function AppSidebar({
   papers,
   activePaperId,
   onSelectPaper,
-  onUpload,
+  onShowUpload,
   isLoading = false
 }: AppSidebarProps) {
   const isCollapsed = collapsed;
@@ -37,7 +37,6 @@ export function AppSidebar({
   const hasPapers = papers.length > 0;
   const { open, user, signOut, isAuthReady } = useAuthModal();
   const [isSigningOut, setIsSigningOut] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleAuthClick = async () => {
     if (user) {
@@ -57,20 +56,8 @@ export function AppSidebar({
     open("login");
   };
 
-  const handleFileInputChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) {
-      return;
-    }
-    void onUpload?.(file);
-    event.target.value = "";
-  };
-
   const handleAddPaperClick = () => {
-    if (!onUpload) {
-      return;
-    }
-    fileInputRef.current?.click();
+    onShowUpload?.();
   };
 
   return (
@@ -120,17 +107,10 @@ export function AppSidebar({
         )}
       </button>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="application/pdf,.pdf"
-        className="sr-only"
-        onChange={handleFileInputChange}
-      />
       <button
         type="button"
         onClick={handleAddPaperClick}
-        disabled={!onUpload || isLoading}
+        disabled={isLoading}
         className={`mt-3 flex items-center justify-center rounded-full border border-dashed border-slate-300 text-sm font-semibold text-slate-600 transition hover:border-slate-400 hover:text-slate-900 disabled:cursor-not-allowed disabled:opacity-50 ${
           isCollapsed ? "h-12 w-12" : "h-12 w-full px-4"
         }`}

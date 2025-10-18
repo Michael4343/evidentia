@@ -11,6 +11,7 @@ import { useAuthModal } from "@/components/auth-modal-provider";
 import { ReaderTabKey, TabHighlightItem, samplePaper } from "@/lib/mock-data";
 import { extractDoiFromPdf } from "@/lib/pdf-doi";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
+import { parseUploadError, validateFileSize } from "@/lib/upload-errors";
 import { fetchUserPapers, persistUserPaper, type UserPaperRecord } from "@/lib/user-papers";
 
 interface UploadedPaper {
@@ -52,32 +53,21 @@ function PaperTabContent({
   onUpload,
   activePaper,
   isUploading,
-  statusMessage,
-  errorMessage,
   helperText,
   viewerClassName
 }: {
   onUpload: (file: File) => void;
   activePaper: UploadedPaper | null;
   isUploading: boolean;
-  statusMessage: string | null;
-  errorMessage: string | null;
   helperText?: string;
   viewerClassName?: string;
 }) {
   if (!activePaper) {
     return (
-      <div className="space-y-4">
-        <UploadDropzone
-          onUpload={onUpload}
-          helperText={isUploading ? "Saving your paper to the library…" : helperText}
-        />
-        {(statusMessage || errorMessage) && (
-          <p className={`text-sm ${errorMessage ? "text-red-600" : "text-slate-500"}`}>
-            {errorMessage ?? statusMessage}
-          </p>
-        )}
-      </div>
+      <UploadDropzone
+        onUpload={onUpload}
+        helperText={isUploading ? "Saving your paper to the library…" : helperText}
+      />
     );
   }
 
@@ -125,6 +115,7 @@ export default function LandingPage() {
   const [uploadStatusMessage, setUploadStatusMessage] = useState<string | null>(null);
   const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
   const [isFetchingLibrary, setIsFetchingLibrary] = useState(false);
+  const [isStatusDismissed, setIsStatusDismissed] = useState(false);
   const paper = samplePaper;
   const tabHighlightsByKey = paper.tabHighlights ?? {};
   const activePaper = activePaperId
@@ -223,7 +214,8 @@ export default function LandingPage() {
           return;
         }
         console.error("Failed to fetch saved papers", error);
-        setUploadErrorMessage("We could not load your saved papers just now.");
+        const parsedError = parseUploadError(error);
+        setUploadErrorMessage(parsedError.message);
       })
       .finally(() => {
         if (!isMounted) {
@@ -244,10 +236,21 @@ export default function LandingPage() {
         return;
       }
 
+      // Reset dismiss state on new upload
+      setIsStatusDismissed(false);
+
       if (!user) {
         open("login");
         setUploadStatusMessage(null);
         setUploadErrorMessage("Sign in to save papers to your library.");
+        return;
+      }
+
+      // Validate file size before proceeding
+      const validation = validateFileSize(file);
+      if (!validation.valid) {
+        setUploadStatusMessage(null);
+        setUploadErrorMessage(validation.error.message);
         return;
       }
 
@@ -321,7 +324,8 @@ export default function LandingPage() {
         }
       } catch (error) {
         console.error("Failed to process upload", error);
-        setUploadErrorMessage("We could not save your paper. Please try again.");
+        const parsedError = parseUploadError(error);
+        setUploadErrorMessage(parsedError.message);
       } finally {
         setIsSavingPaper(false);
       }
@@ -337,6 +341,22 @@ export default function LandingPage() {
     [setActiveTab]
   );
 
+  const handleShowUpload = useCallback(() => {
+    setActivePaperId(null);
+    setActiveTab("paper");
+  }, [setActivePaperId, setActiveTab]);
+
+  const resolvedStatusText =
+    uploadErrorMessage ??
+    uploadStatusMessage ??
+    (isSavingPaper ? "Saving your paper…" : isFetchingLibrary ? "Loading your library…" : null);
+
+  const statusTone: "error" | "info" | null = uploadErrorMessage
+    ? "error"
+    : resolvedStatusText
+      ? "info"
+      : null;
+
   const renderActiveTab = () => {
     if (activeTab === "paper") {
       return (
@@ -344,8 +364,6 @@ export default function LandingPage() {
           onUpload={handlePaperUpload}
           activePaper={activePaper}
           isUploading={isSavingPaper}
-          statusMessage={uploadErrorMessage ? null : uploadStatusMessage}
-          errorMessage={uploadErrorMessage}
           helperText={dropzoneHelperText}
           viewerClassName={isPaperViewerActive ? "!h-full w-full flex-1" : undefined}
         />
@@ -365,7 +383,7 @@ export default function LandingPage() {
         papers={uploadedPapers}
         activePaperId={activePaperId}
         onSelectPaper={handleSelectPaper}
-        onUpload={handlePaperUpload}
+        onShowUpload={handleShowUpload}
         isLoading={isFetchingLibrary}
       />
       <div className="flex flex-1 flex-col">
@@ -383,6 +401,27 @@ export default function LandingPage() {
               />
             </div>
           </header>
+          {statusTone && resolvedStatusText && !isStatusDismissed && (
+            <div
+              className={`relative flex items-center justify-between gap-4 px-4 py-2 text-sm sm:px-6 lg:px-10 ${
+                statusTone === "error"
+                  ? "border-b border-red-200 bg-red-50 text-red-700"
+                  : "border-b border-slate-200 bg-slate-50 text-slate-600"
+              }`}
+            >
+              <span>{resolvedStatusText}</span>
+              <button
+                type="button"
+                onClick={() => setIsStatusDismissed(true)}
+                className={`flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full transition hover:bg-black/10 ${
+                  statusTone === "error" ? "text-red-700" : "text-slate-600"
+                }`}
+                aria-label="Dismiss message"
+              >
+                ×
+              </button>
+            </div>
+          )}
           <div
             className={
               isPaperViewerActive
