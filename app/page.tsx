@@ -543,13 +543,22 @@ export default function LandingPage() {
       }
 
       try {
+        // Calculate remaining papers before deletion
+        const remainingPapers = uploadedPapers.filter((p) => p.id !== paperId);
+
         // Optimistically remove from UI
-        setUploadedPapers((prev) => prev.filter((p) => p.id !== paperId));
+        setUploadedPapers(remainingPapers);
 
         // If deleted paper was active, select another or show upload
         if (activePaperId === paperId) {
-          const remainingPapers = uploadedPapers.filter((p) => p.id !== paperId);
-          setActivePaperId(remainingPapers[0]?.id ?? null);
+          if (remainingPapers.length > 0) {
+            // Select the first remaining paper
+            setActivePaperId(remainingPapers[0].id);
+          } else {
+            // No papers left - show upload UI
+            setActivePaperId(null);
+            setActiveTab("paper");
+          }
         }
 
         // Delete from Supabase
@@ -582,7 +591,7 @@ export default function LandingPage() {
         });
       }
     },
-    [activePaperId, supabase, uploadedPapers, user]
+    [activePaperId, supabase, uploadedPapers, user, setActiveTab]
   );
 
   const resolvedStatusText =
