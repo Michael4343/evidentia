@@ -152,7 +152,7 @@ export function PdfViewer({ fileUrl, fileName, source, storagePath, className }:
       <div className={`flex h-[70vh] w-full items-center justify-center bg-slate-50 p-6 text-sm text-slate-600 ${className ?? ""}`}>
         <p>
           {error ?? "Your browser was unable to display this PDF."}
-          <a href={fileUrl || "#"} download={fileName} className="ml-2 text-primary underline">
+          <a href={fileUrl || "#"} download={fileName || undefined} className="ml-2 text-primary underline">
             Download the file instead.
           </a>
         </p>
@@ -169,7 +169,7 @@ export function PdfViewer({ fileUrl, fileName, source, storagePath, className }:
     >
       <p className="p-4 text-sm text-slate-600">
         Your browser was unable to display this PDF.
-        <a href={fileUrl || objectUrl} download={fileName} className="ml-2 text-primary underline">
+        <a href={fileUrl || objectUrl || undefined} download={fileName || undefined} className="ml-2 text-primary underline">
           Download the file instead.
         </a>
       </p>

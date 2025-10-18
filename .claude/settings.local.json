@@ -4,7 +4,9 @@
       "Bash(mv:*)",
       "Bash(mkdir:*)",
       "WebSearch",
-      "WebFetch(domain:ai.google.dev)"
+      "WebFetch(domain:ai.google.dev)",
+      "Bash(npm run build)",
+      "Bash(npm run lint)"
     ],
     "deny": [],
     "ask": []

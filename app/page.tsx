@@ -15,7 +15,7 @@ import { deleteUserPaper, fetchUserPapers, persistUserPaper, type UserPaperRecor
 
 const RESEARCH_CACHE_VERSION = "v1";
 
-type CacheStage = "groups" | "contacts" | "theses";
+type CacheStage = "similarPapers" | "groups" | "contacts" | "theses";
 
 function getCacheKey(paperId: string, stage: CacheStage) {
   return `paper-cache:${RESEARCH_CACHE_VERSION}:${paperId}:${stage}`;
@@ -64,6 +64,51 @@ function writeCachedState<T>(paperId: string, stage: CacheStage, data: T) {
   }
 }
 
+function extractAuthorsFromInfo(info: Record<string, any> | null | undefined): string[] | null {
+  if (!info) {
+    return null;
+  }
+
+  const candidateKeys = ["Author", "Authors", "Creator"];
+
+  const raw = candidateKeys
+    .map((key) => (typeof info[key] === "string" ? (info[key] as string).trim() : ""))
+    .find((value) => value.length > 0);
+
+  if (!raw) {
+    return null;
+  }
+
+  const parts = raw
+    .split(/[,;|\n]+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  return parts;
+}
+
+function extractAbstractFromInfo(info: Record<string, any> | null | undefined): string | null {
+  if (!info) {
+    return null;
+  }
+
+  const candidateKeys = ["Abstract", "Subject", "Description"];
+
+  const raw = candidateKeys
+    .map((key) => (typeof info[key] === "string" ? (info[key] as string).trim() : ""))
+    .find((value) => value.length > 0);
+
+  if (!raw) {
+    return null;
+  }
+
+  return raw.length > 2_000 ? `${raw.slice(0, 2_000)}…` : raw;
+}
+
 interface UploadedPaper {
   id: string;
   name: string;
@@ -107,6 +152,11 @@ type ExtractionState =
   | { status: "error"; message: string; hint?: string };
 
 type ResearchGroupsState =
+  | { status: "loading" }
+  | { status: "success"; text: string }
+  | { status: "error"; message: string };
+
+type SimilarPapersState =
   | { status: "loading" }
   | { status: "success"; text: string }
   | { status: "error"; message: string };
@@ -235,6 +285,95 @@ function ExtractionDebugPanel({
         <pre className="max-h-[600px] overflow-auto whitespace-pre-wrap rounded bg-slate-950/5 p-4 text-xs leading-relaxed text-slate-800">
           {data.text}
         </pre>
+      </div>
+    </div>
+  );
+}
+
+function SimilarPapersPanel({
+  paper,
+  extraction,
+  state,
+  onRetry
+}: {
+  paper: UploadedPaper | null;
+  extraction: ExtractionState | undefined;
+  state: SimilarPapersState | undefined;
+  onRetry: () => void;
+}) {
+  if (!paper) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+        <p className="text-base font-medium text-slate-700">Upload a PDF to find related methods.</p>
+        <p className="text-sm text-slate-500">We’ll compare the paper against recent work once it’s processed.</p>
+      </div>
+    );
+  }
+
+  if (!extraction || extraction.status === "loading") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+        <div className="space-y-1">
+          <p className="text-base font-medium text-slate-700">Preparing extracted text…</p>
+          <p className="text-xs text-slate-500">We’ll run the similar paper pass once extraction finishes.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (extraction.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-1">
+          <p className="text-base font-semibold text-red-700">Text extraction failed</p>
+          <p className="text-sm text-red-600">
+            {extraction.message || "We couldn’t extract text from this PDF, so the comparison can’t run."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!state || state.status === "loading") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+        <div className="space-y-1">
+          <p className="text-base font-medium text-slate-700">Compiling similar papers…</p>
+          <p className="text-xs text-slate-500">GPT-5 is building the crosswalk dossier.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-1">
+          <p className="text-base font-semibold text-red-700">Similar paper search failed</p>
+          <p className="text-sm text-red-600">{state.message}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+        >
+          Try again
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-auto p-6">
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <h3 className="mb-3 text-sm font-semibold text-slate-800">Similar Papers</h3>
+        <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+          {state.text}
+        </div>
       </div>
     </div>
   );
@@ -582,7 +721,7 @@ function ExpertNetworkPanel({ paper }: { paper: UploadedPaper | null }) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
         <p className="text-base font-medium text-slate-700">Upload a PDF to find relevant experts.</p>
-        <p className="text-sm text-slate-500">We'll show experts working in related fields once you select a paper.</p>
+        <p className="text-sm text-slate-500">We&apos;ll show experts working in related fields once you select a paper.</p>
       </div>
     );
   }
@@ -628,6 +767,7 @@ export default function LandingPage() {
   const [isFetchingLibrary, setIsFetchingLibrary] = useState(false);
   const [isStatusDismissed, setIsStatusDismissed] = useState(false);
   const [extractionStates, setExtractionStates] = useState<Record<string, ExtractionState>>({});
+  const [similarPapersStates, setSimilarPapersStates] = useState<Record<string, SimilarPapersState>>({});
   const [researchGroupsStates, setResearchGroupsStates] = useState<Record<string, ResearchGroupsState>>({});
   const [researchContactsStates, setResearchContactsStates] = useState<Record<string, ResearchGroupContactsState>>({});
   const [researchThesesStates, setResearchThesesStates] = useState<Record<string, ResearcherThesesState>>({});
@@ -635,6 +775,7 @@ export default function LandingPage() {
     ? uploadedPapers.find((item) => item.id === activePaperId) ?? null
     : null;
   const activeExtraction = activePaper ? extractionStates[activePaper.id] : undefined;
+  const activeSimilarPapersState = activePaper ? similarPapersStates[activePaper.id] : undefined;
   const activeResearchGroupState = activePaper ? researchGroupsStates[activePaper.id] : undefined;
   const activeResearchContactsState = activePaper ? researchContactsStates[activePaper.id] : undefined;
   const activeResearchThesesState = activePaper ? researchThesesStates[activePaper.id] : undefined;
@@ -659,6 +800,19 @@ export default function LandingPage() {
     }
 
     const paperId = activePaper.id;
+
+    if (!activeSimilarPapersState) {
+      const cachedSimilar = readCachedState<{ text: string }>(paperId, "similarPapers");
+      if (cachedSimilar?.text) {
+        setSimilarPapersStates((prev) => ({
+          ...prev,
+          [paperId]: {
+            status: "success",
+            text: cachedSimilar.text
+          }
+        }));
+      }
+    }
 
     if (!activeResearchGroupState) {
       const cachedGroups = readCachedState<{ text: string }>(paperId, "groups");
@@ -703,6 +857,7 @@ export default function LandingPage() {
     }
   }, [
     activePaper,
+    activeSimilarPapersState,
     activeResearchGroupState,
     activeResearchContactsState,
     activeResearchThesesState
@@ -718,6 +873,15 @@ export default function LandingPage() {
         ...prev,
         [paper.id]: { status: "loading" }
       }));
+
+      setSimilarPapersStates((prev) => {
+        if (!(paper.id in prev)) {
+          return prev;
+        }
+        const next = { ...prev };
+        delete next[paper.id];
+        return next;
+      });
 
       setResearchGroupsStates((prev) => {
         if (!(paper.id in prev)) {
@@ -834,6 +998,102 @@ export default function LandingPage() {
         const message = error instanceof Error ? error.message : "Failed to extract text from PDF.";
         console.error("Extraction error", error);
         setExtractionStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "error",
+            message
+          }
+        }));
+      }
+    },
+    []
+  );
+
+  const runSimilarPapers = useCallback(
+    async (paper: UploadedPaper, extraction: ExtractedText) => {
+      if (!paper || !extraction || typeof extraction.text !== "string" || extraction.text.trim().length === 0) {
+        return;
+      }
+
+      console.log("[similar-papers] starting fetch", {
+        paperId: paper.id,
+        textLength: extraction.text.length
+      });
+
+      setSimilarPapersStates((prev) => ({
+        ...prev,
+        [paper.id]: { status: "loading" }
+      }));
+
+      try {
+        const authors = extractAuthorsFromInfo(extraction.info);
+        const abstract = extractAbstractFromInfo(extraction.info);
+        const metadataTitle =
+          extraction.info && typeof extraction.info.Title === "string" && extraction.info.Title.trim().length > 0
+            ? extraction.info.Title.trim()
+            : null;
+
+        const response = await fetch("/api/similar-papers", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            text: extraction.text,
+            paper: {
+              title: metadataTitle ?? paper.name ?? null,
+              doi: paper.doi ?? null,
+              url: paper.url ?? null,
+              authors: authors ?? null,
+              abstract: abstract ?? null
+            }
+          })
+        });
+
+        if (!response.ok) {
+          let message = "Failed to fetch similar papers.";
+          try {
+            const errorPayload = await response.json();
+            if (typeof errorPayload?.error === "string") {
+              message = errorPayload.error;
+            }
+          } catch (parseError) {
+            console.warn("[similar-papers] error payload parsing failed", parseError);
+          }
+          throw new Error(message);
+        }
+
+        const payload = (await response.json()) as { text?: string | null };
+        const outputText = typeof payload?.text === "string" ? payload.text.trim() : "";
+
+        if (!outputText) {
+          throw new Error("Similar paper response did not include text.");
+        }
+
+        console.log("[similar-papers] fetch success", {
+          paperId: paper.id,
+          textPreview: outputText.slice(0, 120)
+        });
+
+        writeCachedState(paper.id, "similarPapers", { text: outputText });
+
+        setSimilarPapersStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "success",
+            text: outputText
+          }
+        }));
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message ? error.message : "Failed to fetch similar papers.";
+
+        console.error("[similar-papers] fetch error", {
+          paperId: paper.id,
+          error
+        });
+
+        setSimilarPapersStates((prev) => ({
           ...prev,
           [paper.id]: {
             status: "error",
@@ -1153,6 +1413,7 @@ export default function LandingPage() {
       setUploadStatusMessage(null);
       setUploadErrorMessage(null);
       setExtractionStates({});
+      setSimilarPapersStates({});
       setResearchGroupsStates({});
       setResearchContactsStates({});
       setResearchThesesStates({});
@@ -1237,6 +1498,22 @@ export default function LandingPage() {
       void runExtraction(activePaper);
     }
   }, [activePaper, extractionStates, runExtraction]);
+
+  useEffect(() => {
+    if (!activePaper) {
+      return;
+    }
+
+    if (!activeExtraction || activeExtraction.status !== "success") {
+      return;
+    }
+
+    if (activeSimilarPapersState) {
+      return;
+    }
+
+    void runSimilarPapers(activePaper, activeExtraction.data);
+  }, [activePaper, activeExtraction, activeSimilarPapersState, runSimilarPapers]);
 
   useEffect(() => {
     if (activeTab !== "researchGroups") {
@@ -1410,6 +1687,18 @@ export default function LandingPage() {
     }, 0);
   }, [setActivePaperId, setActiveTab]);
 
+  const handleRetrySimilarPapers = useCallback(() => {
+    if (!activePaper) {
+      return;
+    }
+
+    if (!activeExtraction || activeExtraction.status !== "success") {
+      return;
+    }
+
+    void runSimilarPapers(activePaper, activeExtraction.data);
+  }, [activePaper, activeExtraction, runSimilarPapers]);
+
   const handleRetryResearchGroups = useCallback(() => {
     if (!activePaper) {
       return;
@@ -1512,6 +1801,17 @@ export default function LandingPage() {
           isUploading={isSavingPaper}
           helperText={dropzoneHelperText}
           viewerClassName={isPaperViewerActive ? "!h-full w-full flex-1" : undefined}
+        />
+      );
+    }
+
+    if (activeTab === "similarPapers") {
+      return (
+        <SimilarPapersPanel
+          paper={activePaper}
+          extraction={activeExtraction}
+          state={activeSimilarPapersState}
+          onRetry={handleRetrySimilarPapers}
         />
       );
     }

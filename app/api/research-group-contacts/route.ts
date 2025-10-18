@@ -157,7 +157,7 @@ export async function POST(request: Request) {
           }
           return { name, email };
         })
-        .filter((person): person is { name: string | null; email: string | null } => Boolean(person));
+        .filter((person: { name: string | null; email: string | null } | null): person is { name: string | null; email: string | null } => Boolean(person));
       return { group, people };
     });
 

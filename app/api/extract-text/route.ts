@@ -92,7 +92,7 @@ export async function POST(req: Request) {
 
     const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
 
-    const loadingTask = pdfjsLib.getDocument({ data: binary, disableWorker: true });
+    const loadingTask = pdfjsLib.getDocument({ data: binary });
     const doc = await loadingTask.promise;
 
     const metadata = await doc.getMetadata().catch(() => null);
