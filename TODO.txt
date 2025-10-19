@@ -1,5 +1,4 @@
 CODEX
-Share with anders
 
 compile similar patents mock
 refine expert network mock
