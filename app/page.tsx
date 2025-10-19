@@ -2544,7 +2544,11 @@ export default function LandingPage() {
           hasResearchGroups={Boolean(activeResearchGroupState && activeResearchGroupState.status === "success")}
           isMock={Boolean(isActivePaperMock)}
           structuredGroups={
-            isActivePaperMock ? MOCK_RESEARCH_GROUPS_STRUCTURED : activeResearchGroupState?.structured
+            isActivePaperMock
+              ? MOCK_RESEARCH_GROUPS_STRUCTURED
+              : activeResearchGroupState?.status === "success"
+                ? activeResearchGroupState.structured
+                : undefined
           }
         />
       );
