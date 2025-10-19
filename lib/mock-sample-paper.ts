@@ -9,5 +9,5 @@ export const MOCK_SAMPLE_PAPER_META = {
     "Soil structure and microbiome functions (sample)",
   fileName: "mock-paper.pdf",
   pdfUrl: "/mock-paper.pdf",
-  doi: MOCK_SIMILAR_PAPERS_LIBRARY.sourcePaper?.doi ?? null
+  doi: MOCK_SIMILAR_PAPERS_LIBRARY.sourcePdf?.doi ?? null
 } as const;
