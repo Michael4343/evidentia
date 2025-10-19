@@ -1,13 +1,30 @@
 'use client'
 
-import { useEffect } from 'react'
+import { Suspense, useEffect } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import posthog from 'posthog-js'
 
-export function PostHogProvider({ children }: { children: React.ReactNode }) {
+function PostHogPageView() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
 
+  // Track pageview on route change
+  useEffect(() => {
+    if (pathname && process.env.NODE_ENV === 'production') {
+      let url = window.origin + pathname
+      if (searchParams && searchParams.toString()) {
+        url = url + `?${searchParams.toString()}`
+      }
+      posthog.capture('$pageview', {
+        $current_url: url,
+      })
+    }
+  }, [pathname, searchParams])
+
+  return null
+}
+
+export function PostHogProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     // Only initialize PostHog in production with valid keys
     const posthogKey = process.env.NEXT_PUBLIC_POSTHOG_KEY
@@ -32,18 +49,12 @@ export function PostHogProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  // Track pageview on route change
-  useEffect(() => {
-    if (pathname && process.env.NODE_ENV === 'production') {
-      let url = window.origin + pathname
-      if (searchParams && searchParams.toString()) {
-        url = url + `?${searchParams.toString()}`
-      }
-      posthog.capture('$pageview', {
-        $current_url: url,
-      })
-    }
-  }, [pathname, searchParams])
-
-  return <>{children}</>
+  return (
+    <>
+      <Suspense fallback={null}>
+        <PostHogPageView />
+      </Suspense>
+      {children}
+    </>
+  )
 }
