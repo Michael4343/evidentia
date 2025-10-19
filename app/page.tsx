@@ -58,6 +58,15 @@ function isMockPaper(paper: UploadedPaper | null | undefined) {
   return paper?.id === MOCK_SAMPLE_PAPER_ID;
 }
 
+function removeMockState<T>(state: Record<string, T>): Record<string, T> {
+  if (!(MOCK_SAMPLE_PAPER_ID in state)) {
+    return state;
+  }
+
+  const { [MOCK_SAMPLE_PAPER_ID]: _omitted, ...rest } = state;
+  return rest as Record<string, T>;
+}
+
 type CacheStage = "similarPapers" | "groups" | "contacts" | "theses";
 
 function getCacheKey(paperId: string, stage: CacheStage) {
@@ -2068,21 +2077,34 @@ export default function LandingPage() {
               : ""
         }
       });
-    setResearchGroupsStates({
-      [MOCK_SAMPLE_PAPER_ID]: {
-        status: "success",
-        text: MOCK_RESEARCH_GROUPS_TEXT,
-        structured: MOCK_RESEARCH_GROUPS_STRUCTURED
+      setResearchGroupsStates({
+        [MOCK_SAMPLE_PAPER_ID]: {
+          status: "success",
+          text: MOCK_RESEARCH_GROUPS_TEXT,
+          structured: MOCK_RESEARCH_GROUPS_STRUCTURED
+        }
+      });
+      setResearchContactsStates({
+        [MOCK_SAMPLE_PAPER_ID]: { status: "success", contacts: [] }
+      });
+      setResearchThesesStates({
+        [MOCK_SAMPLE_PAPER_ID]: MOCK_RESEARCH_THESES_INITIAL_STATE
+      });
+      return;
+    }
+
+    setUploadedPapers((prev) => {
+      if (!prev.some((paper) => isMockPaper(paper))) {
+        return prev;
       }
+      return prev.filter((paper) => !isMockPaper(paper));
     });
-    setResearchContactsStates({
-      [MOCK_SAMPLE_PAPER_ID]: { status: "success", contacts: [] }
-    });
-    setResearchThesesStates({
-      [MOCK_SAMPLE_PAPER_ID]: MOCK_RESEARCH_THESES_INITIAL_STATE
-    });
-    return;
-  }
+    setActivePaperId((prev) => (prev === MOCK_SAMPLE_PAPER_ID ? null : prev));
+    setExtractionStates((prev) => removeMockState(prev));
+    setSimilarPapersStates((prev) => removeMockState(prev));
+    setResearchGroupsStates((prev) => removeMockState(prev));
+    setResearchContactsStates((prev) => removeMockState(prev));
+    setResearchThesesStates((prev) => removeMockState(prev));
 
     if (!supabase) {
       return;
@@ -2128,41 +2150,11 @@ export default function LandingPage() {
           return prev;
         });
 
-        setExtractionStates((prev) => {
-          if (!(MOCK_SAMPLE_PAPER_ID in prev)) {
-            return prev;
-          }
-          const { [MOCK_SAMPLE_PAPER_ID]: _omitted, ...rest } = prev;
-          return rest;
-        });
-        setSimilarPapersStates((prev) => {
-          if (!(MOCK_SAMPLE_PAPER_ID in prev)) {
-            return prev;
-          }
-          const { [MOCK_SAMPLE_PAPER_ID]: _omitted, ...rest } = prev;
-          return rest;
-        });
-        setResearchGroupsStates((prev) => {
-          if (!(MOCK_SAMPLE_PAPER_ID in prev)) {
-            return prev;
-          }
-          const { [MOCK_SAMPLE_PAPER_ID]: _omitted, ...rest } = prev;
-          return rest;
-        });
-        setResearchContactsStates((prev) => {
-          if (!(MOCK_SAMPLE_PAPER_ID in prev)) {
-            return prev;
-          }
-          const { [MOCK_SAMPLE_PAPER_ID]: _omitted, ...rest } = prev;
-          return rest;
-        });
-        setResearchThesesStates((prev) => {
-          if (!(MOCK_SAMPLE_PAPER_ID in prev)) {
-            return prev;
-          }
-          const { [MOCK_SAMPLE_PAPER_ID]: _omitted, ...rest } = prev;
-          return rest;
-        });
+        setExtractionStates((prev) => removeMockState(prev));
+        setSimilarPapersStates((prev) => removeMockState(prev));
+        setResearchGroupsStates((prev) => removeMockState(prev));
+        setResearchContactsStates((prev) => removeMockState(prev));
+        setResearchThesesStates((prev) => removeMockState(prev));
 
         setUploadStatusMessage(null);
       })

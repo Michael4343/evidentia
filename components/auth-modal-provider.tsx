@@ -3,6 +3,7 @@
 import { ReactNode, createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 
 import { type Session, type SupabaseClient, type User } from "@supabase/supabase-js";
+import posthog from 'posthog-js';
 
 import { AuthModal, type AuthMode } from "@/components/auth-modal";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
@@ -67,12 +68,31 @@ export function AuthModalProvider({ children }: AuthModalProviderProps) {
         setIsAuthReady(true);
       });
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!isMounted) {
         return;
       }
       setSession(nextSession);
       setUser(nextSession?.user ?? null);
+
+      // Track login events in production
+      if (process.env.NODE_ENV === 'production' && nextSession?.user) {
+        if (event === 'SIGNED_IN') {
+          posthog.capture('user_login', {
+            user_id: nextSession.user.id,
+            email: nextSession.user.email,
+          });
+          // Identify user for session recordings
+          posthog.identify(nextSession.user.id, {
+            email: nextSession.user.email,
+          });
+        } else if (event === 'INITIAL_SESSION') {
+          // User already has a session
+          posthog.identify(nextSession.user.id, {
+            email: nextSession.user.email,
+          });
+        }
+      }
     });
 
     return () => {
@@ -105,6 +125,7 @@ export function AuthModalProvider({ children }: AuthModalProviderProps) {
         if (error) {
           throw error;
         }
+        // Login event is tracked in onAuthStateChange
         return;
       }
 
@@ -121,6 +142,14 @@ export function AuthModalProvider({ children }: AuthModalProviderProps) {
         throw error;
       }
 
+      // Track signup event in production
+      if (process.env.NODE_ENV === 'production') {
+        posthog.capture('user_signup', {
+          email,
+          method: 'email',
+        });
+      }
+
       if (!data.session) {
         return { requiresEmailConfirmation: true };
       }
@@ -129,9 +158,16 @@ export function AuthModalProvider({ children }: AuthModalProviderProps) {
   );
 
   const handleGoogleAuth = useCallback(
-    async (_mode: AuthMode) => {
+    async (mode: AuthMode) => {
       if (!supabase) {
         throw new Error("Authentication is not available right now.");
+      }
+
+      // Track Google auth initiation in production
+      if (process.env.NODE_ENV === 'production') {
+        posthog.capture(mode === 'signup' ? 'user_signup_initiated' : 'user_login_initiated', {
+          method: 'google',
+        });
       }
 
       const redirectTo = typeof window !== "undefined" ? `${window.location.origin}` : undefined;

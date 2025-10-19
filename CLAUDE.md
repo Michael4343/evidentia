@@ -198,11 +198,26 @@ await supabase.from('user_papers')
 - Simple beats clever
 - Done beats perfect
 
-## Directory Snapshot (2025-10-18)
+## Analytics & Monitoring
+
+### PostHog Integration
+- **Production-only tracking** - No analytics in localhost/dev
+- **Session recordings enabled** - Watch user sessions in production
+- **Auto-tracked events**: Page views, login, signup
+- **User identification**: Supabase user ID + email
+- See `tasks/posthog-setup.md` for implementation details
+
+### Environment Variables
+```bash
+NEXT_PUBLIC_POSTHOG_KEY=...      # PostHog project key
+NEXT_PUBLIC_POSTHOG_HOST=...     # PostHog instance URL
+```
+
+## Directory Snapshot (2025-10-19)
 - `app/`
   - `(marketing)/page.tsx`
   - `globals.css`
-  - `layout.tsx`
+  - `layout.tsx` (includes PostHogProvider)
   - `page.tsx`
   - `paper/[doi]/layout.tsx`
   - `paper/[doi]/page.tsx`
@@ -213,7 +228,7 @@ await supabase.from('user_papers')
 - `components/`
   - `annotation-sidebar.tsx`
   - `app-sidebar.tsx`
-  - `auth-modal-provider.tsx`
+  - `auth-modal-provider.tsx` (includes PostHog tracking)
   - `auth-modal.tsx`
   - `homepage-app.tsx`
   - `paper-hero.tsx`
@@ -233,6 +248,7 @@ await supabase.from('user_papers')
 - `lib/`
   - `mock-data.ts`
   - `pdf-doi.ts`
+  - `posthog-provider.tsx` (NEW - analytics provider)
   - `supabase-browser.ts`
   - `user-papers.ts`
 - `tasks/`
@@ -247,6 +263,7 @@ await supabase.from('user_papers')
   - `pdf-upload-sidebar-button.md`
   - `pdf-viewer-bugfix.md`
   - `pdf-viewer-full-width.md`
+  - `posthog-setup.md` (NEW - analytics setup)
   - `reader-header.md`
   - `sidebar-debug.md`
   - `sidebar-library.md`
