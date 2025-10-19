@@ -12,7 +12,6 @@ const path = require("path");
 const readline = require("readline");
 const clipboardModule = require("clipboardy");
 const clipboardy = clipboardModule?.default ?? clipboardModule;
-const pdfParse = require("pdf-parse");
 
 const DEFAULT_OUTPUT_PATH = path.join(__dirname, "../lib/mock-similar-papers.ts");
 const PUBLIC_SAMPLE_PDF_PATH = path.join(__dirname, "../public/mock-paper.pdf");
@@ -21,23 +20,18 @@ const MAX_LISTED_PDFS = 40;
 const MAX_SCAN_DEPTH = 3;
 const IGNORED_DIRS = new Set(["node_modules", ".git", ".next", "out", "dist", "build", "tmp", "temp", "public"]);
 
-const RESEARCH_GROUPS_BASE_PROMPT = `You are assisting a researcher who just uploaded the following paper. Read the paper carefully and identify its core themes, methods, and subject domains. The paper context below is the primary signal; only include research groups whose recent work directly overlaps the paper’s topics.
+const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's Research Groups UI.
 
-Task:
-Find and rank up to five current (active within the last 3–5 years) research groups or independent organisations whose published work is tightly aligned with this paper. Use web search only to confirm activity and surface supporting details; do not include unrelated groups.
-
-For each group, include:
-- Group name and affiliated institution
-- One-sentence explanation of how their focus connects to the paper (reference the specific overlap you saw in the extracted text)
-- One recent publication, project, or initiative (2021 or later) showing the overlap, with year and citation if available
-- Contact information or URL if available
-
-Also provide:
-- A 1–2 sentence summary of the paper themes that guided your search
-- A ranked list explanation (why each group is ordered the way it is)
-- A short note if web results were sparse or older than 2021
-
-Output in plain text with clear section headers and bullet lists. Keep the overall answer under roughly 280 tokens. If no groups match, state that explicitly and explain why.`;
+Output requirements:
+- Return a single JSON object with keys: papers (array), promptNotes (optional string).
+- Each paper object must include: title (string), identifier (string|null), groups (array).
+- Each group object must include: name (string), institution (string|null), website (string|null), notes (string|null), researchers (array).
+- Each researcher object must include: name (string), email (string|null), role (string|null).
+- Use null for unknown scalars. Use "Not provided" only inside notes when text is genuinely missing.
+- No markdown, no commentary, no trailing prose. Ensure valid JSON (double quotes only).
+- Preserve factual content; do not invent new people or emails.
+Before responding, you must paste the analyst notes after these instructions so you can structure them. Use them verbatim; do not add new facts.
+`;
 
 const CURLY_QUOTES_TO_ASCII = [
   [/\u2018|\u2019|\u201A|\u201B/g, "'"],
@@ -71,44 +65,6 @@ function cleanPlainText(input) {
   return value.trim();
 }
 
-function normaliseDoi(raw) {
-  return raw.replace(/[\s<>\]\).,;:]+$/g, "").replace(/^[\s"'(<\[]+/g, "").toLowerCase();
-}
-
-function extractDoiCandidate(text) {
-  const DOI_REGEX = /10\.\d{4,9}\/[\-._;()/:a-z0-9]+/gi;
-  const matches = text.match(DOI_REGEX);
-  if (matches && matches.length > 0) {
-    return normaliseDoi(matches[0]);
-  }
-  return null;
-}
-
-function truncateForPrompt(text, limit) {
-  if (!text || text.length <= limit) {
-    return { clipped: text || "", truncated: false };
-  }
-
-  return {
-    clipped: `${text.slice(0, limit)}\n\n[Truncated input to ${limit} characters for the request]`,
-    truncated: true
-  };
-}
-
-function derivePaperMetadata(info, fallbackTitle, detectedDoi) {
-  const authors = info?.Author || info?.Authors || info?.Creator || null;
-  const abstract = info?.Subject || info?.Keywords || null;
-
-  return {
-    title: info?.Title && info.Title.trim().length ? info.Title.trim() : fallbackTitle,
-    doi: detectedDoi,
-    url: null,
-    scraped_url: null,
-    authors,
-    abstract
-  };
-}
-
 function ensureDirExists(targetPath) {
   const dir = path.dirname(targetPath);
   if (!fs.existsSync(dir)) {
@@ -140,6 +96,25 @@ function readExistingLibrary(outputPath) {
     console.warn("Failed to read existing mock library", error);
     return null;
   }
+}
+
+function cleanUrl(input) {
+  if (typeof input !== "string") {
+    return input;
+  }
+
+  let value = input.trim();
+  if (!value) {
+    return "";
+  }
+
+  const match = value.match(/https?:\/\/[^\s)]+/);
+  if (match) {
+    value = match[0];
+  }
+
+  value = value.replace(/["')]+$/g, "").replace(/^["'(]+/g, "");
+  return value.trim();
 }
 
 function findPdfFiles(rootDir, maxDepth = MAX_SCAN_DEPTH, limit = MAX_LISTED_PDFS) {
@@ -251,8 +226,106 @@ async function promptForPdfPath(rl, rootDir) {
   }
 }
 
-async function collectResearchGroupsText(rl) {
-  console.log("\nPaste the research groups response. Press ENTER on an empty line when you're done.");
+function buildDiscoveryPrompt(library) {
+  const sourceTitle = cleanPlainText(
+    library?.sourcePaper?.title || library?.sourcePdf?.title || "Unknown title"
+  );
+  const sourceSummary = cleanPlainText(library?.sourcePaper?.summary || "Not provided");
+  const keySignals = Array.isArray(library?.sourcePaper?.keyMethodSignals)
+    ? library.sourcePaper.keyMethodSignals.map((signal) => cleanPlainText(signal)).filter(Boolean).slice(0, 5)
+    : [];
+  const similarPapers = Array.isArray(library?.similarPapers)
+    ? library.similarPapers.slice(0, 5)
+    : [];
+
+  const lines = [
+    "You are Evidentia's research co-pilot. Map the active research groups linked to these papers so our team can reach out to the right labs.",
+    "",
+    "Source paper:",
+    `- Title: ${sourceTitle}`,
+    `- Summary: ${sourceSummary}`
+  ];
+
+  if (library?.sourcePaper?.doi) {
+    lines.push(`- DOI: ${library.sourcePaper.doi}`);
+  }
+
+  if (keySignals.length) {
+    lines.push("- Method signals:");
+    keySignals.forEach((signal) => {
+      lines.push(`  - ${signal}`);
+    });
+  }
+
+  if (similarPapers.length) {
+    lines.push("", "Similar papers to cross-reference:");
+    similarPapers.forEach((paper, index) => {
+      const title = cleanPlainText(paper?.title || `Paper ${index + 1}`);
+      const venue = cleanPlainText(paper?.venue || "Venue not reported");
+      const year = paper?.year ? `${paper.year}` : "Year not reported";
+      const authors = Array.isArray(paper?.authors) && paper.authors.length
+        ? cleanPlainText(paper.authors.join(", "))
+        : "Authors not reported";
+      const whyRelevant = cleanPlainText(paper?.whyRelevant || "No relevance note provided.");
+      const doi = paper?.doi ? `DOI: ${paper.doi}` : paper?.url ? `URL: ${paper.url}` : "No identifier provided";
+
+      lines.push(
+        `${index + 1}. ${title} — ${venue} (${year})`,
+        `   Authors: ${authors}`,
+        `   Identifier: ${doi}`,
+        `   Method overlap: ${whyRelevant}`
+      );
+
+      if (Array.isArray(paper?.overlapHighlights) && paper.overlapHighlights.length) {
+        lines.push("   Overlap highlights:");
+        paper.overlapHighlights.slice(0, 3).forEach((highlight) => {
+          lines.push(`     - ${cleanPlainText(highlight)}`);
+        });
+      }
+    });
+  }
+
+  lines.push(
+    "",
+    "Task:",
+    "- For the source paper and each similar paper, identify the active research groups, labs, or centres directly connected to those works.",
+    "- Under each paper heading, list relevant groups, then within each group list principal investigators, current graduate students, and postdoctoral researchers when available.",
+    "- Prioritise individuals with publicly listed academic or institutional emails. If email is hidden, note the best contact route (e.g., contact form).",
+    "- Capture context on what the group works on and how it relates to the specific paper's methods.",
+    "",
+    "Required notes format (use plain text headings — no JSON yet):",
+    "Paper: <Title> (<Identifier>)",
+    "Groups:",
+    "  - Group: <Group name> (<Institution>)",
+    "    Website: <URL or 'Not provided'>",
+    "    Summary: <1–2 sentences on why this group matters for the methods>",
+    "    Members:",
+    "      - Name | Email | Role",
+    "      - Name | Email | Role",
+    "",
+    "Guidelines:",
+    "- Repeat the group block for each paper that cites or collaborates with that group; if a group spans multiple papers, duplicate it under each relevant paper heading and note the connection in the summary.",
+    "- Use 'Not provided' for missing information, never leave blanks.",
+    "- Stay under 900 tokens and favour clear, scannable bullets."
+  );
+
+  return lines.join("\n");
+}
+
+function buildCleanupPrompt() {
+  return [
+    CLEANUP_PROMPT_HEADER.trim(),
+    "",
+    "Paste the analyst notes beneath this line before submitting:",
+    "---",
+    "<PASTE NOTES HERE>",
+    "---",
+    "Return the JSON object now."
+  ].join("\n");
+}
+
+async function collectCleanedJson(rl) {
+  console.log("\nPaste the cleaned JSON now. Press ENTER on an empty line when you're done.");
   console.log("Press ENTER immediately to skip when you don't have output yet.\n");
 
   const lines = [];
@@ -274,44 +347,124 @@ async function collectResearchGroupsText(rl) {
   return lines.join("\n").trim();
 }
 
-async function buildResearchPromptFromPdf(pdfPath) {
-  const pdfBuffer = fs.readFileSync(pdfPath);
-  const data = await pdfParse(pdfBuffer);
-  const info = data.info || {};
-  const combinedText = data.text || "";
-  const fallbackTitle = path.basename(pdfPath, path.extname(pdfPath));
-  const detectedDoi = extractDoiCandidate(`${combinedText}\n${JSON.stringify(info)}`);
-  const paper = derivePaperMetadata(info, fallbackTitle, detectedDoi);
+function normaliseResearcher(entry) {
+  if (!entry || typeof entry !== "object") {
+    return null;
+  }
 
-  const { clipped, truncated } = truncateForPrompt(combinedText, MAX_INPUT_CHARS);
-  const title = paper.title && paper.title.trim().length > 0 ? paper.title.trim() : "Unknown";
-  const doi = paper.doi && paper.doi.trim().length > 0 ? paper.doi.trim() : "Unknown";
+  const name = cleanPlainText(entry.name || "");
+  if (!name) {
+    return null;
+  }
 
-  const contextLines = [
-    "Paper context:",
-    `• Title: ${title}`,
-    `• DOI: ${doi}`,
-    truncated ? "• Note: PDF text truncated to fit request limits." : null
-  ].filter(Boolean);
-
-  const assembledPrompt = [
-    RESEARCH_GROUPS_BASE_PROMPT,
-    contextLines.join("\n"),
-    `Extracted paper text:\n${clipped}`
-  ].join("\n\n");
+  const emailRaw = typeof entry.email === "string" ? entry.email.trim() : "";
+  const email = emailRaw ? emailRaw.toLowerCase() : null;
+  const role = entry.role ? cleanPlainText(entry.role) : null;
 
   return {
-    prompt: assembledPrompt,
-    truncated,
-    context: {
-      title: paper.title,
-      detectedDoi,
-      pageCount: data.numpages,
-      truncated,
-      authors: paper.authors,
-      abstract: paper.abstract
-    }
+    name,
+    email,
+    role: role && role.length > 0 ? role : null
   };
+}
+
+function normaliseGroup(entry) {
+  if (!entry || typeof entry !== "object") {
+    throw new Error("Each group must be an object containing at least a name.");
+  }
+
+  const name = cleanPlainText(entry.name || "");
+  if (!name) {
+    throw new Error("Group name is required.");
+  }
+
+  const institution = entry.institution ? cleanPlainText(entry.institution) : null;
+  const website = entry.website ? cleanUrl(entry.website) : null;
+  const notes = entry.notes ? cleanPlainText(entry.notes) : null;
+
+  const researchers = Array.isArray(entry.researchers)
+    ? entry.researchers
+        .map((person) => normaliseResearcher(person))
+        .filter(Boolean)
+    : [];
+
+  return {
+    name,
+    institution: institution && institution.length > 0 ? institution : null,
+    website: website && website.length > 0 ? website : null,
+    notes: notes && notes.length > 0 ? notes : null,
+    researchers
+  };
+}
+
+function normalisePaper(entry) {
+  if (!entry || typeof entry !== "object") {
+    throw new Error("Each paper entry must be an object.");
+  }
+
+  const title = cleanPlainText(entry.title || "");
+  if (!title) {
+    throw new Error("Paper title is required.");
+  }
+
+  const identifier = entry.identifier ? cleanPlainText(entry.identifier) : null;
+  const groups = Array.isArray(entry.groups) ? entry.groups.map((group) => normaliseGroup(group)) : [];
+
+  return {
+    title,
+    identifier: identifier && identifier.length > 0 ? identifier : null,
+    groups
+  };
+}
+
+function normaliseResearchGroupsPayload(payload) {
+  if (!payload || typeof payload !== "object") {
+    throw new Error("Cleanup agent response must be a JSON object.");
+  }
+
+  if (!Array.isArray(payload.papers) || payload.papers.length === 0) {
+    throw new Error("papers must be a non-empty array.");
+  }
+
+  const papers = payload.papers.map((paper) => normalisePaper(paper));
+  const promptNotes = typeof payload.promptNotes === "string" ? cleanPlainText(payload.promptNotes) : "";
+
+  return {
+    papers,
+    promptNotes
+  };
+}
+
+function formatResearchGroups(papers) {
+  return papers
+    .map((paper) => {
+      const header = [`Paper: ${paper.title}${paper.identifier ? ` (${paper.identifier})` : ""}`];
+      const groupBlocks = paper.groups.length
+        ? paper.groups.map((group) => {
+            const groupHeader = [
+              `Group: ${group.name}${group.institution ? ` (${group.institution})` : ""}`,
+              group.website ? `Website: ${group.website}` : "Website: Not provided",
+              group.notes && group.notes.length > 0 ? `Summary: ${group.notes}` : "Summary: Not provided"
+            ];
+
+            const researcherRows = group.researchers.length
+              ? group.researchers
+              : [{ name: "Not provided", email: null, role: null }];
+
+            const tableLines = ["| Name | Email | Role |", "| --- | --- | --- |"];
+            researcherRows.forEach((person) => {
+              const email = person.email || "Not provided";
+              const role = person.role || "Not provided";
+              tableLines.push(`| ${person.name} | ${email} | ${role} |`);
+            });
+
+            return `${groupHeader.join("\n")}\n${tableLines.join("\n")}`;
+          })
+        : ["No groups reported"];
+
+      return `${header.join("\n")}\n${groupBlocks.join("\n\n")}`;
+    })
+    .join("\n\n");
 }
 
 async function run() {
@@ -322,9 +475,6 @@ async function run() {
     console.log("\n=== Research Groups Prototype Helper ===\n");
     console.log(`Working directory: ${workingDir}`);
 
-    const pdfPath = await promptForPdfPath(rl, workingDir);
-    console.log(`\nUsing PDF: ${pdfPath}`);
-
     const outputPath = path.resolve(workingDir, DEFAULT_OUTPUT_PATH);
     const existingLibrary = readExistingLibrary(outputPath);
 
@@ -333,42 +483,73 @@ async function run() {
       return;
     }
 
-    const { prompt, truncated, context } = await buildResearchPromptFromPdf(pdfPath);
+    const pdfPath = await promptForPdfPath(rl, workingDir);
+    console.log(`\nUsing PDF: ${pdfPath}`);
 
-    await clipboardy.write(prompt);
+    const discoveryPrompt = buildDiscoveryPrompt(existingLibrary);
+    await clipboardy.write(discoveryPrompt);
 
-    console.log("\nResearch Groups prompt copied to your clipboard. Paste it into the deep research agent.\n");
-    if (truncated) {
-      console.log(`Note: extracted text was clipped to ${MAX_INPUT_CHARS.toLocaleString()} characters to match the API limit.`);
-    }
+    console.log("\nDiscovery prompt copied to your clipboard. Paste it into the deep research agent to gather group notes.\n");
     console.log("Preview:");
-    console.log(`${prompt.slice(0, 240)}${prompt.length > 240 ? "…" : ""}`);
+    console.log(`${discoveryPrompt.slice(0, 240)}${discoveryPrompt.length > 240 ? "…" : ""}`);
     console.log(
-      "\nNext steps:\n  1. Paste the prompt into your deep research agent.\n  2. Wait for the narrative response.\n  3. Paste the text back here (press ENTER on an empty line when finished).\n"
+      "\nNext steps:\n  1. Paste the prompt into your deep research agent.\n  2. Wait for the notes to finish compiling.\n  3. Press ENTER here when you're ready for the cleanup prompt.\n"
     );
 
-    const researchGroupsRaw = await collectResearchGroupsText(rl);
+    await ask(rl, "\nPress ENTER once the notes are ready to receive the cleanup prompt: ");
 
-    if (!researchGroupsRaw) {
-      console.log("No research groups narrative provided. Mock library left unchanged.");
+    const cleanupPrompt = buildCleanupPrompt();
+    await clipboardy.write(cleanupPrompt);
+
+    console.log("\nCleanup prompt copied to your clipboard. Paste it into the cleanup agent, add the notes beneath the divider, and request JSON.\n");
+    console.log("Preview:");
+    console.log(`${cleanupPrompt.slice(0, 240)}${cleanupPrompt.length > 240 ? "…" : ""}`);
+    console.log(
+      "\nNext steps:\n  1. Paste the cleanup prompt into your LLM.\n  2. Add the discovery notes beneath the placeholder line, then run the cleanup.\n  3. Paste the cleaned JSON back here (press ENTER on an empty line when finished).\n"
+    );
+
+    const cleanedJsonRaw = await collectCleanedJson(rl);
+
+    if (!cleanedJsonRaw) {
+      console.log("No cleaned JSON provided. Mock library left unchanged.");
       return;
     }
 
+    let cleanedPayload;
+    try {
+      cleanedPayload = JSON.parse(cleanedJsonRaw);
+    } catch (error) {
+      console.error("\n❌ Failed to parse the Research Groups JSON. Ensure the cleanup agent returns valid JSON only.");
+      console.error("Raw snippet preview:");
+      console.error(cleanedJsonRaw.slice(0, 200));
+      throw new Error(`Failed to parse research groups JSON: ${error instanceof Error ? error.message : String(error)}`);
+    }
+
+    const normalised = normaliseResearchGroupsPayload(cleanedPayload);
+    const formattedText = formatResearchGroups(normalised.papers);
+
     const researchGroupsData = {
       maxChars: MAX_INPUT_CHARS,
-      truncated,
-      text: cleanPlainText(researchGroupsRaw)
+      truncated: false,
+      text: formattedText,
+      structured: {
+        papers: normalised.papers,
+        promptNotes: normalised.promptNotes
+      }
     };
+
+    const sourcePdf = existingLibrary.sourcePdf
+      ? { ...existingLibrary.sourcePdf }
+      : null;
+
+    if (sourcePdf) {
+      sourcePdf.path = path.relative(path.join(__dirname, ".."), pdfPath);
+    }
 
     const libraryData = {
       ...existingLibrary,
       generatedAt: new Date().toISOString(),
-      sourcePdf: {
-        path: path.relative(path.join(__dirname, ".."), pdfPath),
-        title: context.title,
-        doi: context.detectedDoi,
-        pages: context.pageCount
-      },
+      sourcePdf: sourcePdf || existingLibrary.sourcePdf,
       researchGroups: researchGroupsData
     };
 

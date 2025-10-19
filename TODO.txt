@@ -1,8 +1,4 @@
 CODEX
-fix UI on mock similar papers
-make upload when not logged in open log in page
-
-update script to mock research groups nad PhD theses
 Share with anders
 
 compile similar patents mock

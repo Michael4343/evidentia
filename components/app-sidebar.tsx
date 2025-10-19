@@ -61,6 +61,11 @@ export function AppSidebar({
   };
 
   const handleAddPaperClick = () => {
+    // Check if user is logged in before showing upload
+    if (!user) {
+      open("login");
+      return;
+    }
     onShowUpload?.();
   };
 

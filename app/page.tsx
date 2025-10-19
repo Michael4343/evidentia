@@ -8,6 +8,7 @@ import { PdfViewer } from "@/components/pdf-viewer";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { MockSimilarPapersShowcase } from "@/components/mock-similar-papers-showcase";
 import { MOCK_SAMPLE_PAPER_ID, MOCK_SAMPLE_PAPER_META } from "@/lib/mock-sample-paper";
+import { MOCK_SIMILAR_PAPERS_LIBRARY } from "@/lib/mock-similar-papers";
 import { useAuthModal } from "@/components/auth-modal-provider";
 import { ReaderTabKey } from "@/lib/reader-tabs";
 import { extractDoiFromPdf } from "@/lib/pdf-doi";
@@ -27,6 +28,31 @@ const MOCK_UPLOADED_PAPER_BASE = {
   doi: MOCK_SAMPLE_PAPER_META.doi,
   source: "local" as const
 };
+
+interface ResearchGroupEntry {
+  name: string;
+  institution: string | null;
+  website: string | null;
+  notes: string | null;
+  researchers: Array<{ name: string; email: string | null; role: string | null }>;
+}
+
+interface ResearchGroupPaperEntry {
+  title: string;
+  identifier: string | null;
+  groups: ResearchGroupEntry[];
+}
+
+const MOCK_RESEARCH_GROUPS_TEXT =
+  typeof MOCK_SIMILAR_PAPERS_LIBRARY?.researchGroups?.text === "string"
+    ? MOCK_SIMILAR_PAPERS_LIBRARY.researchGroups.text
+    : "";
+
+const MOCK_RESEARCH_GROUPS_STRUCTURED: ResearchGroupPaperEntry[] | undefined = Array.isArray(
+  MOCK_SIMILAR_PAPERS_LIBRARY?.researchGroups?.structured?.papers
+)
+  ? (MOCK_SIMILAR_PAPERS_LIBRARY.researchGroups.structured.papers as ResearchGroupPaperEntry[])
+  : undefined;
 
 function isMockPaper(paper: UploadedPaper | null | undefined) {
   return paper?.id === MOCK_SAMPLE_PAPER_ID;
@@ -174,7 +200,11 @@ type ExtractionState =
 
 type ResearchGroupsState =
   | { status: "loading" }
-  | { status: "success"; text: string }
+  | {
+      status: "success";
+      text: string;
+      structured?: ResearchGroupPaperEntry[];
+    }
   | { status: "error"; message: string };
 
 type SimilarPapersState =
@@ -430,7 +460,13 @@ function ResearchGroupsPanel({
     );
   }
 
-  if (isMockPaper(paper)) {
+  const hasMockContent = Boolean(
+    state &&
+      state.status === "success" &&
+      ((state.text && state.text.trim().length > 0) || (state.structured && state.structured.length > 0))
+  );
+
+  if (isMockPaper(paper) && !hasMockContent) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
         <p className="text-base font-medium text-slate-700">Coming soon</p>
@@ -500,11 +536,95 @@ function ResearchGroupsPanel({
 
   return (
     <div className="flex-1 overflow-auto p-6 space-y-6">
-      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold text-slate-800">Research Groups</h3>
-        <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-          {state.text}
-        </div>
+      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-4">
+        <h3 className="text-sm font-semibold text-slate-800">Research Groups</h3>
+        {state.structured && state.structured.length > 0 ? (
+          <div className="space-y-8">
+            {state.structured.map((paperEntry) => (
+              <div key={paperEntry.title} className="space-y-4">
+                <div>
+                  <h4 className="text-base font-semibold text-slate-900">{paperEntry.title}</h4>
+                  <p className="text-xs text-slate-500">
+                    {paperEntry.identifier ? paperEntry.identifier : "Identifier not provided"}
+                  </p>
+                </div>
+
+                {paperEntry.groups.length > 0 ? (
+                  <div className="space-y-6">
+                    {paperEntry.groups.map((group) => (
+                      <div key={`${paperEntry.title}-${group.name}`} className="space-y-3">
+                        <div>
+                          <h5 className="text-sm font-semibold text-slate-800">
+                            {group.name}
+                            {group.institution ? (
+                              <span className="ml-2 text-xs font-normal text-slate-500">({group.institution})</span>
+                            ) : null}
+                          </h5>
+                          {group.website ? (
+                            <a
+                              href={group.website}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs font-medium text-primary hover:underline"
+                            >
+                              {group.website}
+                            </a>
+                          ) : (
+                            <p className="text-[11px] text-slate-500">No website provided</p>
+                          )}
+                          <p className="mt-1 text-sm text-slate-600 leading-relaxed">
+                            {group.notes && group.notes.length > 0 ? group.notes : "Summary not provided"}
+                          </p>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                          <table className="min-w-[28rem] border-collapse text-sm">
+                            <thead>
+                              <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                                <th className="px-3 py-2">Name</th>
+                                <th className="px-3 py-2">Email</th>
+                                <th className="px-3 py-2">Role</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {(group.researchers.length > 0
+                                ? group.researchers
+                                : [{ name: "Not provided", email: null, role: null }]
+                              ).map((person) => (
+                                <tr
+                                  key={`${group.name}-${person.name}-${person.email ?? "no-email"}`}
+                                  className="border-t border-slate-200 align-top"
+                                >
+                                  <td className="px-3 py-2 font-medium text-slate-800">{person.name}</td>
+                                  <td className="px-3 py-2 text-slate-600">
+                                    {person.email ? (
+                                      <a href={`mailto:${person.email}`} className="text-primary hover:underline">
+                                        {person.email}
+                                      </a>
+                                    ) : (
+                                      <span className="text-slate-500">Not provided</span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-slate-600">{person.role || "Not provided"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-600">No groups reported for this paper.</p>
+                )}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+            {state.text}
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
@@ -960,10 +1080,20 @@ export default function LandingPage() {
     }
   });
   const [similarPapersStates, setSimilarPapersStates] = useState<Record<string, SimilarPapersState>>({
-    [MOCK_SAMPLE_PAPER_ID]: { status: "success", text: "" }
+    [MOCK_SAMPLE_PAPER_ID]: {
+      status: "success",
+      text:
+        typeof MOCK_SIMILAR_PAPERS_LIBRARY?.similarPapers === "string"
+          ? MOCK_SIMILAR_PAPERS_LIBRARY.similarPapers
+          : ""
+    }
   });
   const [researchGroupsStates, setResearchGroupsStates] = useState<Record<string, ResearchGroupsState>>({
-    [MOCK_SAMPLE_PAPER_ID]: { status: "success", text: "" }
+    [MOCK_SAMPLE_PAPER_ID]: {
+      status: "success",
+      text: MOCK_RESEARCH_GROUPS_TEXT,
+      structured: MOCK_RESEARCH_GROUPS_STRUCTURED
+    }
   });
   const [researchContactsStates, setResearchContactsStates] = useState<Record<string, ResearchGroupContactsState>>({
     [MOCK_SAMPLE_PAPER_ID]: { status: "success", contacts: [] }
@@ -1639,10 +1769,20 @@ export default function LandingPage() {
         }
       });
       setSimilarPapersStates({
-        [MOCK_SAMPLE_PAPER_ID]: { status: "success", text: "" }
+        [MOCK_SAMPLE_PAPER_ID]: {
+          status: "success",
+          text:
+            typeof MOCK_SIMILAR_PAPERS_LIBRARY?.similarPapers === "string"
+              ? MOCK_SIMILAR_PAPERS_LIBRARY.similarPapers
+              : ""
+        }
       });
       setResearchGroupsStates({
-        [MOCK_SAMPLE_PAPER_ID]: { status: "success", text: "" }
+        [MOCK_SAMPLE_PAPER_ID]: {
+          status: "success",
+          text: MOCK_RESEARCH_GROUPS_TEXT,
+          structured: MOCK_RESEARCH_GROUPS_STRUCTURED
+        }
       });
       setResearchContactsStates({
         [MOCK_SAMPLE_PAPER_ID]: { status: "success", contacts: [] }
