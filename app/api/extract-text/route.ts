@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { createRequire } from "module";
 
 import { PAPERS_BUCKET } from "@/lib/user-papers";
 
@@ -90,7 +91,8 @@ export async function POST(req: Request) {
       binary = await blobToUint8Array(file);
     }
 
-    const pdfParse = (await import("pdf-parse")).default;
+    const require = createRequire(import.meta.url);
+    const pdfParse = require("pdf-parse") as (buffer: Buffer) => Promise<any>;
 
     const buffer = Buffer.from(binary);
     const parsed = await pdfParse(buffer);
