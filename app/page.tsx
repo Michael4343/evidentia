@@ -1557,11 +1557,16 @@ export default function LandingPage() {
       });
 
       try {
-        let workingFile: File | null = options?.file ?? null;
+        const storagePath = typeof paper.storagePath === "string" ? paper.storagePath.trim() : "";
+        const hasStoragePath = storagePath.length > 0;
+        const fileUrl = typeof paper.url === "string" ? paper.url.trim() : "";
+        const hasFileUrl = fileUrl.length > 0;
 
-        if (!workingFile && paper.url) {
+        let workingFile: File | null = hasStoragePath ? null : options?.file ?? null;
+
+        if (!workingFile && !hasStoragePath && hasFileUrl) {
           try {
-            const pdfResponse = await fetch(paper.url, {
+            const pdfResponse = await fetch(fileUrl, {
               cache: "no-store"
             });
 
@@ -1575,13 +1580,13 @@ export default function LandingPage() {
             });
           } catch (downloadError) {
             console.warn("[extraction] Client-side fetch failed", {
-              url: paper.url,
+              url: fileUrl,
               error: downloadError
             });
           }
         }
 
-        if (!workingFile && !paper.storagePath) {
+        if (!hasStoragePath && !workingFile) {
           throw new Error("Missing PDF data for extraction.");
         }
 
@@ -1590,15 +1595,15 @@ export default function LandingPage() {
         const formData = new FormData();
         formData.append("filename", fileName);
 
-        if (paper.storagePath) {
-          formData.append("storagePath", paper.storagePath);
+        if (hasStoragePath) {
+          formData.append("storagePath", storagePath);
         }
 
-        if (paper.url) {
-          formData.append("fileUrl", paper.url);
+        if (hasFileUrl) {
+          formData.append("fileUrl", fileUrl);
         }
 
-        if (workingFile) {
+        if (!hasStoragePath && workingFile) {
           formData.append("file", workingFile, fileName);
         }
 
