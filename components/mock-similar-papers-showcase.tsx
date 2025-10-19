@@ -27,6 +27,21 @@ export function MockSimilarPapersShowcase() {
     methodMatrix?: Record<MethodKey, string | null | undefined>;
   };
 
+  type ComparisonPaper = {
+    identifier: string | null;
+    title: string;
+    doi?: string | null;
+    url?: string | null;
+    authors?: string[];
+    year?: number | null;
+    venue?: string;
+    clusterLabel?: string;
+    whyRelevant?: string;
+    overlapHighlights?: string[];
+    methodMatrix: Record<MethodKey, string>;
+    gapsOrUncertainties?: string;
+  };
+
   const deriveSourceMeta = () => {
     const path = mock?.sourcePdf?.path;
     if (!path) {
@@ -116,7 +131,7 @@ export function MockSimilarPapersShowcase() {
       }
     : null;
 
-  const comparisonPapers = [
+  const comparisonPapers: ComparisonPaper[] = [
     ...(sourcePaperEntry
       ? [{
           ...sourcePaperEntry,
@@ -131,7 +146,7 @@ export function MockSimilarPapersShowcase() {
 
   const hasRecommendations = comparisonPapers.length > 0;
 
-  const getMatrixValue = (paper: (typeof comparisonPapers)[number], key: MethodKey) => {
+  const getMatrixValue = (paper: ComparisonPaper, key: MethodKey) => {
     const value = paper?.methodMatrix?.[key];
     if (!value || !value.trim()) {
       return "Not reported";
