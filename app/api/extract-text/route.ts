@@ -90,34 +90,26 @@ export async function POST(req: Request) {
       binary = await blobToUint8Array(file);
     }
 
-    const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
+    const pdfParse = (await import("pdf-parse")).default;
 
-    const loadingTask = pdfjsLib.getDocument({ data: binary });
-    const doc = await loadingTask.promise;
+    const buffer = Buffer.from(binary);
+    const parsed = await pdfParse(buffer);
 
-    const metadata = await doc.getMetadata().catch(() => null);
-    const info = metadata?.info ?? null;
-    const numPages = doc.numPages ?? null;
-    const pageTexts: string[] = [];
+    const rawText = typeof parsed?.text === "string" ? parsed.text : "";
+    const text = rawText.trim();
 
-    for (let pageNumber = 1; pageNumber <= doc.numPages; pageNumber++) {
-      const page = await doc.getPage(pageNumber);
-      const content = await page.getTextContent();
-      const strings = content.items
-        .map((item) => ("str" in item ? item.str : typeof item === "string" ? item : ""))
-        .join(" ")
-        .replace(/\s+/g, " ")
-        .trim();
-
-      pageTexts.push(strings);
+    if (!text) {
+      return NextResponse.json(
+        {
+          error: "Failed to extract text from PDF.",
+          hint: "The PDF did not contain extractable text. Try uploading a text-based PDF instead of a scanned image."
+        },
+        { status: 422 }
+      );
     }
 
-    await doc.cleanup();
-    await doc.destroy();
-
-    const text = pageTexts
-      .map((pageText, index) => `--- Page ${index + 1} ---\n\n${pageText}`)
-      .join("\n\n");
+    const info = parsed?.info ?? null;
+    const numPages = typeof parsed?.numpages === "number" ? parsed.numpages : null;
 
     return NextResponse.json({
       pages: numPages,
@@ -128,7 +120,7 @@ export async function POST(req: Request) {
     console.error("[extract-text] Error:", err);
     return NextResponse.json(
       { error: `Failed to extract text: ${err?.message || "Unknown error"}` },
-      { status: 500 },
+      { status: 500 }
     );
   }
 }
