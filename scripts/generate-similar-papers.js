@@ -27,6 +27,401 @@ const MAX_LISTED_PDFS = 40;
 const MAX_SCAN_DEPTH = 3;
 const IGNORED_DIRS = new Set(["node_modules", ".git", ".next", "out", "dist", "build", "tmp", "temp", "public"]);
 
+const MAX_PROMPT_NOTES_PREVIEW = 400;
+
+const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's Similar Papers UI.
+
+Output requirements:
+- Return a single JSON object with keys: sourcePaper, similarPapers, promptNotes (optional).
+- sourcePaper fields:
+  - summary: string (keep concise, two sentences max)
+  - keyMethodSignals: array of 3-5 short strings (no numbering)
+  - searchQueries: array of 3-5 search phrases
+- similarPapers: array of 3-5 objects. Each object must include:
+  identifier (string), title (string), doi (string|null), url (string|null),
+  authors (array of strings), year (number|null), venue (string|null),
+  clusterLabel ("Sample and model" | "Field deployments" | "Insight primers"),
+  whyRelevant (string), overlapHighlights (array of exactly 3 short strings),
+  methodMatrix (object with keys: sampleModel, materialsSetup, equipmentSetup, procedureSteps, controls, outputsMetrics, qualityChecks, outcomeSummary),
+  gapsOrUncertainties (string|null).
+- Use "Not reported" inside methodMatrix when information is missing. Use null for unknown scalars.
+- No markdown, no commentary, no trailing prose. Ensure valid JSON (double quotes only).
+- Preserve factual content; do not invent new details.
+`;
+
+const CURLY_QUOTES_TO_ASCII = [
+  [/\u2018|\u2019|\u201A|\u201B/g, "'"],
+  [/\u201C|\u201D|\u201E|\u201F/g, '"'],
+  [/\u2013|\u2014|\u2015|\u2212/g, "-"],
+  [/\u2026/g, "..."],
+  [/\u00A0/g, " "],
+  [/\u200B|\u200C|\u200D|\uFEFF/g, ""],
+  [/\u0000|\u0001|\u0002|\u0003|\u0004|\u0005|\u0006|\u0007|\u0008|\u0009|\u000A|\u000B|\u000C|\u000D/g, " "]
+];
+
+
+function cleanPlainText(input) {
+  if (typeof input !== "string") {
+    return input;
+  }
+
+  let value = input.replace(/\r\n/g, "\n").trim();
+  for (const [pattern, replacement] of CURLY_QUOTES_TO_ASCII) {
+    value = value.replace(pattern, replacement);
+  }
+
+  // Convert markdown links to "label (url)" so we keep both signals if present.
+  value = value.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g, (match, label, url) => {
+    return `${label} (${url})`;
+  });
+
+  // Strip stray closing "](" sequences that can linger after partial links.
+  value = value.replace(/\]\((https?:\/\/[^)]+)\)/g, " ($1)");
+
+  // Remove leftover reference-style link brackets like [1].
+  value = value.replace(/\[(\d+|[a-zA-Z]+)\]/g, " $1");
+
+  // Collapse internal whitespace but keep newlines meaningful.
+  value = value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line, index, lines) => line.length > 0 || (index > 0 && lines[index - 1].length > 0))
+    .join("\n");
+
+  return value.trim();
+}
+
+function cleanUrl(input) {
+  if (typeof input !== "string") {
+    return input;
+  }
+
+  let value = input.trim();
+  const markdownUrlMatch = value.match(/\((https?:\/\/[^)]+)\)/);
+  if (markdownUrlMatch) {
+    value = markdownUrlMatch[1];
+  }
+
+  if (!value.startsWith("http")) {
+    const firstUrl = value.match(/https?:\/\/[^\s)]+/);
+    if (firstUrl) {
+      value = firstUrl[0];
+    }
+  }
+
+  value = value.replace(/^\[+/, "").replace(/\]+$/, "");
+  value = value.replace(/["')]+$/g, "").replace(/^["'(]+/g, "");
+  return value.trim();
+}
+
+function toStringArray(value) {
+  if (!value) {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => (typeof entry === "string" ? cleanPlainText(entry) : entry))
+      .filter((entry) => typeof entry === "string" && entry.trim().length > 0);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(/\r?\n|[•·]|;|\|/)
+      .map((item) => cleanPlainText(item))
+      .filter((item) => item.length > 0);
+  }
+
+  return [];
+}
+
+function deepCleanValue(value, key) {
+  if (typeof value === "string") {
+    if (key === "url" || key.endsWith("Url")) {
+      return cleanUrl(value);
+    }
+    return cleanPlainText(value);
+  }
+
+  if (Array.isArray(value)) {
+    const cleanedArray = value
+      .map((item) => deepCleanValue(item, key))
+      .filter((item) => {
+        if (item == null) {
+          return false;
+        }
+        if (typeof item === "string") {
+          return item.trim().length > 0;
+        }
+        if (Array.isArray(item)) {
+          return item.length > 0;
+        }
+        if (typeof item === "object") {
+          return Object.values(item).some((entry) => {
+            if (entry == null) {
+              return false;
+            }
+            if (typeof entry === "string") {
+              return entry.trim().length > 0;
+            }
+            if (Array.isArray(entry)) {
+              return entry.length > 0;
+            }
+            if (typeof entry === "object") {
+              return Object.keys(entry).length > 0;
+            }
+            return true;
+          });
+        }
+        return true;
+      });
+    return cleanedArray;
+  }
+
+  if (value && typeof value === "object") {
+    return deepCleanObject(value);
+  }
+
+  return value;
+}
+
+function deepCleanObject(obj) {
+  if (!obj || typeof obj !== "object") {
+    return obj;
+  }
+
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    const cleanedValue = deepCleanValue(value, key);
+    if (cleanedValue == null) {
+      continue;
+    }
+    if (typeof cleanedValue === "string" && cleanedValue.trim().length === 0) {
+      continue;
+    }
+    if (Array.isArray(cleanedValue) && cleanedValue.length === 0) {
+      continue;
+    }
+    if (
+      typeof cleanedValue === "object" &&
+      !Array.isArray(cleanedValue) &&
+      Object.keys(cleanedValue).length === 0
+    ) {
+      continue;
+    }
+    result[key] = cleanedValue;
+  }
+
+  return result;
+}
+
+function normaliseSourcePaper(paper) {
+  const cleaned = deepCleanObject(paper);
+  if (!cleaned || typeof cleaned !== "object") {
+    return {};
+  }
+
+  const normalised = { ...cleaned };
+
+  if (normalised.keyMethodSignals) {
+    const signals = toStringArray(normalised.keyMethodSignals);
+    normalised.keyMethodSignals = signals.slice(0, 5);
+  }
+
+  if (normalised.searchQueries) {
+    normalised.searchQueries = toStringArray(normalised.searchQueries).slice(0, 6);
+  } else if (normalised.searchPlaybookQueries) {
+    normalised.searchQueries = toStringArray(normalised.searchPlaybookQueries).slice(0, 6);
+    delete normalised.searchPlaybookQueries;
+  } else if (normalised.searchPlaybook) {
+    const queries = toStringArray(normalised.searchPlaybook);
+    normalised.searchQueries = queries.slice(0, 6);
+    delete normalised.searchPlaybook;
+  }
+
+  return normalised;
+}
+
+function normaliseSimilarPayload(payload) {
+  const sourcePaper = normaliseSourcePaper(payload.sourcePaper);
+  const similarPapers = Array.isArray(payload.similarPapers)
+    ? payload.similarPapers
+        .map((entry) => normaliseSimilarPaper(entry))
+        .filter((entry) => Object.keys(entry).length > 0)
+        .slice(0, 5)
+    : [];
+  const promptNotes = typeof payload.promptNotes === "string" ? cleanPlainText(payload.promptNotes) : "";
+
+  return {
+    sourcePaper,
+    similarPapers,
+    promptNotes
+  };
+}
+
+const METHOD_MATRIX_KEY_ALIASES = {
+  samplemodel: "sampleModel",
+  sample: "sampleModel",
+  model: "sampleModel",
+  materials: "materialsSetup",
+  materialssetup: "materialsSetup",
+  materialsmaterial: "materialsSetup",
+  equipment: "equipmentSetup",
+  equipments: "equipmentSetup",
+  instrument: "equipmentSetup",
+  instrumentation: "equipmentSetup",
+  equipmentsetup: "equipmentSetup",
+  procedure: "procedureSteps",
+  procedures: "procedureSteps",
+  proceduresteps: "procedureSteps",
+  preparation: "procedureSteps",
+  preparationsteps: "procedureSteps",
+  methods: "procedureSteps",
+  controls: "controls",
+  controlsetup: "controls",
+  outputs: "outputsMetrics",
+  output: "outputsMetrics",
+  outputsmetrics: "outputsMetrics",
+  readouts: "outputsMetrics",
+  measurements: "outputsMetrics",
+  metrics: "outputsMetrics",
+  quality: "qualityChecks",
+  qualitychecks: "qualityChecks",
+  qc: "qualityChecks",
+  qualitycontrol: "qualityChecks",
+  outcome: "outcomeSummary",
+  outcomes: "outcomeSummary",
+  outcomesummary: "outcomeSummary"
+};
+
+const METHOD_MATRIX_CANONICAL_KEYS = [
+  "sampleModel",
+  "materialsSetup",
+  "equipmentSetup",
+  "procedureSteps",
+  "controls",
+  "outputsMetrics",
+  "qualityChecks",
+  "outcomeSummary"
+];
+
+function normaliseMethodMatrix(rawMatrix) {
+  if (!rawMatrix || typeof rawMatrix !== "object") {
+    return undefined;
+  }
+
+  const cleanedEntries = deepCleanObject(rawMatrix);
+  const canonical = {};
+
+  for (const [key, value] of Object.entries(cleanedEntries)) {
+    const lookupKey = key.trim().replace(/[^a-z]/gi, "").toLowerCase();
+    const aliasKey = METHOD_MATRIX_KEY_ALIASES[lookupKey];
+    const resolvedKey = aliasKey || key;
+
+    if (typeof value === "string") {
+      const existing = canonical[resolvedKey];
+      canonical[resolvedKey] = existing ? `${existing}; ${value}` : value;
+      continue;
+    }
+
+    canonical[resolvedKey] = value;
+  }
+
+  const result = {};
+  METHOD_MATRIX_CANONICAL_KEYS.forEach((key) => {
+    if (canonical[key]) {
+      result[key] = canonical[key];
+    }
+  });
+
+  for (const [key, value] of Object.entries(canonical)) {
+    if (!(key in result) && value) {
+      result[key] = value;
+    }
+  }
+
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function normaliseSimilarPaper(paper) {
+  const cleaned = deepCleanObject(paper);
+  if (!cleaned || typeof cleaned !== "object") {
+    return {};
+  }
+
+  const normalised = { ...cleaned };
+
+  if (!normalised.identifier) {
+    if (normalised.doi) {
+      normalised.identifier = normaliseDoi(normalised.doi);
+    } else if (normalised.url) {
+      normalised.identifier = cleanUrl(normalised.url);
+    }
+  }
+
+  if (normalised.doi) {
+    normalised.doi = normaliseDoi(normalised.doi);
+  }
+
+  if (normalised.url) {
+    normalised.url = cleanUrl(normalised.url);
+  }
+
+  if (normalised.authors) {
+    const authors = toStringArray(normalised.authors);
+    normalised.authors = authors.length ? authors : undefined;
+  }
+
+  if (normalised.overlapHighlights) {
+    const highlights = toStringArray(normalised.overlapHighlights).map((item) => item.replace(/^[-•\d.\s]+/, ""));
+    if (!highlights.length) {
+      normalised.overlapHighlights = ["Not reported", "Not reported", "Not reported"];
+    } else {
+      while (highlights.length < 3) {
+        highlights.push("Not reported");
+      }
+      normalised.overlapHighlights = highlights.slice(0, 3);
+    }
+  } else {
+    normalised.overlapHighlights = ["Not reported", "Not reported", "Not reported"];
+  }
+
+  if (typeof normalised.year === "string") {
+    const parsedYear = Number.parseInt(normalised.year, 10);
+    normalised.year = Number.isFinite(parsedYear) ? parsedYear : null;
+  }
+
+  if (normalised.clusterLabel) {
+    const label = cleanPlainText(normalised.clusterLabel).toLowerCase();
+    if (label.includes("sample")) {
+      normalised.clusterLabel = "Sample and model";
+    } else if (label.includes("field")) {
+      normalised.clusterLabel = "Field deployments";
+    } else if (label.includes("insight")) {
+      normalised.clusterLabel = "Insight primers";
+    } else {
+      normalised.clusterLabel = cleanPlainText(normalised.clusterLabel);
+    }
+  } else {
+    normalised.clusterLabel = "Sample and model";
+  }
+
+  if (cleaned.methodMatrix) {
+    const normalisedMatrix = normaliseMethodMatrix(cleaned.methodMatrix);
+    if (normalisedMatrix) {
+      normalised.methodMatrix = normalisedMatrix;
+    } else {
+      delete normalised.methodMatrix;
+    }
+  }
+
+  if (!('gapsOrUncertainties' in normalised)) {
+    normalised.gapsOrUncertainties = null;
+  }
+
+  return normalised;
+}
+
 function normaliseDoi(raw) {
   return raw.replace(/[\s<>\]\).,;:]+$/g, "").replace(/^[\s"'(<\[]+/g, "").toLowerCase();
 }
@@ -91,7 +486,7 @@ function formatAuthors(authors) {
   return "Not provided";
 }
 
-function buildResearchPrompt(paper) {
+function buildDiscoveryPrompt(paper) {
   const title = paper.title && paper.title.trim().length > 0 ? paper.title.trim() : "Unknown title";
   const doiOrId =
     (paper.doi && paper.doi.trim()) ||
@@ -101,44 +496,61 @@ function buildResearchPrompt(paper) {
   const authors = formatAuthors(paper.authors);
   const abstractLine =
     paper.abstract && paper.abstract.trim().length > 0
-      ? `- Optional: Abstract: ${paper.abstract.trim()}`
-      : "- Optional: Abstract: not provided";
+      ? `- Optional abstract: ${paper.abstract.trim()}`
+      : "- Optional abstract: not provided";
 
   return [
-    "You are building a Similar Papers crosswalk for Evidentia. Focus entirely on method-level overlap and actionable signals that help a founder understand how related teams ran comparable work. Use concise, plain English.",
+    "You are powering Evidentia’s Similar Papers feature. Collect the research notes we need before a cleanup agent converts them to JSON.",
+    "Use the exact headings and bullet structure below. Keep language plain and concrete.",
     "",
-    "Inputs",
-    `- Title: ${title}`,
-    `- DOI or ID: ${doiOrId}`,
-    `- Authors: ${authors}`,
-    abstractLine,
+    "Source Paper:",
+    `- Summary: two sentences on what the paper does (methods focus).`,
+    `- Key method signals: bullet the 3-5 method-level highlights founders must know.`,
+    `- Search queries: list 3-5 reusable search phrases (no numbering).`,
     "",
-    "Deliverables",
-    "- Summarise the source paper's methods (2-3 sentences) so a teammate can brief founders quickly.",
-    "- Surface 5-10 high-signal similar papers. Method overlap beats topical similarity.",
+    "Similar Papers (3-5 entries):",
+    "For each entry use this template (start each paper with its number):",
+    "1. Identifier: <DOI or stable URL>",
+    "   Title: <paper title>",
+    "   Authors: <comma-separated names>",
+    "   Year: <year or 'Not reported'>",
+    "   Venue: <journal/conference or 'Not reported'>",
+    "   Cluster: <Sample and model | Field deployments | Insight primers>",
+    "   Why relevant: <2 sentences focusing on method overlap>",
+    "   Overlap highlights:",
+    "   - <short fragment 1>",
+    "   - <short fragment 2>",
+    "   - <short fragment 3>",
+    "   Method matrix:",
+    "   - Sample / model: <text>",
+    "   - Materials: <text>",
+    "   - Equipment: <text>",
+    "   - Procedure: <text>",
+    "   - Controls: <text>",
+    "   - Outputs / metrics: <text>",
+    "   - Quality checks: <text>",
+    "   - Outcome summary: <text>",
+    "   Gaps or uncertainties: <note if something is missing or risky>",
     "",
-    "Search playbook",
-    "- Derive neutral method terms from the PDF (sample model, preparation steps, equipment classes, control style, readout type, QC practices).",
-    "- Generate 4-6 diversified search queries mixing those terms with synonyms (e.g., \"aggregates micro-CT stable isotope probing\").",
-    "- Prioritise papers that:",
-    '  - Describe materials, equipment, controls, readouts, and QC steps clearly',
-    '  - Provide supplementary protocols, data, or code',
-    '  - Are accessible via arXiv, publisher OA versions, or lab websites',
-    "- Keep language plain; avoid jargon unless it is unavoidable (then explain it).",
+    "Guidelines:",
+    "- Pick papers with executable method overlap (instrumentation, controls, sample handling).",
+    "- If information is missing, write 'Not reported' inside the relevant bullet.",
+    "- Keep each method matrix bullet to ~12-18 words.",
+    "- Stay under 1,000 tokens total.",
     "",
-    "For each selected paper (5-10 total):",
-    "- identifier: DOI, Semantic Scholar ID, or other stable handle.",
-    "- whyRelevant: 2-3 sentences explaining the method overlap and what a founder should copy or avoid.",
-    "- Include 3-4 concise bullet fragments naming concrete overlaps (e.g., 'Micro-CT pore segmentation', '13C glucose SIP').",
-    "- methodMatrix: fill every field; if a point is missing, return 'not reported'.",
-    "- clusterLabel: choose “Sample and model”, “Field deployments”, or “Insight primers” and explain the reasoning in whyRelevant.",
+    "Respond using these headings exactly. No JSON yet."
+  ].join("\n");
+}
+
+function buildCleanupPrompt() {
+  return [
+    CLEANUP_PROMPT_HEADER.trim(),
     "",
-    "Answer with a concise narrative that a cleanup agent can later structure into JSON. Do not format as JSON yourself.",
-    "Highlight the key method signals for the source paper (3-5 bullet points).",
-    "For each similar paper (5-10 total) write 2-3 sentences explaining the method overlap, note the cluster label rationale, list 3 short overlap bullets, and quote any concrete gaps or uncertainties.",
-    "Stay within ~1,800 tokens overall; be specific but efficient.",
-    "",
-    "Return the narrative summary now."
+    "Paste the analyst notes beneath this line before submitting:",
+    "---",
+    "<PASTE NOTES HERE>",
+    "---",
+    "Return the JSON object now."
   ].join("\n");
 }
 
@@ -162,10 +574,28 @@ function ensureDirExists(targetPath) {
 
 function writeMockLibrary(outputPath, libraryData) {
   ensureDirExists(outputPath);
-  const banner = `// Auto-generated by scripts/generate-similar-papers.js on ${new Date().toISOString()}\n`;
+  const banner = `// Auto-generated by scripts/${path.basename(__filename)} on ${new Date().toISOString()}\n`;
   const warning = "// Do not edit by hand. Re-run the script with updated inputs.";
   const fileContents = `${banner}${warning}\n\nexport const MOCK_SIMILAR_PAPERS_LIBRARY = ${JSON.stringify(libraryData, null, 2)} as const;\n`;
   fs.writeFileSync(outputPath, fileContents, "utf-8");
+}
+
+function readExistingLibrary(outputPath) {
+  if (!fs.existsSync(outputPath)) {
+    return null;
+  }
+
+  try {
+    const fileContents = fs.readFileSync(outputPath, "utf-8");
+    const match = fileContents.match(/export const MOCK_SIMILAR_PAPERS_LIBRARY = (\{[\s\S]*\}) as const;/);
+    if (!match || !match[1]) {
+      return null;
+    }
+    return JSON.parse(match[1]);
+  } catch (error) {
+    console.warn("Failed to read existing mock library", error);
+    return null;
+  }
 }
 
 function sanitiseAgentPayload(payload) {
@@ -298,16 +728,20 @@ async function promptForPdfPath(rl, rootDir) {
 }
 
 async function collectAgentJson(rl) {
-  console.log("\nPaste the agent JSON now. Type END on a new line when finished.");
+  console.log("\nPaste the cleaned JSON now. Press ENTER on an empty line when you're done.");
   console.log("Press ENTER immediately to skip when you don't have output yet.\n");
 
   const lines = [];
   while (true) {
     const line = await ask(rl, "> ");
-    if (lines.length === 0 && !line.trim()) {
+    const trimmed = line.trim();
+    if (lines.length === 0 && !trimmed) {
       return "";
     }
-    if (line.trim().toUpperCase() === "END") {
+    if (!trimmed) {
+      break;
+    }
+    if (trimmed.toUpperCase() === "END") {
       break;
     }
     lines.push(line);
@@ -339,7 +773,7 @@ async function buildPromptFromPdf(pdfPath) {
   const detectedDoi = extractDoiCandidate(`${combinedText}\n${JSON.stringify(info)}`);
   const paper = derivePaperMetadata(info, fallbackTitle, detectedDoi);
 
-  const basePrompt = buildResearchPrompt(paper);
+  const basePrompt = buildDiscoveryPrompt(paper);
   const { clipped, truncated } = truncateForPrompt(combinedText, MAX_INPUT_CHARS);
   const assembledPrompt = buildAssembledPrompt(basePrompt, clipped, truncated);
 
@@ -367,21 +801,38 @@ async function run() {
     const pdfPath = await promptForPdfPath(rl, workingDir);
     console.log(`\nUsing PDF: ${pdfPath}`);
 
-    const { prompt, context } = await buildPromptFromPdf(pdfPath);
+    const outputPath = path.resolve(workingDir, DEFAULT_OUTPUT_PATH);
+    const existingLibrary = readExistingLibrary(outputPath);
 
-    await clipboardy.write(prompt);
+    const { prompt: similarPrompt, context } = await buildPromptFromPdf(pdfPath);
 
-    console.log("\nPrompt copied to your clipboard. Paste it into the deep research agent to run the Similar Papers pass.\n");
+    await clipboardy.write(similarPrompt);
+
+    console.log("\nDiscovery prompt copied to your clipboard. Paste it into the deep research agent to gather Similar Papers notes.\n");
     if (context.truncated) {
       console.log(`Note: extracted text was clipped to ${MAX_INPUT_CHARS.toLocaleString()} characters to match the API limit.`);
     }
     console.log("Preview:");
-    console.log(`${prompt.slice(0, 240)}${prompt.length > 240 ? "…" : ""}`);
-    console.log("\nNext steps:\n  1. Paste the copied prompt into your deep research agent.\n  2. Wait for the JSON response.\n  3. Paste the JSON back here (type END to finish).\n");
+    console.log(`${similarPrompt.slice(0, 240)}${similarPrompt.length > 240 ? "…" : ""}`);
+    console.log(
+      "\nNext steps:\n  1. Paste the prompt into your deep research agent.\n  2. Wait for the structured notes to finish.\n  3. Press ENTER here when you're ready for the cleanup prompt.\n"
+    );
+
+    await ask(rl, "\nPress ENTER once you've captured the notes to grab the cleanup prompt: ");
+
+    const cleanupPrompt = buildCleanupPrompt();
+    await clipboardy.write(cleanupPrompt);
+
+    console.log("\nCleanup prompt copied to your clipboard. Paste it into the cleanup agent, add the notes below the divider, and convert to JSON.\n");
+    console.log("Preview:");
+    console.log(`${cleanupPrompt.slice(0, 240)}${cleanupPrompt.length > 240 ? "…" : ""}`);
+    console.log(
+      "\nNext steps:\n  1. Paste the cleanup prompt into your LLM.\n  2. Add the discovery notes beneath the placeholder line, then run the cleanup.\n  3. Paste the cleaned JSON back here (press ENTER on an empty line when finished).\n"
+    );
 
     const agentRaw = await collectAgentJson(rl);
     if (!agentRaw) {
-      console.log("No agent JSON provided. Landing page mock left unchanged.");
+      console.log("No cleaned JSON provided. Landing page mock left unchanged.");
       return;
     }
 
@@ -389,15 +840,30 @@ async function run() {
     try {
       agentPayload = JSON.parse(agentRaw);
     } catch (error) {
-      throw new Error(`Failed to parse agent JSON: ${error.message}`);
+      console.error("\n❌ Failed to parse the Similar Papers JSON. Make sure it's valid JSON only — no markdown, trailing commas, or smart quotes.");
+      console.error("Raw snippet preview:");
+      console.error(agentRaw.slice(0, 200));
+      throw new Error(`Failed to parse agent JSON: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     const cleanPayload = sanitiseAgentPayload(agentPayload);
+    const normalisedPayload = normaliseSimilarPayload(cleanPayload);
 
-    const sourcePaperData = { ...cleanPayload.sourcePaper };
+    if (!normalisedPayload.similarPapers.length) {
+      throw new Error("similarPapers array was empty after cleanup. Provide at least one paper.");
+    }
+
+    const sourcePaperData = {
+      title: context.title,
+      ...normalisedPayload.sourcePaper
+    };
     if (Array.isArray(sourcePaperData?.keyMethods) || sourcePaperData?.keyMethods === null) {
       delete sourcePaperData.keyMethods;
     }
+
+    const promptNotes = normalisedPayload.promptNotes && normalisedPayload.promptNotes.length > 0
+      ? normalisedPayload.promptNotes
+      : "";
 
     const libraryData = {
       generatedAt: new Date().toISOString(),
@@ -409,13 +875,14 @@ async function run() {
       },
       agent: {
         maxChars: MAX_INPUT_CHARS,
-        promptNotes: cleanPayload.promptNotes
+        promptNotes
       },
       sourcePaper: sourcePaperData,
-      similarPapers: cleanPayload.similarPapers
+      similarPapers: normalisedPayload.similarPapers,
+      researchGroups: existingLibrary?.researchGroups ?? null
     };
 
-    writeMockLibrary(path.resolve(workingDir, DEFAULT_OUTPUT_PATH), libraryData);
+    writeMockLibrary(outputPath, libraryData);
 
     try {
       ensureDirExists(PUBLIC_SAMPLE_PDF_PATH);

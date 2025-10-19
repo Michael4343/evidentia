@@ -1,9 +1,14 @@
 CODEX
-upgrade prompts
-share with anders
-implement UI
+fix UI on mock similar papers
+make upload when not logged in open log in page
 
-compile similar patents
+update script to mock research groups nad PhD theses
+Share with anders
+
+compile similar patents mock
+refine expert network mock
+
+implement into working prototype
 
 
 

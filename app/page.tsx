@@ -333,7 +333,7 @@ function SimilarPapersPanel({
 
   if (isMockPaper(paper)) {
     return (
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 overflow-auto">
         <MockSimilarPapersShowcase />
       </div>
     );
@@ -1836,19 +1836,18 @@ export default function LandingPage() {
 
   const handlePaperUpload = useCallback(
     async (file: File) => {
+      // Check authentication FIRST before any processing
+      if (!user) {
+        open("login");
+        return;
+      }
+
       if (isSavingPaper) {
         return;
       }
 
       // Reset dismiss state on new upload
       setIsStatusDismissed(false);
-
-      if (!user) {
-        open("login");
-        setUploadStatusMessage(null);
-        setUploadErrorMessage("Sign in to save papers to your library.");
-        return;
-      }
 
       // Validate file size before proceeding
       const validation = validateFileSize(file);
@@ -2196,7 +2195,7 @@ export default function LandingPage() {
             className={
               isPaperViewerActive
                 ? "flex flex-1 overflow-hidden"
-                : "flex-1 overflow-y-auto px-4 pb-8 pt-4 sm:px-6 lg:px-10"
+                : "flex-1 overflow-y-auto px-2 pb-8 pt-2"
             }
           >
             {renderActiveTab()}

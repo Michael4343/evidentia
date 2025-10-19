@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { useAuthModal } from "@/components/auth-modal-provider";
 
 interface UploadDropzoneProps {
   onUpload?: (file: File) => void;
@@ -19,8 +20,15 @@ export function UploadDropzone({
 }: UploadDropzoneProps) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const { user, open } = useAuthModal();
 
   const handleFiles = (files: FileList | null) => {
+    // Check if user is logged in before processing upload
+    if (!user) {
+      open("login");
+      return;
+    }
+
     const file = files?.[0];
     if (!file) {
       return;
@@ -76,6 +84,11 @@ export function UploadDropzone({
       <button
         type="button"
         onClick={() => {
+          // Check if user is logged in before opening file picker
+          if (!user) {
+            open("login");
+            return;
+          }
           inputRef.current?.click();
         }}
         onDragOver={(event) => {
