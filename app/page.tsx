@@ -1559,24 +1559,30 @@ export default function LandingPage() {
       try {
         let workingFile: File | null = options?.file ?? null;
 
+        if (!workingFile && paper.url) {
+          try {
+            const pdfResponse = await fetch(paper.url, {
+              cache: "no-store"
+            });
+
+            if (!pdfResponse.ok) {
+              throw new Error(`Failed to download PDF for extraction (status ${pdfResponse.status}).`);
+            }
+
+            const blob = await pdfResponse.blob();
+            workingFile = new File([blob], sanitizeFileName(paper.fileName, "paper.pdf"), {
+              type: "application/pdf"
+            });
+          } catch (downloadError) {
+            console.warn("[extraction] Client-side fetch failed", {
+              url: paper.url,
+              error: downloadError
+            });
+          }
+        }
+
         if (!workingFile && !paper.storagePath) {
-          if (!paper.url) {
-            throw new Error("Missing PDF URL for extraction.");
-          }
-
-          const pdfResponse = await fetch(paper.url, {
-            credentials: paper.source === "remote" ? "include" : "same-origin",
-            cache: "no-store"
-          });
-
-          if (!pdfResponse.ok) {
-            throw new Error(`Failed to download PDF for extraction (status ${pdfResponse.status}).`);
-          }
-
-          const blob = await pdfResponse.blob();
-          workingFile = new File([blob], sanitizeFileName(paper.fileName, "paper.pdf"), {
-            type: "application/pdf"
-          });
+          throw new Error("Missing PDF data for extraction.");
         }
 
         const fileName = sanitizeFileName(paper.fileName, workingFile?.name, "paper.pdf");
