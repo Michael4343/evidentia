@@ -92,7 +92,8 @@ export async function POST(req: Request) {
     }
 
     const require = createRequire(import.meta.url);
-    const pdfParse = require("pdf-parse") as (buffer: Buffer) => Promise<any>;
+    // Import the raw parser module to avoid pdf-parse's debug helper trying to read fixture PDFs when bundled
+    const pdfParse = require("pdf-parse/lib/pdf-parse.js") as (buffer: Buffer) => Promise<any>;
 
     const buffer = Buffer.from(binary);
     const parsed = await pdfParse(buffer);
