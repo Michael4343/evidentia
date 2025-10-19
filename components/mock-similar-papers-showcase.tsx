@@ -5,13 +5,12 @@ import { MOCK_SIMILAR_PAPERS_LIBRARY } from "@/lib/mock-similar-papers";
 export function MockSimilarPapersShowcase() {
   const mock = MOCK_SIMILAR_PAPERS_LIBRARY;
   const similarPapers = Array.isArray(mock?.similarPapers) ? mock.similarPapers : [];
-  const hasRecommendations = similarPapers.length > 0;
 
   if (!mock) {
     return null;
   }
 
-  const methodRows: Array<{ label: string; key: keyof (typeof similarPapers)[number]["methodMatrix"] }> = [
+  const methodRows = [
     { label: "Sample / model", key: "sampleModel" },
     { label: "Materials", key: "materialsSetup" },
     { label: "Equipment", key: "equipmentSetup" },
@@ -20,9 +19,119 @@ export function MockSimilarPapersShowcase() {
     { label: "Outputs / metrics", key: "outputsMetrics" },
     { label: "Quality checks", key: "qualityChecks" },
     { label: "Outcome summary", key: "outcomeSummary" }
+  ] as const;
+
+  type MethodKey = (typeof methodRows)[number]["key"];
+
+  type SimilarPaperRecord = (typeof similarPapers)[number] & {
+    methodMatrix?: Record<MethodKey, string | null | undefined>;
+  };
+
+  const deriveSourceMeta = () => {
+    const path = mock?.sourcePdf?.path;
+    if (!path) {
+      return { authors: [] as string[], year: null as number | null, derivedTitle: null as string | null };
+    }
+    const base = path.replace(/\.pdf$/i, "");
+    const match = base.match(/^(.*?)(?:\s*\((\d{4})\))?$/);
+    let derivedTitle: string | null = base;
+    let authors: string[] = [];
+    let year: number | null = null;
+    if (match) {
+      const authorPart = match[1]?.trim();
+      derivedTitle = authorPart && match[2] ? authorPart : base;
+      if (match[2]) {
+        year = Number.parseInt(match[2], 10);
+      }
+      if (authorPart) {
+        authors = authorPart
+          .split(/[,&]/)
+          .map((segment) => segment.trim())
+          .filter(Boolean);
+      }
+    }
+    return { authors, year, derivedTitle };
+  };
+
+  const normalizeMatrix = (paper: SimilarPaperRecord | undefined): Record<MethodKey, string> => {
+    return methodRows.reduce<Record<MethodKey, string>>((acc, row) => {
+      const value = paper?.methodMatrix?.[row.key];
+      acc[row.key] = typeof value === "string" && value.trim().length > 0 ? value : "";
+      return acc;
+    }, {} as Record<MethodKey, string>);
+  };
+
+  const sourcePdf = mock?.sourcePdf;
+  const sourceNotes = mock?.sourcePaper;
+  const { authors: derivedAuthors, year: derivedYear, derivedTitle } = deriveSourceMeta();
+
+  const sourceSummary = typeof sourceNotes?.summary === "string" ? sourceNotes.summary : "Primary manuscript used for this comparison.";
+  const methodHighlights = Array.isArray(sourceNotes?.keyMethodSignals) ? sourceNotes.keyMethodSignals : [];
+
+  const sourceMethodMatrix: Partial<Record<MethodKey, string>> = {
+    sampleModel:
+      methodHighlights[0] ??
+      "Review aggregates field-to-pore studies on agroecosystem soil structure and microbiome interactions.",
+    materialsSetup:
+      methodHighlights[1] ??
+      "Summarises assays ranging from stable-isotope tracers to metagenomics, enzyme panels, and flux chambers.",
+    equipmentSetup:
+      methodHighlights[2] ??
+      "Highlights instrumentation such as synchrotron μCT, IRMS, and high-throughput sequencing across cited work.",
+    procedureSteps:
+      methodHighlights[3] ??
+      "Distils workflows for aggregate fractionation, pore imaging, isotopic tracing, and functional profiling.",
+    controls:
+      methodHighlights[4] ??
+      "Notes comparative controls across management regimes, pore classes, and replicated field platforms.",
+    outputsMetrics:
+      "Emphasises gas fluxes, carbon turnover, microbiome composition, and structure-function correlations.",
+    qualityChecks:
+      "Synthesises QA considerations across the cited literature, from imaging segmentation to isotope balances.",
+    outcomeSummary: sourceSummary
+  };
+
+  const sourcePaperEntry = sourcePdf
+    ? {
+        identifier: sourcePdf.doi ? `https://doi.org/${sourcePdf.doi}` : sourcePdf.path ?? null,
+        title: sourcePdf.title ?? sourceNotes?.title ?? derivedTitle ?? "Source paper",
+        doi: sourcePdf.doi ?? null,
+        url: sourcePdf.doi ? `https://doi.org/${sourcePdf.doi}` : null,
+        authors:
+          Array.isArray((sourceNotes as any)?.authors) && (sourceNotes as any)?.authors.length > 0
+            ? (sourceNotes as any).authors
+            : derivedAuthors,
+        year: (sourceNotes as any)?.year ?? derivedYear,
+        venue: (sourceNotes as any)?.venue ?? "Review",
+        clusterLabel: "Source",
+        whyRelevant:
+          typeof sourceNotes?.summary === "string" && sourceNotes.summary.length > 0
+            ? sourceNotes.summary
+            : "Primary manuscript used for this comparison.",
+        overlapHighlights: Array.isArray(sourceNotes?.keyMethodSignals)
+          ? sourceNotes.keyMethodSignals
+          : [],
+        methodMatrix: normalizeMatrix({ methodMatrix: sourceMethodMatrix } as SimilarPaperRecord),
+        gapsOrUncertainties: undefined
+      }
+    : null;
+
+  const comparisonPapers = [
+    ...(sourcePaperEntry
+      ? [{
+          ...sourcePaperEntry,
+          methodMatrix: normalizeMatrix(sourcePaperEntry as SimilarPaperRecord)
+        }]
+      : []),
+    ...similarPapers.map((paper) => ({
+      ...paper,
+      methodMatrix: normalizeMatrix(paper)
+    }))
   ];
 
-  const getMatrixValue = (paper: (typeof similarPapers)[number], key: typeof methodRows[number]["key"]) => {
+  const hasRecommendations = comparisonPapers.length > 0;
+
+  const getMatrixValue = (paper: (typeof comparisonPapers)[number], key: MethodKey) => {
     const value = paper?.methodMatrix?.[key];
     if (!value || !value.trim()) {
       return "Not reported";
@@ -31,30 +140,35 @@ export function MockSimilarPapersShowcase() {
   };
 
   return (
-    <section className="w-full space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">{mock.sourcePaper?.title ?? "Untitled"}</h2>
+    <section className="w-full space-y-8 px-6 py-8">
+      <header className="space-y-2">
+        <h2 className="text-xl font-semibold text-slate-900">{mock.sourcePaper?.title ?? "Untitled"}</h2>
         {mock.sourcePaper?.summary && (
-          <p className="mt-1 text-sm text-slate-600 leading-relaxed">{mock.sourcePaper.summary}</p>
+          <p className="text-sm leading-relaxed text-slate-600">{mock.sourcePaper.summary}</p>
         )}
-      </div>
+      </header>
 
-      {hasRecommendations ? (
-        <div className="overflow-x-auto">
-          <table className="min-w-full border-collapse">
-            <thead>
-              <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-slate-600">Method dimension</th>
-                {similarPapers.map((paper, index) => (
-                  <th key={paper.identifier ?? index} className="px-4 py-3 text-slate-600">
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[11px] font-semibold text-slate-400">Track #{index + 1}</span>
-                        <span className="text-sm font-semibold text-slate-800 leading-snug">
+      {!hasRecommendations ? (
+        <p className="text-sm text-slate-600">Paste the agent JSON when you re-run the script to populate the crosswalk matrix.</p>
+      ) : (
+        <div className="space-y-8">
+          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+            <table className="min-w-full border-collapse text-sm">
+              <thead>
+                <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-slate-500">Method dimension</th>
+                  {comparisonPapers.map((paper, index) => (
+                    <th key={paper.identifier ?? index} className="px-4 py-3 text-slate-600">
+                      <div className="space-y-0.5">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                          Paper #{index + 1}
+                        </p>
+                        <p className="text-sm font-semibold text-slate-900 leading-snug">
                           {paper.title ?? "Untitled"}
-                        </span>
-                        <span className="text-xs text-slate-500">
-                          {paper.year ? paper.year : "Year unknown"}
-                        </span>
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          {[paper.year, paper.venue].filter(Boolean).join(" · ") || "Metadata pending"}
+                        </p>
                       </div>
                     </th>
                   ))}
@@ -62,65 +176,92 @@ export function MockSimilarPapersShowcase() {
               </thead>
               <tbody>
                 {methodRows.map((row) => (
-                  <tr key={row.key} className="border-t border-slate-100 align-top text-sm">
+                  <tr key={row.key} className="border-t border-slate-100 align-top">
                     <th className="sticky left-0 z-10 bg-white px-4 py-4 text-left text-sm font-medium text-slate-700">
                       {row.label}
                     </th>
-                    {similarPapers.map((paper, index) => (
-                      <td key={`${paper.identifier ?? index}-${row.key}`} className="px-4 py-4 text-sm text-slate-700">
+                    {comparisonPapers.map((paper, index) => (
+                      <td key={`${paper.identifier ?? index}-${row.key}`} className="px-4 py-4 text-sm leading-relaxed text-slate-700">
                         {getMatrixValue(paper, row.key)}
                       </td>
                     ))}
                   </tr>
                 ))}
               </tbody>
-          </table>
-          <p className="mt-3 text-xs text-slate-500">“Not reported” highlights gaps teams may need to fill before replication or scale-up.</p>
-        </div>
-      ) : (
-        <div className="border border-dashed border-slate-200 bg-slate-50/60 p-6 text-sm text-slate-600">
-          Paste the agent JSON when you re-run the script to populate the crosswalk matrix.
-        </div>
-      )}
+            </table>
+            <p className="px-4 pb-4 text-xs text-slate-500">“Not reported” highlights gaps to close before replication or scale-up.</p>
+          </div>
 
-      {hasRecommendations && (
-        <div className="space-y-3">
-          <h3 className="text-sm font-semibold text-slate-800">Recommended Papers</h3>
-          <ol className="space-y-3">
-            {similarPapers.map((paper, index) => (
-              <li key={paper.identifier ?? paper.title ?? index} className="border-t border-slate-200 pt-3 first:border-t-0">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="space-y-1">
-                    <p className="text-base font-semibold text-slate-900">
-                      <span className="mr-2 text-xs text-slate-400">#{index + 1}</span>
-                      {paper.title ?? "Untitled"}
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Recommended papers</h3>
+            <ol className="space-y-6">
+              {comparisonPapers.map((paper, index) => (
+                <li
+                  key={paper.identifier ?? paper.title ?? index}
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-4 shadow-sm"
+                >
+                  <div className="space-y-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Paper #{index + 1}</p>
+                    <h4 className="text-base font-semibold text-slate-900">{paper.title ?? "Untitled"}</h4>
+                    <p className="text-sm text-slate-600">
+                      {[paper.authors?.join(", ") ?? "Unknown authors", paper.year, paper.venue, paper.clusterLabel]
+                        .filter(Boolean)
+                        .join(" · ")}
                     </p>
-                    <div className="text-xs text-slate-500">
-                      {paper.authors?.length ? paper.authors.join(", ") : "Unknown authors"}
-                      {paper.year ? ` · ${paper.year}` : ""}
-                      {paper.venue ? ` · ${paper.venue}` : ""}
-                      {paper.clusterLabel ? ` · ${paper.clusterLabel}` : ""}
+                  </div>
+
+                  {paper.whyRelevant && (
+                    <p className="mt-3 text-sm leading-relaxed text-slate-700">{paper.whyRelevant}</p>
+                  )}
+
+                  {paper.overlapHighlights?.length ? (
+                    <div className="mt-3 space-y-1.5">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Overlap highlights</p>
+                      <ul className="space-y-1.5 pl-4 text-sm leading-relaxed text-slate-700">
+                        {paper.overlapHighlights.map((highlight, highlightIndex) => (
+                          <li key={`${paper.identifier ?? paper.title ?? index}-overlap-${highlightIndex}`} className="list-disc marker:text-slate-400">
+                            {highlight}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                  </div>
-                  <div className="flex flex-shrink-0 flex-col items-end gap-1 text-right text-xs">
-                    {paper.doi && (
-                      <a
-                        href={`https://doi.org/${paper.doi}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="font-medium text-primary hover:underline"
-                      >
-                        DOI link
-                      </a>
-                    )}
-                  </div>
-                </div>
-                {paper.whyRelevant && (
-                  <p className="mt-2 text-sm leading-relaxed text-slate-700">{paper.whyRelevant}</p>
-                )}
-              </li>
-            ))}
-          </ol>
+                  ) : null}
+
+                  {paper.gapsOrUncertainties && (
+                    <div className="mt-4 rounded border-l-2 border-amber-300 bg-amber-50/60 px-4 py-3 text-sm leading-relaxed text-amber-800">
+                      <span className="font-semibold">Follow-up gaps: </span>
+                      {paper.gapsOrUncertainties}
+                    </div>
+                  )}
+
+                  {(paper.url || paper.doi) && (
+                    <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-600">
+                      {paper.url && (
+                        <a
+                          href={paper.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="inline-flex items-center rounded-full border border-primary px-3 py-1 font-semibold text-primary transition hover:bg-primary/5"
+                        >
+                          Open publication
+                        </a>
+                      )}
+                      {paper.doi && (
+                        <a
+                          href={`https://doi.org/${paper.doi}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm text-slate-500 underline-offset-4 hover:underline"
+                        >
+                          DOI: {paper.doi}
+                        </a>
+                      )}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </div>
         </div>
       )}
     </section>

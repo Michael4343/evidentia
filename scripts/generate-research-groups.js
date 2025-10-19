@@ -12,6 +12,7 @@ const path = require("path");
 const readline = require("readline");
 const clipboardModule = require("clipboardy");
 const clipboardy = clipboardModule?.default ?? clipboardModule;
+const { cleanUrlStrict } = require("../lib/clean-url-strict.js");
 
 const DEFAULT_OUTPUT_PATH = path.join(__dirname, "../lib/mock-similar-papers.ts");
 const PUBLIC_SAMPLE_PDF_PATH = path.join(__dirname, "../public/mock-paper.pdf");
@@ -98,7 +99,8 @@ function readExistingLibrary(outputPath) {
   }
 }
 
-function cleanUrl(input) {
+
+function cleanEmail(input) {
   if (typeof input !== "string") {
     return input;
   }
@@ -108,13 +110,31 @@ function cleanUrl(input) {
     return "";
   }
 
-  const match = value.match(/https?:\/\/[^\s)]+/);
-  if (match) {
-    value = match[0];
+  // Extract from markdown mailto link: [email](mailto:email)
+  const mailtoMatch = value.match(/\[([^\]]+)\]\(mailto:([^)]+)\)/);
+  if (mailtoMatch) {
+    return mailtoMatch[1].trim().toLowerCase();
   }
 
-  value = value.replace(/["')]+$/g, "").replace(/^["'(]+/g, "");
-  return value.trim();
+  // Extract from plain mailto: mailto:email
+  const plainMailtoMatch = value.match(/mailto:([^\s)]+)/);
+  if (plainMailtoMatch) {
+    return plainMailtoMatch[1].trim().toLowerCase();
+  }
+
+  // Extract from markdown link without mailto: [email](email)
+  const markdownMatch = value.match(/\[([^\]]+)\]\([^)]+\)/);
+  if (markdownMatch) {
+    const extracted = markdownMatch[1].trim();
+    if (extracted.includes("@")) {
+      return extracted.toLowerCase();
+    }
+  }
+
+  // Clean up any remaining markdown brackets and quotes
+  value = value.replace(/["')\]\[]+$/g, "").replace(/^["'(\[]+/g, "");
+
+  return value.trim().toLowerCase();
 }
 
 function findPdfFiles(rootDir, maxDepth = MAX_SCAN_DEPTH, limit = MAX_LISTED_PDFS) {
@@ -287,11 +307,27 @@ function buildDiscoveryPrompt(library) {
 
   lines.push(
     "",
+    "Search Methodology:",
+    "1. Extract 3-5 core domain keywords from the source paper's method signals and similar papers' themes.",
+    "2. For each paper, run Google Scholar searches:",
+    "   - Use 'Since 2020' time filter to find recent work",
+    "   - Search: author names + 'lab' OR 'group' to find lab pages",
+    "   - Use site:.edu OR site:.ac.uk OR site:.ac.* filters for academic sources",
+    "3. Verify each group:",
+    "   - Check the group has 2-3+ publications since 2020 matching the domain keywords",
+    "   - Confirm an active lab/group webpage exists",
+    "   - Verify the PI is currently listed at that institution",
+    "",
     "Task:",
     "- For the source paper and each similar paper, identify the active research groups, labs, or centres directly connected to those works.",
     "- Under each paper heading, list relevant groups, then within each group list principal investigators, current graduate students, and postdoctoral researchers when available.",
-    "- Prioritise individuals with publicly listed academic or institutional emails. If email is hidden, note the best contact route (e.g., contact form).",
-    "- Capture context on what the group works on and how it relates to the specific paper's methods.",
+    "",
+    "Finding Researchers & Contact Information:",
+    "- Check lab/group pages for current members (PhD students, postdocs, research staff)",
+    "- Review recent paper author lists (last 2 years) to identify current lab members",
+    "- Search institution directories for academic/institutional emails",
+    "- If email is not publicly listed, note 'Check lab website contact form' instead of 'Not provided'",
+    "- Prioritize finding at least 2-3 contacts per group with proper institutional emails",
     "",
     "Required notes format (use plain text headings — no JSON yet):",
     "Paper: <Title> (<Identifier>)",
@@ -304,9 +340,10 @@ function buildDiscoveryPrompt(library) {
     "      - Name | Email | Role",
     "",
     "Guidelines:",
+    "- Only include groups you can verify are currently active with recent publications",
     "- Repeat the group block for each paper that cites or collaborates with that group; if a group spans multiple papers, duplicate it under each relevant paper heading and note the connection in the summary.",
-    "- Use 'Not provided' for missing information, never leave blanks.",
-    "- Stay under 900 tokens and favour clear, scannable bullets."
+    "- If information genuinely cannot be found after checking lab pages and recent papers, use 'Not provided', never leave blanks.",
+    "- Aim for depth over breadth: 3-5 well-researched groups with complete contact info beats 10 groups with missing details."
   );
 
   return lines.join("\n");
@@ -357,8 +394,8 @@ function normaliseResearcher(entry) {
     return null;
   }
 
-  const emailRaw = typeof entry.email === "string" ? entry.email.trim() : "";
-  const email = emailRaw ? emailRaw.toLowerCase() : null;
+  const emailRaw = typeof entry.email === "string" ? cleanEmail(entry.email) : "";
+  const email = emailRaw && emailRaw.length > 0 ? emailRaw : null;
   const role = entry.role ? cleanPlainText(entry.role) : null;
 
   return {
@@ -379,7 +416,7 @@ function normaliseGroup(entry) {
   }
 
   const institution = entry.institution ? cleanPlainText(entry.institution) : null;
-  const website = entry.website ? cleanUrl(entry.website) : null;
+  const website = entry.website ? cleanUrlStrict(entry.website) : null;
   const notes = entry.notes ? cleanPlainText(entry.notes) : null;
 
   const researchers = Array.isArray(entry.researchers)

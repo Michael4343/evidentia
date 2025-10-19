@@ -222,8 +222,34 @@ type ResearcherThesesState =
   | {
       status: "success";
       researchers: ResearcherThesisRecord[];
+      text?: string;
     }
   | { status: "error"; message: string };
+
+const MOCK_RESEARCH_THESES_TEXT =
+  typeof MOCK_SIMILAR_PAPERS_LIBRARY?.researcherTheses?.text === "string"
+    ? MOCK_SIMILAR_PAPERS_LIBRARY.researcherTheses.text
+    : "";
+
+const MOCK_RESEARCH_THESES_STRUCTURED: ResearcherThesisRecord[] = Array.isArray(
+  MOCK_SIMILAR_PAPERS_LIBRARY?.researcherTheses?.structured?.researchers
+)
+  ? (MOCK_SIMILAR_PAPERS_LIBRARY.researcherTheses.structured
+      .researchers as ResearcherThesisRecord[])
+  : [];
+
+const MOCK_RESEARCH_THESES_INITIAL_STATE: ResearcherThesesState =
+  MOCK_RESEARCH_THESES_STRUCTURED.length > 0
+    ? {
+        status: "success",
+        researchers: MOCK_RESEARCH_THESES_STRUCTURED,
+        text: MOCK_RESEARCH_THESES_TEXT
+      }
+    : {
+        status: "success",
+        researchers: [],
+        text: MOCK_RESEARCH_THESES_TEXT
+      };
 
 function sanitizeFileName(...values: Array<string | null | undefined>) {
   for (const raw of values) {
@@ -240,6 +266,101 @@ function sanitizeFileName(...values: Array<string | null | undefined>) {
     }
   }
   return "paper.pdf";
+}
+
+function renderPlaintextSections(text: string): JSX.Element[] {
+  const result: JSX.Element[] = [];
+  let paragraphLines: string[] = [];
+  let list: { type: "ul" | "ol"; items: string[] } | null = null;
+  let key = 0;
+
+  const flushParagraph = () => {
+    if (paragraphLines.length === 0) {
+      return;
+    }
+    const content = paragraphLines.join(" ").replace(/\s+/g, " ").trim();
+    if (content.length > 0) {
+      const paragraphKey = `paragraph-${key++}`;
+      result.push(
+        <p key={paragraphKey} className="text-sm leading-relaxed text-slate-700">
+          {content}
+        </p>
+      );
+    }
+    paragraphLines = [];
+  };
+
+  const flushList = () => {
+    if (!list) {
+      return;
+    }
+    const listKey = `list-${key++}`;
+    if (list.type === "ul") {
+      result.push(
+        <ul
+          key={listKey}
+          className="space-y-1.5 pl-4 text-sm leading-relaxed text-slate-700 list-disc marker:text-slate-400"
+        >
+          {list.items.map((item, index) => (
+            <li key={`${listKey}-item-${index}`}>{item}</li>
+          ))}
+        </ul>
+      );
+    } else {
+      result.push(
+        <ol
+          key={listKey}
+          className="space-y-1.5 pl-5 text-sm leading-relaxed text-slate-700 list-decimal marker:text-slate-400"
+        >
+          {list.items.map((item, index) => (
+            <li key={`${listKey}-item-${index}`}>{item}</li>
+          ))}
+        </ol>
+      );
+    }
+    list = null;
+  };
+
+  text
+    .split("\n")
+    .map((line) => line.replace(/\s+$/g, ""))
+    .forEach((rawLine) => {
+      const line = rawLine.trim();
+
+      if (!line) {
+        flushParagraph();
+        flushList();
+        return;
+      }
+
+      if (/^[-•]/.test(line)) {
+        flushParagraph();
+        if (!list || list.type !== "ul") {
+          flushList();
+          list = { type: "ul", items: [] };
+        }
+        list.items.push(line.replace(/^[-•]\s*/, ""));
+        return;
+      }
+
+      if (/^\d+\./.test(line)) {
+        flushParagraph();
+        if (!list || list.type !== "ol") {
+          flushList();
+          list = { type: "ol", items: [] };
+        }
+        list.items.push(line.replace(/^\d+\.\s*/, ""));
+        return;
+      }
+
+      flushList();
+      paragraphLines.push(line);
+    });
+
+  flushParagraph();
+  flushList();
+
+  return result;
 }
 
 function PaperTabContent({
@@ -427,12 +548,16 @@ function SimilarPapersPanel({
   }
 
   return (
-    <div className="flex-1 overflow-auto p-6">
-      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold text-slate-800">Similar Papers</h3>
-        <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-          {state.text}
-        </div>
+    <div className="flex-1 overflow-auto">
+      <div className="mx-auto w-full max-w-3xl space-y-6 px-6 py-8">
+        <header className="space-y-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Similarity scan</p>
+          <h3 className="text-lg font-semibold text-slate-900">Cross-paper alignment</h3>
+          <p className="text-sm text-slate-600">Findings for {paper?.name ?? "the current paper"}.</p>
+        </header>
+        <article className="space-y-4">
+          {renderPlaintextSections(state.text)}
+        </article>
       </div>
     </div>
   );
@@ -534,152 +659,107 @@ function ResearchGroupsPanel({
     );
   }
 
+  const renderGroupResearchers = (group: ResearchGroupEntry) => {
+    if (!group.researchers.length) {
+      return <p className="text-sm text-slate-500">No named contacts listed.</p>;
+    }
+
+    return (
+      <ul className="space-y-1.5 text-sm leading-relaxed text-slate-700">
+        {group.researchers.map((person, personIndex) => (
+          <li key={`${group.name}-${person.name ?? person.email ?? personIndex}`} className="flex flex-wrap items-baseline gap-2">
+            <span className="font-medium text-slate-800">{person.name || "Unnamed contact"}</span>
+            {person.role && <span className="text-xs uppercase tracking-wide text-slate-400">{person.role}</span>}
+            {person.email ? (
+              <a href={`mailto:${person.email}`} className="text-sm text-primary underline-offset-4 hover:underline">
+                {person.email}
+              </a>
+            ) : (
+              <span className="text-sm text-slate-500">Email not provided</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    );
+  };
+
   return (
-    <div className="flex-1 overflow-auto p-6 space-y-6">
-      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm space-y-4">
-        <h3 className="text-sm font-semibold text-slate-800">Research Groups</h3>
-        {state.structured && state.structured.length > 0 ? (
-          <div className="space-y-8">
-            {state.structured.map((paperEntry) => (
-              <div key={paperEntry.title} className="space-y-4">
-                <div>
-                  <h4 className="text-base font-semibold text-slate-900">{paperEntry.title}</h4>
-                  <p className="text-xs text-slate-500">
-                    {paperEntry.identifier ? paperEntry.identifier : "Identifier not provided"}
-                  </p>
-                </div>
+    <div className="flex-1 overflow-auto">
+      <div className="w-full space-y-8 px-6 py-8">
+        <section className="space-y-6">
+          <header className="space-y-2">
+            <h2 className="text-xl font-semibold text-slate-900">Research Groups</h2>
+            <p className="text-sm text-slate-600">
+              Compiled for {paper?.name ?? "the selected paper"}.
+            </p>
+          </header>
 
-                {paperEntry.groups.length > 0 ? (
-                  <div className="space-y-6">
-                    {paperEntry.groups.map((group) => (
-                      <div key={`${paperEntry.title}-${group.name}`} className="space-y-3">
-                        <div>
-                          <h5 className="text-sm font-semibold text-slate-800">
-                            {group.name}
-                            {group.institution ? (
-                              <span className="ml-2 text-xs font-normal text-slate-500">({group.institution})</span>
-                            ) : null}
-                          </h5>
-                          {group.website ? (
-                            <a
-                              href={group.website}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-xs font-medium text-primary hover:underline"
-                            >
-                              {group.website}
-                            </a>
-                          ) : (
-                            <p className="text-[11px] text-slate-500">No website provided</p>
-                          )}
-                          <p className="mt-1 text-sm text-slate-600 leading-relaxed">
-                            {group.notes && group.notes.length > 0 ? group.notes : "Summary not provided"}
-                          </p>
-                        </div>
-
-                        <div className="overflow-x-auto">
-                          <table className="min-w-[28rem] border-collapse text-sm">
-                            <thead>
-                              <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                <th className="px-3 py-2">Name</th>
-                                <th className="px-3 py-2">Email</th>
-                                <th className="px-3 py-2">Role</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {(group.researchers.length > 0
-                                ? group.researchers
-                                : [{ name: "Not provided", email: null, role: null }]
-                              ).map((person) => (
-                                <tr
-                                  key={`${group.name}-${person.name}-${person.email ?? "no-email"}`}
-                                  className="border-t border-slate-200 align-top"
-                                >
-                                  <td className="px-3 py-2 font-medium text-slate-800">{person.name}</td>
-                                  <td className="px-3 py-2 text-slate-600">
-                                    {person.email ? (
-                                      <a href={`mailto:${person.email}`} className="text-primary hover:underline">
-                                        {person.email}
-                                      </a>
-                                    ) : (
-                                      <span className="text-slate-500">Not provided</span>
-                                    )}
-                                  </td>
-                                  <td className="px-3 py-2 text-slate-600">{person.role || "Not provided"}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    ))}
+          {state.structured && state.structured.length > 0 ? (
+            <div className="space-y-4">
+              {state.structured.map((paperEntry, paperIndex) => (
+                <article
+                  key={`${paperEntry.title}-${paperIndex}`}
+                  className="rounded-lg border border-slate-200 bg-white px-4 py-4 shadow-sm space-y-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                        Paper {paperIndex + 1}
+                      </p>
+                      <h3 className="text-base font-semibold text-slate-900">{paperEntry.title}</h3>
+                      <p className="text-xs text-slate-500">
+                        {paperEntry.identifier ? paperEntry.identifier : "Identifier not provided"}
+                      </p>
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-sm text-slate-600">No groups reported for this paper.</p>
-                )}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
-            {state.text}
-          </div>
-        )}
-      </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <h3 className="mb-3 text-sm font-semibold text-slate-800">Group Contacts</h3>
-        {!contacts || contacts.status === "loading" ? (
-          <div className="flex flex-col items-center justify-center gap-2 py-6 text-center text-sm text-slate-600">
-            <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
-            <p>Looking up contact details…</p>
-          </div>
-        ) : contacts.status === "error" ? (
-          <div className="space-y-2 text-sm text-red-600">
-            <p className="font-semibold">Contact lookup failed</p>
-            <p>{contacts.message}</p>
-          </div>
-        ) : contacts.contacts.length === 0 ? (
-          <p className="text-sm text-slate-600">No contact emails were listed in the research summaries.</p>
-        ) : (
-          <div className="space-y-6">
-            {contacts.contacts.map((group) => (
-              <div key={group.group} className="space-y-2">
-                <p className="text-sm font-semibold text-slate-800">{group.group}</p>
-                {group.people.length === 0 ? (
-                  <p className="text-sm text-slate-600">No emails mentioned for this group.</p>
-                ) : (
-                  <div className="overflow-auto rounded border border-slate-200">
-                    <table className="min-w-full divide-y divide-slate-200 text-sm">
-                      <thead className="bg-slate-50">
-                        <tr>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-700">Name</th>
-                          <th className="px-3 py-2 text-left font-semibold text-slate-700">Email</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {group.people.map((person, index) => (
-                          <tr key={`${group.group}-${person.email}-${index}`}>
-                            <td className="px-3 py-2 text-slate-700">{person.name ?? "—"}</td>
-                            <td className="px-3 py-2 text-slate-700">
-                              {person.email ? (
-                                <a href={`mailto:${person.email}`} className="text-primary hover:underline">
-                                  {person.email}
-                                </a>
-                              ) : (
-                                "—"
+                  {paperEntry.groups.length > 0 ? (
+                    <div className="space-y-5">
+                      {paperEntry.groups.map((group, groupIndex) => (
+                        <div key={`${paperEntry.title}-${group.name}-${groupIndex}`} className="border-t border-slate-200 pt-4 first:border-t-0 first:pt-0">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <p className="text-sm font-semibold text-slate-900">{group.name}</p>
+                              {group.institution && (
+                                <p className="text-sm text-slate-600">{group.institution}</p>
                               )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+                            </div>
+                            {group.website ? (
+                              <a
+                                href={group.website}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                              >
+                                Visit site
+                              </a>
+                            ) : (
+                              <span className="text-xs text-slate-400">No website listed</span>
+                            )}
+                          </div>
+
+                          {group.notes && (
+                            <p className="mt-2 text-sm leading-relaxed text-slate-700">{group.notes}</p>
+                          )}
+
+                          <div className="mt-3">
+                            {renderGroupResearchers(group)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-600">No groups reported for this paper.</p>
+                  )}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <article className="space-y-4">
+              {renderPlaintextSections(state.text)}
+            </article>
+          )}
+        </section>
       </div>
     </div>
   );
@@ -688,13 +768,16 @@ function ResearchGroupsPanel({
 function ResearcherThesesPanel({
   state,
   hasResearchGroups,
-  isMock
+  isMock,
+  structuredGroups
 }: {
   state: ResearcherThesesState | undefined;
   hasResearchGroups: boolean;
   isMock: boolean;
+  structuredGroups?: ResearchGroupPaperEntry[];
 }) {
-  if (isMock) {
+  const hasLoadedResearchers = state?.status === "success" && state.researchers.length > 0;
+  if (isMock && !hasLoadedResearchers) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
         <p className="text-base font-medium text-slate-700">Coming soon</p>
@@ -743,118 +826,323 @@ function ResearcherThesesPanel({
     );
   }
 
-  return (
-    <div className="flex-1 overflow-auto p-6 space-y-4">
-      {researchers.map((researcher, index) => (
-        <div
-          key={`${researcher.name ?? researcher.email ?? index}`}
-          className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
-        >
-          <div className="mb-2 flex flex-col gap-1">
-            <p className="text-base font-semibold text-slate-800">
-              {researcher.name ?? researcher.email ?? "Unnamed researcher"}
+  const dataAvailabilityBadge = (value: ResearcherThesisRecord["data_publicly_available"]) => {
+    const styles: Record<ResearcherThesisRecord["data_publicly_available"], string> = {
+      yes: "border-emerald-100 bg-emerald-50 text-emerald-600",
+      no: "border-rose-100 bg-rose-50 text-rose-600",
+      unknown: "border-slate-200 bg-slate-100 text-slate-600"
+    };
+
+    const labels: Record<ResearcherThesisRecord["data_publicly_available"], string> = {
+      yes: "Data available",
+      no: "No public data",
+      unknown: "Availability unknown"
+    };
+
+    return (
+      <span
+        className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${styles[value]}`}
+      >
+        {labels[value]}
+      </span>
+    );
+  };
+
+  const renderPublication = (entry: ResearcherThesisRecord["latest_publication"] | null | undefined) => {
+    if (!entry || (!entry.title && !entry.venue && !entry.url && entry.year == null)) {
+      return <p className="text-sm text-slate-600">No recent publication details captured.</p>;
+    }
+
+    return (
+      <dl className="space-y-2 text-sm text-slate-600">
+        {entry.title && (
+          <div>
+            <dt className="font-medium text-slate-700">Title</dt>
+            <dd>{entry.title}</dd>
+          </div>
+        )}
+        {entry.year !== null && (
+          <div>
+            <dt className="font-medium text-slate-700">Year</dt>
+            <dd>{entry.year}</dd>
+          </div>
+        )}
+        {entry.venue && (
+          <div>
+            <dt className="font-medium text-slate-700">Venue</dt>
+            <dd>{entry.venue}</dd>
+          </div>
+        )}
+        {entry.url && (
+          <div>
+            <dt className="font-medium text-slate-700">Link</dt>
+            <dd>
+              <a
+                href={entry.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                View publication
+              </a>
+            </dd>
+          </div>
+        )}
+      </dl>
+    );
+  };
+
+  const renderThesis = (entry: ResearcherThesisRecord["phd_thesis"] | null | undefined) => {
+    if (!entry) {
+      return <p className="text-sm text-slate-600">No confirmed thesis on record.</p>;
+    }
+
+    return (
+      <dl className="space-y-2 text-sm text-slate-600">
+        {entry.title && (
+          <div>
+            <dt className="font-medium text-slate-700">Title</dt>
+            <dd>{entry.title}</dd>
+          </div>
+        )}
+        {entry.year !== null && (
+          <div>
+            <dt className="font-medium text-slate-700">Year</dt>
+            <dd>{entry.year}</dd>
+          </div>
+        )}
+        {entry.institution && (
+          <div>
+            <dt className="font-medium text-slate-700">Institution</dt>
+            <dd>{entry.institution}</dd>
+          </div>
+        )}
+        {entry.url && (
+          <div>
+            <dt className="font-medium text-slate-700">Link</dt>
+            <dd>
+              <a
+                href={entry.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary hover:underline"
+              >
+                View thesis
+              </a>
+            </dd>
+          </div>
+        )}
+      </dl>
+    );
+  };
+
+  const renderResearcherCard = (record: ResearcherThesisRecord, label: string) => (
+    <article className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <header className="flex flex-col gap-3 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+            <span>{label}</span>
+          </div>
+          <p className="text-base font-semibold text-slate-900">
+            {record.name ?? record.email ?? "Unnamed researcher"}
+          </p>
+          {record.group && <p className="text-sm text-slate-600">{record.group}</p>}
+          {record.email && (
+            <p className="text-sm text-slate-600">
+              <a href={`mailto:${record.email}`} className="text-primary hover:underline">
+                {record.email}
+              </a>
             </p>
-            <div className="text-sm text-slate-600">
-              {researcher.group && <p>Group: {researcher.group}</p>}
-              {researcher.email && (
-                <p>
-                  Email: {" "}
-                  <a href={`mailto:${researcher.email}`} className="text-primary hover:underline">
-                    {researcher.email}
-                  </a>
-                </p>
-              )}
-              <p>Data publicly available: {researcher.data_publicly_available}</p>
-            </div>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="rounded border border-slate-100 p-3">
-              <p className="text-sm font-semibold text-slate-700">Latest publication</p>
-              {researcher.latest_publication?.title ? (
-                <dl className="mt-2 space-y-1 text-sm text-slate-600">
-                  <div>
-                    <dt className="font-medium text-slate-700">Title</dt>
-                    <dd>{researcher.latest_publication.title}</dd>
-                  </div>
-                  {researcher.latest_publication.year !== null && (
-                    <div>
-                      <dt className="font-medium text-slate-700">Year</dt>
-                      <dd>{researcher.latest_publication.year}</dd>
-                    </div>
-                  )}
-                  {researcher.latest_publication.venue && (
-                    <div>
-                      <dt className="font-medium text-slate-700">Venue</dt>
-                      <dd>{researcher.latest_publication.venue}</dd>
-                    </div>
-                  )}
-                  {researcher.latest_publication.url && (
-                    <div>
-                      <dt className="font-medium text-slate-700">Link</dt>
-                      <dd>
-                        <a
-                          href={researcher.latest_publication.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                        >
-                          {researcher.latest_publication.url}
-                        </a>
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-              ) : (
-                <p className="mt-2 text-sm text-slate-600">No recent publication details found.</p>
-              )}
-            </div>
-
-            <div className="rounded border border-slate-100 p-3">
-              <p className="text-sm font-semibold text-slate-700">PhD thesis</p>
-              {researcher.phd_thesis ? (
-                <dl className="mt-2 space-y-1 text-sm text-slate-600">
-                  {researcher.phd_thesis.title && (
-                    <div>
-                      <dt className="font-medium text-slate-700">Title</dt>
-                      <dd>{researcher.phd_thesis.title}</dd>
-                    </div>
-                  )}
-                  {researcher.phd_thesis.year !== null && (
-                    <div>
-                      <dt className="font-medium text-slate-700">Year</dt>
-                      <dd>{researcher.phd_thesis.year}</dd>
-                    </div>
-                  )}
-                  {researcher.phd_thesis.institution && (
-                    <div>
-                      <dt className="font-medium text-slate-700">Institution</dt>
-                      <dd>{researcher.phd_thesis.institution}</dd>
-                    </div>
-                  )}
-                  {researcher.phd_thesis.url && (
-                    <div>
-                      <dt className="font-medium text-slate-700">Link</dt>
-                      <dd>
-                        <a
-                          href={researcher.phd_thesis.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline"
-                        >
-                          {researcher.phd_thesis.url}
-                        </a>
-                      </dd>
-                    </div>
-                  )}
-                </dl>
-              ) : (
-                <p className="mt-2 text-sm text-slate-600">No thesis information found.</p>
-              )}
-            </div>
-          </div>
+          )}
         </div>
-      ))}
+        {dataAvailabilityBadge(record.data_publicly_available)}
+      </header>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <section className="space-y-2">
+          <h5 className="text-sm font-semibold text-slate-700">Latest publication</h5>
+          {renderPublication(record.latest_publication)}
+        </section>
+        <section className="space-y-2">
+          <h5 className="text-sm font-semibold text-slate-700">PhD thesis</h5>
+          {renderThesis(record.phd_thesis)}
+        </section>
+      </div>
+    </article>
+  );
+
+  const flatList = (
+    <ol className="space-y-5">
+      {researchers.map((researcher, index) => {
+        const key = researcher.name ?? researcher.email ?? index;
+        return <li key={key}>{renderResearcherCard(researcher, `Researcher ${index + 1}`)}</li>;
+      })}
+    </ol>
+  );
+
+  if (!structuredGroups || structuredGroups.length === 0) {
+    return (
+      <div className="flex-1 overflow-auto">
+        <section className="space-y-6 px-6 py-6">{flatList}</section>
+      </div>
+    );
+  }
+
+  const normaliseGroupKey = (value: string | null | undefined) =>
+    value ? value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() : "";
+
+  const groupedByGroup = new Map<string, ResearcherThesisRecord[]>();
+  const grouplessResearchers: ResearcherThesisRecord[] = [];
+
+  researchers.forEach((record) => {
+    const key = normaliseGroupKey(record.group);
+    if (key) {
+      if (!groupedByGroup.has(key)) {
+        groupedByGroup.set(key, []);
+      }
+      groupedByGroup.get(key)!.push(record);
+    } else {
+      grouplessResearchers.push(record);
+    }
+  });
+
+  const remainingGroups = new Map(groupedByGroup);
+
+  const renderGroupResearchers = (entries: ResearcherThesisRecord[]) => {
+    if (!entries.length) {
+      return <p className="text-sm text-slate-600">No thesis records captured for this group yet.</p>;
+    }
+
+    return (
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {entries.map((entry, index) => {
+          const key = entry.name ?? entry.email ?? `member-${index}`;
+          return <div key={key}>{renderResearcherCard(entry, `Member ${index + 1}`)}</div>;
+        })}
+      </div>
+    );
+  };
+
+  const paperSections = structuredGroups.map((paper, paperIndex) => {
+    return (
+      <article
+        key={`${paper.title}-${paperIndex}`}
+        className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm"
+      >
+        <header className="space-y-1 border-b border-slate-100 pb-3">
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+            <span>Paper {paperIndex + 1}</span>
+          </div>
+          <h3 className="text-lg font-semibold text-slate-900">{paper.title}</h3>
+          <p className="text-sm text-slate-600">
+            {[paper.identifier, paper.groups.length ? `${paper.groups.length} research groups` : null]
+              .filter(Boolean)
+              .join(" · ") || "Group assignments"}
+          </p>
+        </header>
+
+        <div className="space-y-4">
+          {paper.groups.map((group, groupIndex) => {
+            const key = normaliseGroupKey(group.name);
+            const entries = key && groupedByGroup.has(key) ? groupedByGroup.get(key)! : [];
+            if (key) {
+              remainingGroups.delete(key);
+            }
+
+            return (
+              <section
+                key={`${group.name}-${groupIndex}`}
+                className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-slate-900">{group.name}</p>
+                    {group.institution && <p className="text-sm text-slate-600">{group.institution}</p>}
+                  </div>
+                  {group.website ? (
+                    <a
+                      href={group.website}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs font-medium text-primary underline-offset-4 hover:underline"
+                    >
+                      Visit site
+                    </a>
+                  ) : (
+                    <span className="text-xs text-slate-400">No website listed</span>
+                  )}
+                </div>
+
+                {group.notes && (
+                  <p className="text-sm leading-relaxed text-slate-700">{group.notes}</p>
+                )}
+
+                {renderGroupResearchers(entries)}
+              </section>
+            );
+          })}
+        </div>
+      </article>
+    );
+  });
+
+  const extraGroups = Array.from(remainingGroups.entries()).map(([key, entries]) => ({
+    label: entries[0]?.group ?? key,
+    entries
+  }));
+
+  const hasExtras = extraGroups.length > 0 || grouplessResearchers.length > 0;
+
+  return (
+    <div className="flex-1 overflow-auto">
+      <section className="space-y-6 px-6 py-6">
+        <div className="space-y-6">{paperSections}</div>
+
+        {hasExtras && (
+          <article className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <header className="space-y-1 border-b border-slate-100 pb-3">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Additional thesis records
+              </div>
+              <p className="text-sm text-slate-600">
+                These entries could not be matched to the current research group structure.
+              </p>
+            </header>
+
+            <div className="space-y-4">
+              {extraGroups.map((bucket, index) => (
+                <section
+                  key={`${bucket.label ?? "unlabelled"}-${index}`}
+                  className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4"
+                >
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-slate-900">{bucket.label ?? "Unnamed group"}</p>
+                    <p className="text-xs text-slate-500">Unmapped group</p>
+                  </div>
+                  {renderGroupResearchers(bucket.entries)}
+                </section>
+              ))}
+
+              {grouplessResearchers.length > 0 && (
+                <section className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-slate-900">Researchers without group assignment</p>
+                    <p className="text-xs text-slate-500">
+                      Capture a research group before running the thesis pass to improve matching.
+                    </p>
+                  </div>
+                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    {grouplessResearchers.map((record, index) => {
+                      const key = record.name ?? record.email ?? `unassigned-${index}`;
+                      return <div key={key}>{renderResearcherCard(record, `Record ${index + 1}`)}</div>;
+                    })}
+                  </div>
+                </section>
+              )}
+            </div>
+          </article>
+        )}
+      </section>
     </div>
   );
 }
@@ -1099,7 +1387,7 @@ export default function LandingPage() {
     [MOCK_SAMPLE_PAPER_ID]: { status: "success", contacts: [] }
   });
   const [researchThesesStates, setResearchThesesStates] = useState<Record<string, ResearcherThesesState>>({
-    [MOCK_SAMPLE_PAPER_ID]: { status: "success", researchers: [] }
+    [MOCK_SAMPLE_PAPER_ID]: MOCK_RESEARCH_THESES_INITIAL_STATE
   });
   const activePaper = activePaperId
     ? uploadedPapers.find((item) => item.id === activePaperId) ?? null
@@ -1109,7 +1397,10 @@ export default function LandingPage() {
   const activeSimilarPapersState = activePaper ? similarPapersStates[activePaper.id] : undefined;
   const activeResearchGroupState = activePaper ? researchGroupsStates[activePaper.id] : undefined;
   const activeResearchContactsState = activePaper ? researchContactsStates[activePaper.id] : undefined;
-  const activeResearchThesesState = activePaper ? researchThesesStates[activePaper.id] : undefined;
+  const activeResearchThesesState = activePaper
+    ? researchThesesStates[activePaper.id] ??
+      (isMockPaper(activePaper) ? MOCK_RESEARCH_THESES_INITIAL_STATE : undefined)
+    : undefined;
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const isPaperViewerActive = activeTab === "paper" && Boolean(activePaper);
   const dropzoneHelperText = !user
@@ -1777,21 +2068,21 @@ export default function LandingPage() {
               : ""
         }
       });
-      setResearchGroupsStates({
-        [MOCK_SAMPLE_PAPER_ID]: {
-          status: "success",
-          text: MOCK_RESEARCH_GROUPS_TEXT,
-          structured: MOCK_RESEARCH_GROUPS_STRUCTURED
-        }
-      });
-      setResearchContactsStates({
-        [MOCK_SAMPLE_PAPER_ID]: { status: "success", contacts: [] }
-      });
-      setResearchThesesStates({
-        [MOCK_SAMPLE_PAPER_ID]: { status: "success", researchers: [] }
-      });
-      return;
-    }
+    setResearchGroupsStates({
+      [MOCK_SAMPLE_PAPER_ID]: {
+        status: "success",
+        text: MOCK_RESEARCH_GROUPS_TEXT,
+        structured: MOCK_RESEARCH_GROUPS_STRUCTURED
+      }
+    });
+    setResearchContactsStates({
+      [MOCK_SAMPLE_PAPER_ID]: { status: "success", contacts: [] }
+    });
+    setResearchThesesStates({
+      [MOCK_SAMPLE_PAPER_ID]: MOCK_RESEARCH_THESES_INITIAL_STATE
+    });
+    return;
+  }
 
     if (!supabase) {
       return;
@@ -2252,6 +2543,9 @@ export default function LandingPage() {
           state={activeResearchThesesState}
           hasResearchGroups={Boolean(activeResearchGroupState && activeResearchGroupState.status === "success")}
           isMock={Boolean(isActivePaperMock)}
+          structuredGroups={
+            isActivePaperMock ? MOCK_RESEARCH_GROUPS_STRUCTURED : activeResearchGroupState?.structured
+          }
         />
       );
     }
