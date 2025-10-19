@@ -1,4 +1,5 @@
 CODEX
+get full agent working and save to db
 
 compile similar patents mock
 refine expert network mock

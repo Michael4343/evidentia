@@ -221,6 +221,50 @@ type SimilarPapersState =
   | { status: "success"; text: string }
   | { status: "error"; message: string };
 
+type ClaimsAnalysisStrength = "High" | "Moderate" | "Low" | "Unclear";
+
+interface ClaimsAnalysisClaim {
+  id: string;
+  claim: string;
+  evidenceSummary?: string | null;
+  keyNumbers?: string[];
+  source?: string | null;
+  strength?: ClaimsAnalysisStrength;
+  assumptions?: string | null;
+  evidenceType?: string | null;
+}
+
+interface ClaimsAnalysisGap {
+  category: string;
+  detail: string;
+  relatedClaimIds?: string[];
+}
+
+interface ClaimsAnalysisRiskItem {
+  item: string;
+  status: "met" | "partial" | "missing" | "unclear";
+  note?: string | null;
+}
+
+interface ClaimsAnalysisStructured {
+  executiveSummary?: string[];
+  claims?: ClaimsAnalysisClaim[];
+  gaps?: ClaimsAnalysisGap[];
+  methodsSnapshot?: string[];
+  riskChecklist?: ClaimsAnalysisRiskItem[];
+  openQuestions?: string[];
+  crossPaperComparison?: string[];
+}
+
+type ClaimsAnalysisState =
+  | { status: "loading" }
+  | {
+      status: "success";
+      text?: string;
+      structured?: ClaimsAnalysisStructured;
+    }
+  | { status: "error"; message: string };
+
 type ResearchGroupContactsState =
   | { status: "loading" }
   | { status: "success"; contacts: Array<{ group: string; people: Array<{ name: string | null; email: string | null }> }> }
@@ -258,6 +302,35 @@ const MOCK_RESEARCH_THESES_INITIAL_STATE: ResearcherThesesState =
         status: "success",
         researchers: [],
         text: MOCK_RESEARCH_THESES_TEXT
+      };
+
+const MOCK_CLAIMS_ANALYSIS =
+  typeof MOCK_SIMILAR_PAPERS_LIBRARY?.claimsAnalysis === "object"
+    ? (MOCK_SIMILAR_PAPERS_LIBRARY.claimsAnalysis as {
+        text?: string;
+        structured?: ClaimsAnalysisStructured;
+      })
+    : null;
+
+const MOCK_CLAIMS_TEXT =
+  typeof MOCK_CLAIMS_ANALYSIS?.text === "string" ? MOCK_CLAIMS_ANALYSIS.text : "";
+
+const MOCK_CLAIMS_STRUCTURED: ClaimsAnalysisStructured | undefined =
+  MOCK_CLAIMS_ANALYSIS &&
+  typeof MOCK_CLAIMS_ANALYSIS.structured === "object" &&
+  MOCK_CLAIMS_ANALYSIS.structured
+    ? (MOCK_CLAIMS_ANALYSIS.structured as ClaimsAnalysisStructured)
+    : undefined;
+
+const MOCK_CLAIMS_INITIAL_STATE: ClaimsAnalysisState =
+  MOCK_CLAIMS_TEXT || (MOCK_CLAIMS_STRUCTURED && Object.keys(MOCK_CLAIMS_STRUCTURED).length > 0)
+    ? {
+        status: "success",
+        text: MOCK_CLAIMS_TEXT,
+        structured: MOCK_CLAIMS_STRUCTURED
+      }
+    : {
+        status: "success"
       };
 
 function sanitizeFileName(...values: Array<string | null | undefined>) {
@@ -466,6 +539,298 @@ function ExtractionDebugPanel({
         <pre className="max-h-[600px] overflow-auto whitespace-pre-wrap rounded bg-slate-950/5 p-4 text-xs leading-relaxed text-slate-800">
           {data.text}
         </pre>
+      </div>
+    </div>
+  );
+}
+
+function hasStructuredClaimsContent(structured?: ClaimsAnalysisStructured): boolean {
+  if (!structured) {
+    return false;
+  }
+
+  if (Array.isArray(structured.executiveSummary) && structured.executiveSummary.some((item) => typeof item === "string" && item.trim().length > 0)) {
+    return true;
+  }
+
+  if (Array.isArray(structured.claims) && structured.claims.length > 0) {
+    return true;
+  }
+
+  if (Array.isArray(structured.gaps) && structured.gaps.length > 0) {
+    return true;
+  }
+
+  if (Array.isArray(structured.methodsSnapshot) && structured.methodsSnapshot.length > 0) {
+    return true;
+  }
+
+  if (Array.isArray(structured.riskChecklist) && structured.riskChecklist.length > 0) {
+    return true;
+  }
+
+  if (Array.isArray(structured.openQuestions) && structured.openQuestions.length > 0) {
+    return true;
+  }
+
+  if (Array.isArray(structured.crossPaperComparison) && structured.crossPaperComparison.length > 0) {
+    return true;
+  }
+
+  return false;
+}
+
+function ClaimsStructuredView({
+  structured,
+  text
+}: {
+  structured?: ClaimsAnalysisStructured;
+  text?: string;
+}) {
+  const hasStructured = hasStructuredClaimsContent(structured);
+
+  if (!hasStructured && (!text || text.trim().length === 0)) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <p className="text-sm text-slate-600">Paste the cleaned JSON from the claims script to populate this mock view.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {hasStructured && (
+        <>
+          {Array.isArray(structured?.executiveSummary) && structured?.executiveSummary?.length ? (
+            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Executive Summary</h3>
+              <ul className="mt-3 space-y-2 pl-4 text-sm leading-relaxed text-slate-700 list-disc marker:text-slate-400">
+                {structured.executiveSummary.map((item, index) => (
+                  <li key={`summary-${index}`}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {Array.isArray(structured?.claims) && structured.claims.length > 0 ? (
+            <section className="space-y-4">
+              <header>
+                <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Key Claims &amp; Evidence</h3>
+              </header>
+              <div className="space-y-4">
+                {structured.claims.map((claim) => (
+                  <article key={claim.id ?? claim.claim} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                          {claim.id?.replace(/^C(\d+)$/, 'Claim $1') ?? "Claim"}
+                        </p>
+                        <h4 className="mt-1 text-base font-semibold text-slate-900">{claim.claim}</h4>
+                      </div>
+                    </div>
+                    {claim.evidenceSummary && claim.evidenceSummary.trim().length > 0 && (
+                      <p className="mt-3 text-sm leading-relaxed text-slate-700">{claim.evidenceSummary}</p>
+                    )}
+                    <dl className="mt-4 grid gap-3 sm:grid-cols-2">
+                      {Array.isArray(claim.keyNumbers) && claim.keyNumbers.length > 0 && (
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Key numbers</dt>
+                          <dd className="mt-1 space-y-1 text-sm text-slate-700">
+                            {claim.keyNumbers.map((entry, index) => (
+                              <p key={`numbers-${claim.id}-${index}`}>{entry}</p>
+                            ))}
+                          </dd>
+                        </div>
+                      )}
+                      {claim.source && claim.source.trim().length > 0 && (
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Source</dt>
+                          <dd className="mt-1 text-sm text-slate-700">{claim.source}</dd>
+                        </div>
+                      )}
+                      {(claim.evidenceType && claim.evidenceType.trim().length > 0) ||
+                      (claim.strength && claim.strength.trim().length > 0 && claim.strength.trim().toLowerCase() !== "unclear") ? (
+                        <div>
+                          <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Evidence type</dt>
+                          <dd className="mt-1 text-sm text-slate-700">
+                            {claim.evidenceType && claim.evidenceType.trim().length > 0 ? claim.evidenceType : "Not specified"}
+                            {claim.strength && claim.strength.trim().length > 0 && claim.strength.trim().toLowerCase() !== "unclear"
+                              ? ` (${claim.strength.trim()} evidence)`
+                              : ""}
+                          </dd>
+                        </div>
+                      ) : null}
+                      {claim.assumptions && claim.assumptions.trim().length > 0 && (
+                        <div className="sm:col-span-2">
+                          <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Assumptions</dt>
+                          <dd className="mt-1 text-sm text-slate-700">{claim.assumptions}</dd>
+                        </div>
+                      )}
+                    </dl>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {Array.isArray(structured?.gaps) && structured.gaps.length > 0 ? (
+            <section className="rounded-lg border border-amber-100 bg-amber-50/60 p-6">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Gaps &amp; Limitations</h3>
+              <div className="mt-3 space-y-3">
+                {structured.gaps.map((gap, index) => (
+                  <div key={`gap-${index}`} className="rounded-md border border-amber-200 bg-white/80 p-4">
+                    <p className="text-sm font-semibold text-amber-900">{gap.category}</p>
+                    <p className="mt-1 text-sm text-amber-800">{gap.detail}</p>
+                    {Array.isArray(gap.relatedClaimIds) && gap.relatedClaimIds.length > 0 && (
+                      <p className="mt-2 text-xs uppercase tracking-[0.2em] text-amber-600">
+                        Related: {gap.relatedClaimIds.map(id => id.replace(/^C(\d+)$/, 'Claim $1')).join(", ")}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {Array.isArray(structured?.methodsSnapshot) && structured.methodsSnapshot.length > 0 ? (
+            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Methods Snapshot</h3>
+              <ul className="mt-3 space-y-2 pl-4 text-sm leading-relaxed text-slate-700 list-disc marker:text-slate-400">
+                {structured.methodsSnapshot.map((item, index) => (
+                  <li key={`methods-${index}`}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {Array.isArray(structured?.riskChecklist) && structured.riskChecklist.length > 0 ? (
+            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Risk of Bias</h3>
+              <ul className="mt-3 space-y-2">
+                {structured.riskChecklist.map((entry, index) => (
+                  <li key={`risk-${index}`} className="flex items-start justify-between gap-4 rounded-md border border-slate-100 bg-slate-50/80 px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-slate-900">{entry.item}</p>
+                      {entry.note && entry.note.trim().length > 0 && (
+                        <p className="mt-1 text-xs text-slate-600">{entry.note}</p>
+                      )}
+                    </div>
+                    <span className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">{entry.status}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {Array.isArray(structured?.openQuestions) && structured.openQuestions.length > 0 ? (
+            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Open Questions &amp; Next Steps</h3>
+              <ul className="mt-3 space-y-2 pl-4 text-sm leading-relaxed text-slate-700 list-disc marker:text-slate-400">
+                {structured.openQuestions.map((item, index) => (
+                  <li key={`next-${index}`}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+
+          {Array.isArray(structured?.crossPaperComparison) && structured.crossPaperComparison.length > 0 ? (
+            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+              <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Cross-Paper Comparison</h3>
+              <ul className="mt-3 space-y-2 pl-4 text-sm leading-relaxed text-slate-700 list-disc marker:text-slate-400">
+                {structured.crossPaperComparison.map((item, index) => (
+                  <li key={`cross-${index}`}>{item}</li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+        </>
+      )}
+    </div>
+  );
+}
+
+function ClaimsPanel({
+  paper,
+  extraction,
+  state
+}: {
+  paper: UploadedPaper | null;
+  extraction: ExtractionState | undefined;
+  state: ClaimsAnalysisState | undefined;
+}) {
+  if (!paper) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
+        <p className="text-base font-medium text-slate-700">Upload a PDF to inspect its claims and evidence.</p>
+        <p className="text-sm text-slate-500">We’ll surface the structured claims summary once the analysis runs.</p>
+      </div>
+    );
+  }
+
+  if (!state) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <p className="text-base font-medium text-slate-700">Claims analysis queued</p>
+        <p className="text-sm text-slate-500">
+          This tab will populate after we wire the claims agent. For now, run `node scripts/generate-claims-analysis.js` and paste the
+          JSON into the mock file.
+        </p>
+      </div>
+    );
+  }
+
+  if (state.status === "loading") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+        <div className="space-y-1">
+          <p className="text-base font-medium text-slate-700">Assembling claims brief…</p>
+          <p className="text-xs text-slate-500">Give us a moment while we compile the evidence digest.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-1">
+          <p className="text-base font-semibold text-red-700">Claims analysis failed</p>
+          <p className="text-sm text-red-600">{state.message}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const isMock = isMockPaper(paper);
+  const hasStructured = hasStructuredClaimsContent(state.structured);
+  const hasText = typeof state.text === "string" && state.text.trim().length > 0;
+
+  if (!isMock && (!hasStructured && !hasText)) {
+    if (!extraction || extraction.status !== "success") {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+          <p className="text-base font-medium text-slate-700">Run extraction before claims review</p>
+          <p className="text-sm text-slate-500">Upload a paper and wait for the PDF extraction to complete so claims can be assessed.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <p className="text-base font-medium text-slate-700">Claims agent not yet wired</p>
+        <p className="text-sm text-slate-500">
+          We’ll hook this flow into the LLM after the prototype. For now, use the claims script to populate mock data.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-auto">
+      <div className="w-full space-y-6 px-6 py-8">
+        <ClaimsStructuredView structured={state.structured} text={state.text} />
       </div>
     </div>
   );
@@ -1376,6 +1741,9 @@ export default function LandingPage() {
       }
     }
   });
+  const [claimsStates, setClaimsStates] = useState<Record<string, ClaimsAnalysisState>>({
+    [MOCK_SAMPLE_PAPER_ID]: MOCK_CLAIMS_INITIAL_STATE
+  });
   const [similarPapersStates, setSimilarPapersStates] = useState<Record<string, SimilarPapersState>>({
     [MOCK_SAMPLE_PAPER_ID]: {
       status: "success",
@@ -1403,6 +1771,7 @@ export default function LandingPage() {
     : null;
   const isActivePaperMock = isMockPaper(activePaper);
   const activeExtraction = activePaper ? extractionStates[activePaper.id] : undefined;
+  const activeClaimsState = activePaper ? claimsStates[activePaper.id] : undefined;
   const activeSimilarPapersState = activePaper ? similarPapersStates[activePaper.id] : undefined;
   const activeResearchGroupState = activePaper ? researchGroupsStates[activePaper.id] : undefined;
   const activeResearchContactsState = activePaper ? researchContactsStates[activePaper.id] : undefined;
@@ -2079,6 +2448,9 @@ export default function LandingPage() {
           }
         }
       });
+      setClaimsStates({
+        [MOCK_SAMPLE_PAPER_ID]: MOCK_CLAIMS_INITIAL_STATE
+      });
       setSimilarPapersStates({
         [MOCK_SAMPLE_PAPER_ID]: {
           status: "success",
@@ -2112,6 +2484,7 @@ export default function LandingPage() {
     });
     setActivePaperId((prev) => (prev === MOCK_SAMPLE_PAPER_ID ? null : prev));
     setExtractionStates((prev) => removeMockState(prev));
+    setClaimsStates((prev) => removeMockState(prev));
     setSimilarPapersStates((prev) => removeMockState(prev));
     setResearchGroupsStates((prev) => removeMockState(prev));
     setResearchContactsStates((prev) => removeMockState(prev));
@@ -2513,6 +2886,16 @@ export default function LandingPage() {
           isUploading={isSavingPaper}
           helperText={dropzoneHelperText}
           viewerClassName={isPaperViewerActive ? "!h-full w-full flex-1" : undefined}
+        />
+      );
+    }
+
+    if (activeTab === "claims") {
+      return (
+        <ClaimsPanel
+          paper={activePaper}
+          extraction={activeExtraction}
+          state={activeClaimsState}
         />
       );
     }

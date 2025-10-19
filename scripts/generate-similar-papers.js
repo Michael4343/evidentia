@@ -22,7 +22,6 @@ const pdfParse = require("pdf-parse");
 
 const DEFAULT_OUTPUT_PATH = path.join(__dirname, "../lib/mock-similar-papers.ts");
 const PUBLIC_SAMPLE_PDF_PATH = path.join(__dirname, "../public/mock-paper.pdf");
-const MAX_INPUT_CHARS = 20_000; // mirrors /api/similar-papers limit
 const MAX_LISTED_PDFS = 40;
 const MAX_SCAN_DEPTH = 3;
 const IGNORED_DIRS = new Set(["node_modules", ".git", ".next", "out", "dist", "build", "tmp", "temp", "public"]);
@@ -435,15 +434,180 @@ function extractDoiCandidate(text) {
   return null;
 }
 
-function truncateForPrompt(text, limit) {
-  if (!text || text.length <= limit) {
-    return { clipped: text || "", truncated: false };
+function limitList(items, limit) {
+  if (!Array.isArray(items)) {
+    return [];
+  }
+  return items
+    .map((item) => (typeof item === "string" ? cleanPlainText(item) : ""))
+    .filter((item) => item && item.trim().length > 0)
+    .slice(0, limit);
+}
+
+function generateSearchPhrase(text) {
+  if (typeof text !== "string") {
+    return "";
+  }
+  const cleaned = cleanPlainText(text)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!cleaned) {
+    return "";
   }
 
-  return {
-    clipped: `${text.slice(0, limit)}\n\n[Truncated input to ${limit} characters for the request]`,
-    truncated: true
+  const tokens = cleaned.split(" ").filter((token) => token.length > 3);
+  const unique = [];
+  for (const token of tokens) {
+    if (!unique.includes(token)) {
+      unique.push(token);
+    }
+    if (unique.length >= 5) {
+      break;
+    }
+  }
+
+  return unique.join(" ");
+}
+
+function deriveSignalsFromClaims(structured) {
+  const empty = {
+    summaryLines: [],
+    methodSignals: [],
+    searchQueries: [],
+    claimsOverview: [],
+    gapHighlights: [],
+    methodsSnapshot: [],
+    riskItems: [],
+    openQuestions: []
   };
+
+  if (!structured || typeof structured !== "object") {
+    return empty;
+  }
+
+  const summaryLines = limitList(structured.executiveSummary, 3);
+
+  const claimsArray = Array.isArray(structured.claims)
+    ? structured.claims.filter((claim) => claim && typeof claim === "object")
+    : [];
+
+  const methodSignals = claimsArray
+    .slice(0, 4)
+    .map((claim) => {
+      const id = typeof claim.id === "string" && claim.id.trim().length > 0 ? claim.id.trim() : "Claim";
+      const evidence = cleanPlainText(claim.evidenceSummary || claim.claim || "");
+      return `${id}: ${evidence}`;
+    })
+    .filter((entry) => entry && entry.trim().length > 0);
+
+  const claimsOverview = claimsArray
+    .slice(0, 6)
+    .map((claim) => {
+      const id = typeof claim.id === "string" && claim.id.trim().length > 0 ? claim.id.trim() : "Claim";
+      const strength = typeof claim.strength === "string" && claim.strength.trim().length > 0 ? ` [${claim.strength.trim()}]` : "";
+      const text = cleanPlainText(claim.claim || claim.evidenceSummary || "");
+      return `${id}${strength}: ${text}`;
+    })
+    .filter((entry) => entry && entry.trim().length > 0);
+
+  const searchQueries = [];
+  for (const claim of claimsArray) {
+    if (searchQueries.length >= 5) {
+      break;
+    }
+    const phrase = generateSearchPhrase(claim.claim || claim.evidenceSummary || "");
+    if (phrase && !searchQueries.includes(phrase)) {
+      searchQueries.push(phrase);
+    }
+  }
+
+  const filteredQueries = searchQueries.filter((entry) => entry && entry.trim().length > 0);
+
+  const gapsArray = Array.isArray(structured.gaps)
+    ? structured.gaps.filter((gap) => gap && typeof gap === "object")
+    : [];
+
+  const gapHighlights = gapsArray
+    .slice(0, 4)
+    .map((gap) => {
+      const category = cleanPlainText(gap.category || "Gap");
+      const detail = cleanPlainText(gap.detail || "Detail not provided");
+      const claims = Array.isArray(gap.relatedClaimIds) && gap.relatedClaimIds.length > 0 ? ` (claims: ${gap.relatedClaimIds.join(", ")})` : "";
+      return `${category}: ${detail}${claims}`;
+    })
+    .filter((entry) => entry && entry.trim().length > 0);
+
+  const methodsSnapshot = limitList(structured.methodsSnapshot, 4);
+
+  const riskItems = Array.isArray(structured.riskChecklist)
+    ? structured.riskChecklist
+        .filter((item) => item && typeof item === "object")
+        .slice(0, 4)
+        .map((item) => {
+          const label = cleanPlainText(item.item || "Assessment");
+          const status = typeof item.status === "string" && item.status.trim().length > 0 ? item.status.trim() : "unclear";
+          const note = cleanPlainText(item.note || "");
+          return `${label} — ${status}${note ? ` (${note})` : ""}`;
+        })
+        .filter((entry) => entry && entry.trim().length > 0)
+    : [];
+
+  const openQuestions = limitList(structured.openQuestions, 5);
+
+  return {
+    summaryLines,
+    methodSignals,
+    searchQueries: filteredQueries,
+    claimsOverview,
+    gapHighlights,
+    methodsSnapshot,
+    riskItems,
+    openQuestions
+  };
+}
+
+function buildClaimsReferenceAddon(derived) {
+  const sections = [];
+
+  if (derived.claimsOverview.length) {
+    sections.push("Claims brief references:");
+    derived.claimsOverview.forEach((line) => {
+      sections.push(`- ${line}`);
+    });
+  }
+
+  if (derived.gapHighlights.length) {
+    sections.push("", "Gaps & limitations to address:");
+    derived.gapHighlights.forEach((line) => {
+      sections.push(`- ${line}`);
+    });
+  }
+
+  if (derived.methodsSnapshot.length) {
+    sections.push("", "Methods snapshot cues:");
+    derived.methodsSnapshot.forEach((line) => {
+      sections.push(`- ${line}`);
+    });
+  }
+
+  if (derived.riskItems.length) {
+    sections.push("", "Risk / quality notes:");
+    derived.riskItems.forEach((line) => {
+      sections.push(`- ${line}`);
+    });
+  }
+
+  if (derived.openQuestions.length) {
+    sections.push("", "Open questions to pursue:");
+    derived.openQuestions.forEach((line) => {
+      sections.push(`- ${line}`);
+    });
+  }
+
+  return sections.join("\n");
 }
 
 function normaliseAuthorName(author) {
@@ -486,7 +650,7 @@ function formatAuthors(authors) {
   return "Not provided";
 }
 
-function buildDiscoveryPrompt(paper) {
+function buildDiscoveryPrompt(paper, claimsDerived) {
   const title = paper.title && paper.title.trim().length > 0 ? paper.title.trim() : "Unknown title";
   const doiOrId =
     (paper.doi && paper.doi.trim()) ||
@@ -494,19 +658,56 @@ function buildDiscoveryPrompt(paper) {
     (paper.url && paper.url.trim()) ||
     "Not provided";
   const authors = formatAuthors(paper.authors);
-  const abstractLine =
-    paper.abstract && paper.abstract.trim().length > 0
-      ? `- Optional abstract: ${paper.abstract.trim()}`
-      : "- Optional abstract: not provided";
 
-  return [
+  const summaryLines = claimsDerived.summaryLines.length > 0
+    ? claimsDerived.summaryLines
+    : [cleanPlainText(paper.abstract || "Summary not provided in claims brief.")];
+
+  const methodSignals = claimsDerived.methodSignals.length > 0
+    ? claimsDerived.methodSignals
+    : ["No method signals extracted from claims brief. Focus on pore structure, microbiome functions, and management levers." ];
+
+  const searchQueriesRaw = claimsDerived.searchQueries.length > 0
+    ? claimsDerived.searchQueries
+    : [generateSearchPhrase(`${title} soil structure microbiome management`), "soil aggregate microbiome greenhouse gases"];
+
+  const searchQueries = Array.from(
+    new Set(
+      searchQueriesRaw
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter((entry) => entry.length > 0)
+    )
+  );
+
+  const lines = [
     "You are powering Evidentia’s Similar Papers feature. Collect the research notes we need before a cleanup agent converts them to JSON.",
-    "Use the exact headings and bullet structure below. Keep language plain and concrete.",
+    "You are provided with a structured claims brief (executive summary, claims, gaps, methods, risk, next steps). Use it as the authoritative context—do not re-open the PDF.",
+    "Focus on the methods, evidence strength, gaps, and open questions surfaced in that brief when selecting comparison papers.",
+    "When you reference the brief, note the section (e.g., Key Claims C1/C2, Gaps, Methods Snapshot) so downstream systems can trace provenance.",
+    "Use the exact headings and bullet structure below for your output. Keep language plain and concrete.",
     "",
-    "Source Paper:",
-    `- Summary: two sentences on what the paper does (methods focus).`,
-    `- Key method signals: bullet the 3-5 method-level highlights founders must know.`,
-    `- Search queries: list 3-5 reusable search phrases (no numbering).`,
+    "Source Paper (claims brief synthesis):",
+    `- Title: ${title}`,
+    `- Identifier: ${doiOrId}`,
+    `- Authors: ${authors}`,
+    "- Summary:",
+  ];
+
+  summaryLines.slice(0, 3).forEach((entry) => {
+    lines.push(`  - ${entry}`);
+  });
+
+  lines.push("- Key method signals:");
+  methodSignals.slice(0, 5).forEach((entry) => {
+    lines.push(`  - ${entry}`);
+  });
+
+  lines.push("- Search queries:");
+  searchQueries.slice(0, 5).forEach((entry) => {
+    lines.push(`  - ${entry}`);
+  });
+
+  lines.push(
     "",
     "Similar Papers (3-5 entries):",
     "For each entry use this template (start each paper with its number):",
@@ -533,36 +734,43 @@ function buildDiscoveryPrompt(paper) {
     "   Gaps or uncertainties: <note if something is missing or risky>",
     "",
     "Guidelines:",
+    "- Anchor recommendations to the claims brief: pull method cues, evidence strength, and gaps directly from the provided sections.",
     "- Pick papers with executable method overlap (instrumentation, controls, sample handling).",
+    "- Where possible, map each similar paper back to the brief: cite which claim/gap/next-step it supports or extends.",
     "- If information is missing, write 'Not reported' inside the relevant bullet.",
     "- Keep each method matrix bullet to ~12-18 words.",
     "- Stay under 1,000 tokens total.",
     "",
     "Respond using these headings exactly. No JSON yet."
-  ].join("\n");
+  );
+
+  return lines.join("\n");
 }
 
 function buildCleanupPrompt() {
   return [
     CLEANUP_PROMPT_HEADER.trim(),
     "",
-    "Paste the analyst notes beneath this line before submitting:",
+    "Refer to the analyst notes in the previous message (do not paste them here).",
     "---",
-    "<PASTE NOTES HERE>",
+    "[Notes already provided above]",
     "---",
     "Return the JSON object now."
   ].join("\n");
 }
 
-function buildAssembledPrompt(basePrompt, extractedText, truncated) {
-  return [
-    basePrompt,
-    "",
-    truncated
-      ? `Extracted PDF text (truncated to ${MAX_INPUT_CHARS} characters):`
-      : "Extracted PDF text:",
-    extractedText
-  ].join("\n");
+function buildAssembledPrompt(basePrompt, referenceAddon, claimsSummaryText) {
+  const segments = [basePrompt.trim()];
+
+  if (referenceAddon && referenceAddon.trim().length > 0) {
+    segments.push("", referenceAddon.trim());
+  }
+
+  if (claimsSummaryText && claimsSummaryText.trim().length > 0) {
+    segments.push("", "Claims brief (verbatim for reference):", claimsSummaryText.trim());
+  }
+
+  return segments.join("\n");
 }
 
 function ensureDirExists(targetPath) {
@@ -764,7 +972,14 @@ function derivePaperMetadata(info, fallbackTitle, detectedDoi) {
   };
 }
 
-async function buildPromptFromPdf(pdfPath) {
+async function buildPromptFromPdf(pdfPath, options = {}) {
+  const { claimsText, claimsStructured } = options;
+  if (typeof claimsText !== "string" || claimsText.trim().length === 0) {
+    throw new Error("Claims summary text is required to build the similar papers prompt.");
+  }
+  if (!claimsStructured || typeof claimsStructured !== "object") {
+    throw new Error("Claims structured data is required. Re-run the claims analysis script to populate structured output.");
+  }
   const pdfBuffer = fs.readFileSync(pdfPath);
   const data = await pdfParse(pdfBuffer);
   const info = data.info || {};
@@ -773,9 +988,11 @@ async function buildPromptFromPdf(pdfPath) {
   const detectedDoi = extractDoiCandidate(`${combinedText}\n${JSON.stringify(info)}`);
   const paper = derivePaperMetadata(info, fallbackTitle, detectedDoi);
 
-  const basePrompt = buildDiscoveryPrompt(paper);
-  const { clipped, truncated } = truncateForPrompt(combinedText, MAX_INPUT_CHARS);
-  const assembledPrompt = buildAssembledPrompt(basePrompt, clipped, truncated);
+  const claimsSummary = cleanPlainText(claimsText);
+  const derivedSignals = deriveSignalsFromClaims(claimsStructured);
+  const basePrompt = buildDiscoveryPrompt(paper, derivedSignals);
+  const referenceAddon = buildClaimsReferenceAddon(derivedSignals);
+  const assembledPrompt = buildAssembledPrompt(basePrompt, referenceAddon, claimsSummary);
 
   return {
     prompt: assembledPrompt,
@@ -783,7 +1000,7 @@ async function buildPromptFromPdf(pdfPath) {
       title: paper.title,
       detectedDoi,
       pageCount: data.numpages,
-      truncated,
+      summaryChars: claimsSummary.length,
       authors: paper.authors,
       abstract: paper.abstract
     }
@@ -804,14 +1021,42 @@ async function run() {
     const outputPath = path.resolve(workingDir, DEFAULT_OUTPUT_PATH);
     const existingLibrary = readExistingLibrary(outputPath);
 
-    const { prompt: similarPrompt, context } = await buildPromptFromPdf(pdfPath);
+    const claimsSummaryText =
+      existingLibrary && typeof existingLibrary.claimsAnalysis?.text === "string"
+        ? existingLibrary.claimsAnalysis.text.trim()
+        : "";
+
+    const claimsStructured =
+      existingLibrary && existingLibrary.claimsAnalysis && typeof existingLibrary.claimsAnalysis.structured === "object"
+        ? existingLibrary.claimsAnalysis.structured
+        : null;
+
+    if (!claimsSummaryText) {
+      console.error(
+        "\nNo claims analysis summary found. Run `node scripts/generate-claims-analysis.js` first to populate lib/mock-similar-papers.ts."
+      );
+      rl.close();
+      return;
+    }
+
+    if (!claimsStructured) {
+      console.error(
+        "\nClaims structured data missing. Re-run `node scripts/generate-claims-analysis.js` so the structured payload is saved."
+      );
+      rl.close();
+      return;
+    }
+
+    const { prompt: similarPrompt, context } = await buildPromptFromPdf(pdfPath, {
+      claimsText: claimsSummaryText,
+      claimsStructured
+    });
 
     await clipboardy.write(similarPrompt);
 
     console.log("\nDiscovery prompt copied to your clipboard. Paste it into the deep research agent to gather Similar Papers notes.\n");
-    if (context.truncated) {
-      console.log(`Note: extracted text was clipped to ${MAX_INPUT_CHARS.toLocaleString()} characters to match the API limit.`);
-    }
+    console.log("Using claims analysis summary from lib/mock-similar-papers.ts as the source text.");
+    console.log(`Claims summary length: ${context.summaryChars.toLocaleString()} characters.`);
     console.log("Preview:");
     console.log(`${similarPrompt.slice(0, 240)}${similarPrompt.length > 240 ? "…" : ""}`);
     console.log(
@@ -866,6 +1111,7 @@ async function run() {
       : "";
 
     const libraryData = {
+      ...existingLibrary,
       generatedAt: new Date().toISOString(),
       sourcePdf: {
         path: path.relative(path.join(__dirname, ".."), pdfPath),
@@ -874,12 +1120,14 @@ async function run() {
         pages: context.pageCount
       },
       agent: {
-        maxChars: MAX_INPUT_CHARS,
+        maxChars: context.summaryChars,
         promptNotes
       },
+      claimsAnalysis: existingLibrary?.claimsAnalysis ?? null,
       sourcePaper: sourcePaperData,
       similarPapers: normalisedPayload.similarPapers,
-      researchGroups: existingLibrary?.researchGroups ?? null
+      researchGroups: existingLibrary?.researchGroups ?? null,
+      researcherTheses: existingLibrary?.researcherTheses ?? null
     };
 
     writeMockLibrary(outputPath, libraryData);

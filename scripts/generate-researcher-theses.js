@@ -15,7 +15,6 @@ const clipboardy = clipboardModule?.default ?? clipboardModule;
 const { cleanUrlStrict } = require("../lib/clean-url-strict.js");
 
 const DEFAULT_OUTPUT_PATH = path.join(__dirname, "../lib/mock-similar-papers.ts");
-const MAX_INPUT_CHARS = 6_000; // mirrors /api/researcher-theses input guard
 const MAX_GROUPS_PER_PAPER = 6;
 const MAX_CONTACTS_PER_GROUP = 4;
 
@@ -389,9 +388,9 @@ function buildCleanupPrompt() {
   return [
     CLEANUP_PROMPT_HEADER.trim(),
     "",
-    "Paste the analyst notes beneath this line before submitting:",
+    "Refer to the analyst notes in the previous message (do not paste them here).",
     "---",
-    "<PASTE NOTES HERE>",
+    "[Notes already provided above]",
     "---",
     "Return the JSON object now."
   ].join("\n");
@@ -595,7 +594,7 @@ async function run() {
     const formattedText = formatResearcherTheses(normalised.researchers);
 
     const thesisData = {
-      maxChars: MAX_INPUT_CHARS,
+      maxChars: formattedText.length,
       truncated: false,
       text: formattedText,
       structured: {

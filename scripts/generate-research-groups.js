@@ -16,7 +16,6 @@ const { cleanUrlStrict } = require("../lib/clean-url-strict.js");
 
 const DEFAULT_OUTPUT_PATH = path.join(__dirname, "../lib/mock-similar-papers.ts");
 const PUBLIC_SAMPLE_PDF_PATH = path.join(__dirname, "../public/mock-paper.pdf");
-const MAX_INPUT_CHARS = 8_000; // mirrors /api/research-groups limit
 const MAX_LISTED_PDFS = 40;
 const MAX_SCAN_DEPTH = 3;
 const IGNORED_DIRS = new Set(["node_modules", ".git", ".next", "out", "dist", "build", "tmp", "temp", "public"]);
@@ -353,9 +352,9 @@ function buildCleanupPrompt() {
   return [
     CLEANUP_PROMPT_HEADER.trim(),
     "",
-    "Paste the analyst notes beneath this line before submitting:",
+    "Refer to the analyst notes in the previous message (do not paste them here).",
     "---",
-    "<PASTE NOTES HERE>",
+    "[Notes already provided above]",
     "---",
     "Return the JSON object now."
   ].join("\n");
@@ -566,7 +565,7 @@ async function run() {
     const formattedText = formatResearchGroups(normalised.papers);
 
     const researchGroupsData = {
-      maxChars: MAX_INPUT_CHARS,
+      maxChars: formattedText.length,
       truncated: false,
       text: formattedText,
       structured: {
