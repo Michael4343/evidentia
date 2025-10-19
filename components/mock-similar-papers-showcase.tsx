@@ -32,12 +32,12 @@ export function MockSimilarPapersShowcase() {
     title: string;
     doi?: string | null;
     url?: string | null;
-    authors?: string[];
+    authors?: readonly string[] | string[];
     year?: number | null;
     venue?: string;
     clusterLabel?: string;
     whyRelevant?: string;
-    overlapHighlights?: string[];
+    overlapHighlights?: readonly string[] | string[];
     methodMatrix: Record<MethodKey, string>;
     gapsOrUncertainties?: string;
   };
