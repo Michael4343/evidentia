@@ -1987,11 +1987,9 @@ function ResearcherThesesPanel({
         {sources.length > 0 && (
           <div>
             <p className="font-medium text-slate-700">Sources checked</p>
-            <ul className="mt-1 space-y-1 text-sm text-slate-600">
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-600">
               {sources.map((source, index) => (
-                <li key={`${source}-${index}`} className="list-disc pl-4">
-                  {source}
-                </li>
+                <li key={`${source}-${index}`}>{source}</li>
               ))}
             </ul>
           </div>
@@ -1999,11 +1997,9 @@ function ResearcherThesesPanel({
         {followUp.length > 0 && (
           <div>
             <p className="font-medium text-slate-700">Follow-up</p>
-            <ul className="mt-1 space-y-1 text-sm text-slate-600">
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-600">
               {followUp.map((item, index) => (
-                <li key={`${item}-${index}`} className="list-disc pl-4">
-                  {item}
-                </li>
+                <li key={`${item}-${index}`}>{item}</li>
               ))}
             </ul>
           </div>
@@ -2515,18 +2511,7 @@ function VerifiedClaimsPanel({ isMock }: { isMock: boolean }) {
 }
 
 function ExpertNetworkPanel({ paper, isMock }: { paper: UploadedPaper | null; isMock: boolean }) {
-  if (isMock) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
-        <p className="text-base font-medium text-slate-700">Expert review preview</p>
-        <p className="max-w-md text-sm text-slate-500">
-          We’re building expert matching on top of the crosswalk workflow. This sample keeps the UI simple while we wire the backend.
-        </p>
-      </div>
-    );
-  }
-
-  if (!paper) {
+  if (!paper && !isMock) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
         <p className="text-base font-medium text-slate-700">Upload a PDF to request expert consultation.</p>
@@ -2537,11 +2522,13 @@ function ExpertNetworkPanel({ paper, isMock }: { paper: UploadedPaper | null; is
 
   return (
     <div className="flex-1 overflow-auto p-6">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-3xl space-y-6">
         {/* Header with placeholder notice */}
-        <div className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4">
+        <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
           <p className="text-sm text-blue-800">
-            This is a preview of the Expert Review feature. We are actively building the expert matching and scheduling system.
+            {isMock
+              ? "Sample view of the Expert Network request flow. Sign in to submit a real consultation request."
+              : "This is a preview of the Expert Review feature. We are actively building the expert matching and scheduling system."}
           </p>
         </div>
 

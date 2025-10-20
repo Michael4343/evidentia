@@ -1,14 +1,10 @@
-
-improve phd styling 
+CODEX
 dynamic patent search
 dynamic verified claims
 
 CLAUDE
-fix compiling similar papers keep loading
-mock verified claims
-
-
-add expert network mock to hoempage
+LINKS to patents
+fix build
 
 Annotation tools for paper
 

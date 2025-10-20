@@ -91,15 +91,50 @@ All data from `lib/mock-similar-papers.ts`:
 - Clean, scannable typography
 - Overall assessment card at top
 
-## Verification Status Criteria
-- **Verified**: Strong supporting evidence from multiple sources, no contradictions
-- **Partially Verified**: Some supporting evidence, minor contradictions or gaps
-- **Contradicted**: Evidence refutes or significantly undermines the claim
-- **Insufficient Evidence**: Not enough data from gathered sources to verify
+## Verification Status Criteria (STRICT)
+
+### ✅ Verified (RARE - only if ALL criteria met)
+- 3+ **independent** sources confirm (different groups/institutions)
+- NO contradicting evidence
+- Data AND code publicly available
+- Methods replicated by other groups
+- Statistical rigor confirmed (adequate N, controls, p-values)
+- No significant methodological limitations
+
+### ⚠️ Partially Verified (MOST COMMON - default)
+- 1-2 supporting sources (may include same group)
+- Minor contradictions, gaps, or limitations present
+- Limited or no data availability
+- Not independently replicated yet
+- Some methodological concerns
+- Evidence suggests claim is directionally correct but needs more validation
+
+### ❌ Contradicted
+- Evidence actively refutes the claim
+- Replication attempts failed
+- Statistical or methodological flaws identified
+- Contradicting papers outnumber supporting ones
+
+### ❓ Insufficient Evidence
+- Less than 1 supporting source
+- No independent validation available
+- Missing key information needed to verify
+- Claim too vague to verify
+
+## Critical Verification Checks
+
+1. **Independence**: Same research group ≠ independent validation
+2. **Data Availability**: No public data/code = automatic downgrade from Verified
+3. **Statistical Rigor**: Check N, controls, p-values, effect sizes
+4. **Replication**: Has another group confirmed findings?
+5. **Methodological Soundness**: Appropriate design, confounders addressed?
+6. **Contradiction Search**: Actively look for contradicting evidence
 
 ## Why This Works
-- Synthesizes ALL previous research into one validation layer
-- Provides comprehensive "ground truth" check
-- Identifies claim weaknesses early
-- Highlights where more evidence is needed
-- Final quality gate before accepting paper claims
+- **Rigorous & skeptical**: Assumes claims unverified until proven otherwise
+- **High bar for verification**: Requires independent validation, public data, replication
+- **Synthesizes ALL evidence**: Combines similar papers, research groups, theses, patents
+- **Identifies weaknesses**: Actively searches for contradictions and gaps
+- **Highlights limitations**: Most claims should be "Partially Verified" with noted caveats
+- **Quality gate**: Final validation before accepting paper claims
+- **Prevents false confidence**: "Verified" status is rare and meaningful
