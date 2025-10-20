@@ -5433,6 +5433,18 @@ export default function LandingPage() {
       return;
     }
 
+    if (!activeSimilarPapersState || activeSimilarPapersState.status !== "success") {
+      return;
+    }
+
+    if (!activeResearchGroupState || activeResearchGroupState.status !== "success") {
+      return;
+    }
+
+    if (!activePatentsState || activePatentsState.status !== "success") {
+      return;
+    }
+
     if (activePaper.storagePath && !verifiedClaimsStorageResolvedRef.current.has(activePaper.id)) {
       console.log("[verified-claims-effect] Waiting for Supabase resolution", {
         paperId: activePaper.id

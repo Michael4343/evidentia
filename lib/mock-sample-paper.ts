@@ -1,13 +1,35 @@
-import { MOCK_SIMILAR_PAPERS_LIBRARY } from "./mock-similar-papers";
+import {
+  DEFAULT_MOCK_LIBRARY_ENTRY,
+  DEFAULT_MOCK_LIBRARY_ENTRY_ID,
+  listMockLibrarySummaries,
+  type MockLibraryEntrySummary
+} from "./mock-library";
 
-export const MOCK_SAMPLE_PAPER_ID = "mock-similar-paper";
+export const MOCK_SAMPLE_PAPER_ID = DEFAULT_MOCK_LIBRARY_ENTRY_ID;
 
-export const MOCK_SAMPLE_PAPER_META = {
-  id: MOCK_SAMPLE_PAPER_ID,
-  name:
-    MOCK_SIMILAR_PAPERS_LIBRARY.sourcePaper?.title?.trim() ||
-    "Soil structure and microbiome functions (sample)",
-  fileName: "mock-paper.pdf",
-  pdfUrl: "/mock-paper.pdf",
-  doi: MOCK_SIMILAR_PAPERS_LIBRARY.sourcePdf?.doi ?? null
-} as const;
+function toPaperMeta(summary: MockLibraryEntrySummary) {
+  return {
+    id: summary.id,
+    name: summary.title,
+    fileName: summary.fileName,
+    pdfUrl: summary.pdfUrl,
+    doi: summary.doi
+  } as const;
+}
+
+export const MOCK_SAMPLE_PAPER_META = toPaperMeta(
+  DEFAULT_MOCK_LIBRARY_ENTRY ?? {
+    id: "mock-similar-paper",
+    title: "Mock sample paper",
+    fileName: "mock-paper.pdf",
+    pdfUrl: "/mock-paper.pdf",
+    doi: null,
+    raw: {}
+  }
+);
+
+export const MOCK_LIBRARY_PAPER_METAS = listMockLibrarySummaries().map(toPaperMeta);
+
+export function getMockPaperMetaById(id: string) {
+  return MOCK_LIBRARY_PAPER_METAS.find((entry) => entry.id === id) ?? null;
+}
