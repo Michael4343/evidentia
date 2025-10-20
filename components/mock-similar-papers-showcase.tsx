@@ -1,14 +1,16 @@
 "use client";
 
-import { MOCK_SIMILAR_PAPERS_LIBRARY } from "@/lib/mock-similar-papers";
+import { listMockLibrarySummaries } from "@/lib/mock-library";
 
 export function MockSimilarPapersShowcase() {
-  const mock = MOCK_SIMILAR_PAPERS_LIBRARY;
-  const similarPapers = Array.isArray(mock?.similarPapers) ? mock.similarPapers : [];
-
-  if (!mock) {
+  const summaries = listMockLibrarySummaries();
+  const summary = summaries[0];
+  if (!summary) {
     return null;
   }
+
+  const mock = summary.raw;
+  const similarPapers = Array.isArray(mock?.similarPapers) ? mock.similarPapers : [];
 
   const methodRows = [
     { label: "Sample / model", key: "sampleModel" },

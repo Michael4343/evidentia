@@ -4,7 +4,10 @@ import { useState } from "react";
 import Image from "next/image";
 
 import { useAuthModal } from "@/components/auth-modal-provider";
-import { MOCK_SAMPLE_PAPER_ID } from "@/lib/mock-sample-paper";
+import { listMockLibraryEntryIds } from "@/lib/mock-library";
+
+const MOCK_ENTRY_IDS = listMockLibraryEntryIds();
+const MOCK_ENTRY_ID_SET = new Set(MOCK_ENTRY_IDS);
 
 interface SidebarPaperItem {
   id: string;
@@ -154,7 +157,7 @@ export function AppSidebar({
             <ul className="space-y-2">
               {papers.map((paper) => {
                 const isActive = paper.id === activeId;
-                const isSamplePaper = paper.id === MOCK_SAMPLE_PAPER_ID;
+                const isSamplePaper = MOCK_ENTRY_ID_SET.has(paper.id);
 
                 // Build classes more explicitly to avoid Tailwind conflicts
                 const baseClasses = isCollapsed

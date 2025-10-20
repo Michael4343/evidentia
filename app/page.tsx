@@ -8,7 +8,12 @@ import { PdfViewer } from "@/components/pdf-viewer";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { MockSimilarPapersShowcase } from "@/components/mock-similar-papers-showcase";
 import { MOCK_SAMPLE_PAPER_ID, MOCK_SAMPLE_PAPER_META } from "@/lib/mock-sample-paper";
-import { MOCK_SIMILAR_PAPERS_LIBRARY } from "@/lib/mock-similar-papers";
+import {
+  listMockLibrarySummaries,
+  listMockLibraryEntryIds,
+  type MockLibraryEntrySummary,
+  type RawMockLibraryEntry
+} from "@/lib/mock-library";
 import { useAuthModal } from "@/components/auth-modal-provider";
 import { ReaderTabKey } from "@/lib/reader-tabs";
 import { extractDoiFromPdf } from "@/lib/pdf-doi";
@@ -43,31 +48,85 @@ interface ResearchGroupPaperEntry {
   groups: ResearchGroupEntry[];
 }
 
+const MOCK_LIBRARY_SUMMARIES = listMockLibrarySummaries();
+const MOCK_LIBRARY_ENTRY_IDS = listMockLibraryEntryIds();
+const MOCK_LIBRARY_ENTRY_IDS_SET = new Set(MOCK_LIBRARY_ENTRY_IDS);
+const MOCK_SUMMARIES_BY_ID = new Map<string, MockLibraryEntrySummary>(
+  MOCK_LIBRARY_SUMMARIES.map((summary) => [summary.id, summary])
+);
+
+function useCountdown(durationMs: number, isActive: boolean) {
+  const [remaining, setRemaining] = useState(durationMs);
+
+  useEffect(() => {
+    if (!isActive) {
+      setRemaining(durationMs);
+      return;
+    }
+
+    const startTime = Date.now();
+    setRemaining(durationMs);
+
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const left = Math.max(0, durationMs - elapsed);
+      setRemaining(left);
+
+      if (left === 0) {
+        clearInterval(interval);
+      }
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [durationMs, isActive]);
+
+  const minutes = Math.floor(remaining / 60000);
+  const seconds = Math.floor((remaining % 60000) / 1000);
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function toMockUploadedPaper(summary: MockLibraryEntrySummary): UploadedPaper {
+  const generatedAt = summary.raw.updatedAt ?? summary.raw.generatedAt ?? new Date().toISOString();
+  return {
+    id: summary.id,
+    name: summary.title,
+    fileName: summary.fileName,
+    url: summary.pdfUrl,
+    uploadedAt: new Date(generatedAt),
+    size: 0,
+    doi: summary.doi,
+    source: "local"
+  };
+}
+
+const MOCK_UPLOADED_PAPERS_FROM_SUMMARIES = MOCK_LIBRARY_SUMMARIES.map(toMockUploadedPaper);
+const DEFAULT_MOCK_SUMMARY = MOCK_SUMMARIES_BY_ID.get(MOCK_SAMPLE_PAPER_ID) ?? MOCK_LIBRARY_SUMMARIES[0];
+const DEFAULT_ENTRY_RAW: RawMockLibraryEntry = DEFAULT_MOCK_SUMMARY?.raw ?? {};
+
 const MOCK_RESEARCH_GROUPS_TEXT =
-  typeof MOCK_SIMILAR_PAPERS_LIBRARY?.researchGroups?.text === "string"
-    ? MOCK_SIMILAR_PAPERS_LIBRARY.researchGroups.text
+  typeof DEFAULT_ENTRY_RAW?.researchGroups?.text === "string"
+    ? DEFAULT_ENTRY_RAW.researchGroups.text
     : "";
 
 const MOCK_RESEARCH_GROUPS_STRUCTURED: ResearchGroupPaperEntry[] | undefined = Array.isArray(
-  MOCK_SIMILAR_PAPERS_LIBRARY?.researchGroups?.structured?.papers
+  DEFAULT_ENTRY_RAW?.researchGroups?.structured?.papers
 )
-  ? (MOCK_SIMILAR_PAPERS_LIBRARY.researchGroups.structured.papers as ResearchGroupPaperEntry[])
+  ? (DEFAULT_ENTRY_RAW.researchGroups.structured.papers as ResearchGroupPaperEntry[])
   : undefined;
 
 const PIPELINE_TIMEOUT_MS = 300_000;
 const PIPELINE_TIMEOUT_LABEL = `${PIPELINE_TIMEOUT_MS / 1000}s`;
 
 function isMockPaper(paper: UploadedPaper | null | undefined) {
-  return paper?.id === MOCK_SAMPLE_PAPER_ID;
+  if (!paper?.id) {
+    return false;
+  }
+  return MOCK_LIBRARY_ENTRY_IDS_SET.has(paper.id);
 }
 
 function removeMockState<T>(state: Record<string, T>): Record<string, T> {
-  if (!(MOCK_SAMPLE_PAPER_ID in state)) {
-    return state;
-  }
-
-  const { [MOCK_SAMPLE_PAPER_ID]: _omitted, ...rest } = state;
-  return rest as Record<string, T>;
+  const entries = Object.entries(state).filter(([paperId]) => !MOCK_LIBRARY_ENTRY_IDS_SET.has(paperId));
+  return Object.fromEntries(entries) as Record<string, T>;
 }
 
 type CacheStage = "similarPapers" | "groups" | "contacts" | "theses" | "patents" | "verifiedClaims";
@@ -689,22 +748,135 @@ type ResearcherThesesState =
     }
   | { status: "error"; message: string; deepDives?: ResearcherThesisDeepDive[] };
 
+function createExtractionStateFromSummary(summary: MockLibraryEntrySummary): ExtractionState {
+  const pages = summary.raw.sourcePdf?.pages;
+  return {
+    status: "success",
+    data: {
+      pages: typeof pages === "number" ? pages : null,
+      info: null,
+      text: summary.title || "Mock paper"
+    }
+  };
+}
+
+function createClaimsStateFromRaw(raw: RawMockLibraryEntry): ClaimsAnalysisState {
+  const text = typeof raw.claimsAnalysis?.text === "string" ? raw.claimsAnalysis.text : undefined;
+  const structured = raw.claimsAnalysis?.structured && typeof raw.claimsAnalysis.structured === "object"
+    ? (raw.claimsAnalysis.structured as ClaimsAnalysisStructured)
+    : undefined;
+  return {
+    status: "success",
+    ...(text ? { text } : {}),
+    ...(structured ? { structured } : {})
+  };
+}
+
+function createSimilarStateFromRaw(raw: RawMockLibraryEntry): SimilarPapersState {
+  const structured: SimilarPapersStructured | undefined = raw.similarPapers || raw.sourcePaper
+    ? {
+        sourcePaper: raw.sourcePaper as SimilarPapersStructured["sourcePaper"],
+        similarPapers: Array.isArray(raw.similarPapers)
+          ? (raw.similarPapers as NonNullable<SimilarPapersStructured["similarPapers"]>)
+          : undefined,
+        promptNotes: typeof raw.agent?.promptNotes === "string" ? raw.agent.promptNotes : undefined
+      }
+    : undefined;
+
+  return {
+    status: "success",
+    text: typeof raw.similarPapers === "string" ? raw.similarPapers : "",
+    ...(structured ? { structured } : {})
+  };
+}
+
+function createPatentsStateFromRaw(raw: RawMockLibraryEntry): PatentsState {
+  const text = typeof raw.patents?.text === "string" ? raw.patents.text : undefined;
+  const structured = raw.patents?.structured && typeof raw.patents.structured === "object"
+    ? (raw.patents.structured as PatentsStructured)
+    : undefined;
+  return {
+    status: "success",
+    ...(text ? { text } : {}),
+    ...(structured ? { structured } : {})
+  };
+}
+
+function createVerifiedClaimsStateFromRaw(raw: RawMockLibraryEntry): VerifiedClaimsState {
+  const text = typeof raw.verifiedClaims?.text === "string" ? raw.verifiedClaims.text : undefined;
+  const structuredClaims = raw.verifiedClaims?.structured;
+  const claimsArray = Array.isArray(structuredClaims?.claims) ? structuredClaims.claims : undefined;
+  const overallAssessment = typeof structuredClaims?.overallAssessment === "string"
+    ? structuredClaims.overallAssessment
+    : undefined;
+  const promptNotes = typeof raw.verifiedClaims?.promptNotes === "string" ? raw.verifiedClaims.promptNotes : undefined;
+  const structured: VerifiedClaimsStructured | undefined = claimsArray || overallAssessment || promptNotes
+    ? {
+        claims: claimsArray as VerifiedClaimEntry[] | undefined,
+        overallAssessment,
+        promptNotes
+      }
+    : undefined;
+
+  return {
+    status: "success",
+    ...(text ? { text } : {}),
+    ...(structured ? { structured } : {})
+  };
+}
+
+function createResearchGroupsStateFromRaw(raw: RawMockLibraryEntry): ResearchGroupsState {
+  const text = typeof raw.researchGroups?.text === "string" ? raw.researchGroups.text : "";
+  const structured = Array.isArray(raw.researchGroups?.structured?.papers)
+    ? (raw.researchGroups.structured.papers as ResearchGroupPaperEntry[])
+    : undefined;
+  return {
+    status: "success",
+    text,
+    structured
+  };
+}
+
+function createResearchContactsStateFromRaw(): ResearchGroupContactsState {
+  return {
+    status: "success",
+    contacts: []
+  };
+}
+
+function createResearchThesesStateFromRaw(raw: RawMockLibraryEntry): ResearcherThesesState {
+  const text = typeof raw.researcherTheses?.text === "string" ? raw.researcherTheses.text : undefined;
+  const researchers = Array.isArray(raw.researcherTheses?.structured?.researchers)
+    ? (raw.researcherTheses.structured.researchers as ResearcherThesisRecord[])
+    : [];
+  const deepDives = Array.isArray(raw.researcherTheses?.deepDives?.entries)
+    ? (raw.researcherTheses.deepDives.entries as ResearcherThesisDeepDive[])
+    : undefined;
+
+  return {
+    status: "success",
+    researchers,
+    ...(text ? { text } : {}),
+    ...(deepDives ? { deepDives } : {})
+  };
+}
+
 const MOCK_RESEARCH_THESES_TEXT =
-  typeof MOCK_SIMILAR_PAPERS_LIBRARY?.researcherTheses?.text === "string"
-    ? MOCK_SIMILAR_PAPERS_LIBRARY.researcherTheses.text
+  typeof DEFAULT_ENTRY_RAW?.researcherTheses?.text === "string"
+    ? DEFAULT_ENTRY_RAW.researcherTheses.text
     : "";
 
 const MOCK_RESEARCH_THESES_STRUCTURED: ResearcherThesisRecord[] = Array.isArray(
-  MOCK_SIMILAR_PAPERS_LIBRARY?.researcherTheses?.structured?.researchers
+  DEFAULT_ENTRY_RAW?.researcherTheses?.structured?.researchers
 )
-  ? (MOCK_SIMILAR_PAPERS_LIBRARY.researcherTheses.structured
+  ? (DEFAULT_ENTRY_RAW.researcherTheses.structured
       .researchers as ResearcherThesisRecord[])
   : [];
 
 const MOCK_RESEARCH_THESES_DEEP_DIVES: ResearcherThesisDeepDive[] = Array.isArray(
-  MOCK_SIMILAR_PAPERS_LIBRARY?.researcherTheses?.deepDives?.entries
+  DEFAULT_ENTRY_RAW?.researcherTheses?.deepDives?.entries
 )
-  ? (MOCK_SIMILAR_PAPERS_LIBRARY.researcherTheses.deepDives.entries as ResearcherThesisDeepDive[])
+  ? (DEFAULT_ENTRY_RAW.researcherTheses.deepDives.entries as ResearcherThesisDeepDive[])
   : [];
 
 const MOCK_RESEARCH_THESES_INITIAL_STATE: ResearcherThesesState =
@@ -723,8 +895,8 @@ const MOCK_RESEARCH_THESES_INITIAL_STATE: ResearcherThesesState =
       };
 
 const MOCK_CLAIMS_ANALYSIS =
-  typeof MOCK_SIMILAR_PAPERS_LIBRARY?.claimsAnalysis === "object"
-    ? MOCK_SIMILAR_PAPERS_LIBRARY.claimsAnalysis
+  typeof DEFAULT_ENTRY_RAW?.claimsAnalysis === "object"
+    ? DEFAULT_ENTRY_RAW.claimsAnalysis
     : null;
 
 const MOCK_CLAIMS_TEXT =
@@ -749,8 +921,8 @@ const MOCK_CLAIMS_INITIAL_STATE: ClaimsAnalysisState =
       };
 
 const MOCK_PATENTS =
-  typeof MOCK_SIMILAR_PAPERS_LIBRARY?.patents === "object"
-    ? MOCK_SIMILAR_PAPERS_LIBRARY.patents
+  typeof DEFAULT_ENTRY_RAW?.patents === "object"
+    ? DEFAULT_ENTRY_RAW.patents
     : null;
 
 const MOCK_PATENTS_TEXT = typeof MOCK_PATENTS?.text === "string" ? MOCK_PATENTS.text : "";
@@ -767,8 +939,8 @@ const MOCK_PATENTS_INITIAL_STATE: PatentsState =
     : { status: "success" };
 
 const MOCK_VERIFIED_CLAIMS =
-  typeof MOCK_SIMILAR_PAPERS_LIBRARY?.verifiedClaims === "object"
-    ? MOCK_SIMILAR_PAPERS_LIBRARY.verifiedClaims
+  typeof DEFAULT_ENTRY_RAW?.verifiedClaims === "object"
+    ? DEFAULT_ENTRY_RAW.verifiedClaims
     : null;
 
 const MOCK_VERIFIED_CLAIMS_LIST = Array.isArray(MOCK_VERIFIED_CLAIMS?.structured?.claims)
@@ -956,6 +1128,8 @@ function ExtractionDebugPanel({
   state: ExtractionState | undefined;
   paper: UploadedPaper | null;
 }) {
+  const countdown = useCountdown(PIPELINE_TIMEOUT_MS, !state || state.status === "loading");
+
   if (!paper) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
@@ -971,6 +1145,7 @@ function ExtractionDebugPanel({
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
         <div className="space-y-1">
           <p className="text-base font-medium text-slate-700">Extracting text from PDF…</p>
+          <p className="text-xs text-slate-500">{countdown} remaining</p>
         </div>
       </div>
     );
@@ -1222,17 +1397,21 @@ function ClaimsStructuredView({
 function ClaimsPanel({
   paper,
   extraction,
-  state
+  state,
+  onRetry
 }: {
   paper: UploadedPaper | null;
   extraction: ExtractionState | undefined;
   state: ClaimsAnalysisState | undefined;
+  onRetry?: () => void;
 }) {
+  const countdown = useCountdown(PIPELINE_TIMEOUT_MS, !state || state.status === "loading");
+
   if (!paper) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
         <p className="text-base font-medium text-slate-700">Upload a PDF to inspect its claims and evidence.</p>
-        <p className="text-sm text-slate-500">We’ll surface the structured claims summary once the analysis runs.</p>
+        <p className="text-sm text-slate-500">We'll surface the structured claims summary once the analysis runs.</p>
       </div>
     );
   }
@@ -1243,6 +1422,7 @@ function ClaimsPanel({
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
         <div className="space-y-1">
           <p className="text-base font-medium text-slate-700">Assembling claims brief…</p>
+          <p className="text-xs text-slate-500">{countdown} remaining</p>
         </div>
       </div>
     );
@@ -1287,6 +1467,23 @@ function ClaimsPanel({
   return (
     <div className="flex-1 overflow-auto">
       <div className="w-full space-y-6 px-6 py-8">
+        <header className="flex items-center justify-between gap-3">
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold text-slate-900">Claims Analysis</h2>
+            <p className="text-sm text-slate-600">Key claims, evidence, and assertions from the paper</p>
+          </div>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              title="Re-run claims analysis"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          )}
+        </header>
         <ClaimsStructuredView structured={state.structured} text={state.text} />
       </div>
     </div>
@@ -1435,11 +1632,18 @@ function SimilarPapersPanel({
   claimsState: ClaimsAnalysisState | undefined;
   onRetry: () => void;
 }) {
+  const countdown = useCountdown(
+    PIPELINE_TIMEOUT_MS,
+    (!extraction || extraction.status === "loading") ||
+    (claimsState?.status === "loading") ||
+    (!state || state.status === "loading")
+  );
+
   if (!paper) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
         <p className="text-base font-medium text-slate-700">Upload a PDF to find related methods.</p>
-        <p className="text-sm text-slate-500">We’ll compare the paper against recent work once it’s processed.</p>
+        <p className="text-sm text-slate-500">We'll compare the paper against recent work once it's processed.</p>
       </div>
     );
   }
@@ -1458,6 +1662,7 @@ function SimilarPapersPanel({
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
         <div className="space-y-1">
           <p className="text-base font-medium text-slate-700">Preparing extracted text…</p>
+          <p className="text-xs text-slate-500">{countdown} remaining</p>
         </div>
       </div>
     );
@@ -1486,6 +1691,7 @@ function SimilarPapersPanel({
           <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
           <div className="space-y-1">
             <p className="text-base font-medium text-slate-700">Running claims analysis…</p>
+            <p className="text-xs text-slate-500">{countdown} remaining</p>
           </div>
         </div>
       );
@@ -1516,6 +1722,7 @@ function SimilarPapersPanel({
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
         <div className="space-y-1">
           <p className="text-base font-medium text-slate-700">Compiling similar papers…</p>
+          <p className="text-xs text-slate-500">{countdown} remaining</p>
         </div>
       </div>
     );
@@ -1543,10 +1750,21 @@ function SimilarPapersPanel({
   return (
     <div className="flex-1 overflow-auto">
       <div className="w-full space-y-6 px-6 py-8">
-        <header className="space-y-2">
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Similarity scan</p>
-          <h3 className="text-xl font-semibold text-slate-900">Cross-paper alignment</h3>
-          <p className="text-sm text-slate-600">Compiled for {paper?.name ?? "the selected paper"}.</p>
+        <header className="flex items-start justify-between gap-3">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Similarity scan</p>
+            <h3 className="text-xl font-semibold text-slate-900">Cross-paper alignment</h3>
+            <p className="text-sm text-slate-600">Compiled for {paper?.name ?? "the selected paper"}.</p>
+          </div>
+          <button
+            onClick={onRetry}
+            className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            title="Re-run similar papers search"
+          >
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+          </button>
         </header>
         {state.structured && state.structured.similarPapers && state.structured.similarPapers.length > 0 ? (
           <SimilarPapersStructuredView structured={state.structured} />
@@ -1715,9 +1933,20 @@ function ResearchGroupsPanel({
       <div className="w-full space-y-8 px-6 py-8">
         <section className="space-y-6">
           <header className="space-y-4">
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold text-slate-900">Research Groups</h2>
-              <p className="text-sm text-slate-600">Compiled for {paper?.name ?? "the selected paper"}.</p>
+            <div className="flex items-start justify-between gap-3">
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold text-slate-900">Research Groups</h2>
+                <p className="text-sm text-slate-600">Compiled for {paper?.name ?? "the selected paper"}.</p>
+              </div>
+              <button
+                onClick={onRetry}
+                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                title="Re-run research groups search"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
             </div>
             {structuredEntries.length > 0 && (
               <div className="grid gap-3 sm:grid-cols-3">
@@ -1817,13 +2046,15 @@ function ResearcherThesesPanel({
   hasResearchGroups,
   isMock,
   structuredGroups,
-  deepDives
+  deepDives,
+  onRetry
 }: {
   state: ResearcherThesesState | undefined;
   hasResearchGroups: boolean;
   isMock: boolean;
   structuredGroups?: ResearchGroupPaperEntry[];
   deepDives?: ResearcherThesisDeepDive[];
+  onRetry?: () => void;
 }) {
   const hasLoadedResearchers =
     state?.status === "success" &&
@@ -1857,12 +2088,21 @@ function ResearcherThesesPanel({
 
   if (state.status === "error") {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
         <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
         <div className="space-y-1">
           <p className="text-base font-semibold text-red-700">Researcher lookup failed</p>
           <p className="text-sm text-red-600">{state.message}</p>
         </div>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+          >
+            Try again
+          </button>
+        )}
       </div>
     );
   }
@@ -1888,8 +2128,29 @@ function ResearcherThesesPanel({
 
   if (researchers.length === 0) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-        <p className="text-sm text-slate-600">No researcher publications or theses were found in the current summaries.</p>
+      <div className="flex-1 overflow-auto">
+        <section className="space-y-6 px-6 py-6">
+          <header className="flex items-center justify-between gap-3">
+            <div className="space-y-1">
+              <h2 className="text-xl font-semibold text-slate-900">Researcher Theses</h2>
+              <p className="text-sm text-slate-600">PhD theses and publications from research group members</p>
+            </div>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                title="Re-run researcher theses search"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            )}
+          </header>
+          <div className="flex flex-col items-center justify-center gap-2 text-center py-12">
+            <p className="text-sm text-slate-600">No researcher publications or theses were found in the current summaries.</p>
+          </div>
+        </section>
       </div>
     );
   }
@@ -2052,6 +2313,23 @@ function ResearcherThesesPanel({
     return (
       <div className="flex-1 overflow-auto">
         <section className="space-y-6 px-6 py-6">
+          <header className="flex items-center justify-between gap-3 mb-6">
+            <div className="space-y-1">
+              <h2 className="text-xl font-semibold text-slate-900">Researcher Theses</h2>
+              <p className="text-sm text-slate-600">PhD theses and publications from research group members</p>
+            </div>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                title="Re-run researcher theses search"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            )}
+          </header>
           {flatList}
           {orderedDeepDives.length > 0 && (
             <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -2417,6 +2695,23 @@ function ResearcherThesesPanel({
   return (
     <div className="flex-1 overflow-auto">
       <section className="space-y-6 px-6 py-6">
+        <header className="flex items-center justify-between gap-3">
+          <div className="space-y-1">
+            <h2 className="text-xl font-semibold text-slate-900">Researcher Theses</h2>
+            <p className="text-sm text-slate-600">PhD theses and publications from research group members</p>
+          </div>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              title="Re-run researcher theses search"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
+          )}
+        </header>
         <div className="space-y-6">{paperSections}</div>
 
         {hasExtras && (
@@ -2588,11 +2883,24 @@ function PatentsPanel({
     <div className="flex flex-1 flex-col overflow-auto">
       <div className="flex-1 overflow-auto bg-slate-50">
         <section className="w-full space-y-6 px-6 py-8">
-          <header className="space-y-2">
-            <h2 className="text-xl font-semibold text-slate-900">Related Patents</h2>
-            <p className="text-sm leading-relaxed text-slate-600">
-              Patents covering similar methods, compositions, or systems described in the paper's claims.
-            </p>
+          <header className="flex items-start justify-between gap-3">
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold text-slate-900">Related Patents</h2>
+              <p className="text-sm leading-relaxed text-slate-600">
+                Patents covering similar methods, compositions, or systems described in the paper's claims.
+              </p>
+            </div>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                title="Re-run patent search"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            )}
           </header>
 
           {promptNotes && (
@@ -2745,11 +3053,24 @@ function VerifiedClaimsPanel({
     <div className="flex flex-1 flex-col overflow-auto">
       <div className="flex-1 overflow-auto bg-slate-50">
         <section className="w-full space-y-6 px-6 py-8">
-          <header className="space-y-2">
-            <h2 className="text-xl font-semibold text-slate-900">Verified Claims</h2>
-            <p className="text-sm leading-relaxed text-slate-600">
-              Claims cross-referenced against similar papers, research groups, PhD theses, and patents.
-            </p>
+          <header className="flex items-start justify-between gap-3">
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold text-slate-900">Verified Claims</h2>
+              <p className="text-sm leading-relaxed text-slate-600">
+                Claims cross-referenced against similar papers, research groups, PhD theses, and patents.
+              </p>
+            </div>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                title="Re-run verified claims analysis"
+              >
+                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+              </button>
+            )}
           </header>
 
           {promptNotes && (
@@ -3104,54 +3425,76 @@ export default function LandingPage() {
   const contactsStorageFetchesRef = useRef<Set<string>>(new Set<string>());
   const thesesStorageFetchesRef = useRef<Set<string>>(new Set<string>());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const [uploadedPapers, setUploadedPapers] = useState<UploadedPaper[]>([MOCK_UPLOADED_PAPER]);
-  const [activePaperId, setActivePaperId] = useState<string | null>(MOCK_SAMPLE_PAPER_ID);
+  const initialMockPapers =
+    MOCK_UPLOADED_PAPERS_FROM_SUMMARIES.length > 0
+      ? MOCK_UPLOADED_PAPERS_FROM_SUMMARIES
+      : [MOCK_UPLOADED_PAPER];
+  const defaultActivePaperId = initialMockPapers[0]?.id ?? null;
+  const defaultSummary = defaultActivePaperId ? MOCK_SUMMARIES_BY_ID.get(defaultActivePaperId) : undefined;
+  const initialExtractionState = defaultSummary
+    ? createExtractionStateFromSummary(defaultSummary)
+    : {
+        status: "success",
+        data: {
+          pages: null,
+          info: null,
+          text: "Static Evidentia sample paper"
+        }
+      };
+  const initialClaimsState = defaultSummary ? createClaimsStateFromRaw(defaultSummary.raw) : MOCK_CLAIMS_INITIAL_STATE;
+  const initialSimilarState = defaultSummary
+    ? createSimilarStateFromRaw(defaultSummary.raw)
+    : {
+        status: "success",
+        text: ""
+      } as SimilarPapersState;
+  const initialPatentsState = defaultSummary ? createPatentsStateFromRaw(defaultSummary.raw) : MOCK_PATENTS_INITIAL_STATE;
+  const initialVerifiedClaimsState = defaultSummary
+    ? createVerifiedClaimsStateFromRaw(defaultSummary.raw)
+    : MOCK_VERIFIED_CLAIMS_INITIAL_STATE;
+  const initialResearchGroupsState = defaultSummary
+    ? createResearchGroupsStateFromRaw(defaultSummary.raw)
+    : {
+        status: "success",
+        text: MOCK_RESEARCH_GROUPS_TEXT,
+        structured: MOCK_RESEARCH_GROUPS_STRUCTURED
+      };
+  const initialResearchContactsState = createResearchContactsStateFromRaw();
+  const initialResearchThesesState = defaultSummary
+    ? createResearchThesesStateFromRaw(defaultSummary.raw)
+    : MOCK_RESEARCH_THESES_INITIAL_STATE;
+  const [uploadedPapers, setUploadedPapers] = useState<UploadedPaper[]>(initialMockPapers);
+  const [activePaperId, setActivePaperId] = useState<string | null>(defaultActivePaperId);
   const [isSavingPaper, setIsSavingPaper] = useState(false);
   const [uploadStatusMessage, setUploadStatusMessage] = useState<string | null>(null);
   const [uploadErrorMessage, setUploadErrorMessage] = useState<string | null>(null);
   const [isFetchingLibrary, setIsFetchingLibrary] = useState(false);
   const [isStatusDismissed, setIsStatusDismissed] = useState(false);
-  const [extractionStates, setExtractionStates] = useState<Record<string, ExtractionState>>({
-    [MOCK_SAMPLE_PAPER_ID]: {
-      status: "success",
-      data: {
-        pages: null,
-        info: null,
-        text: "Static Evidentia sample paper"
-      }
-    }
-  });
-  const [claimsStates, setClaimsStates] = useState<Record<string, ClaimsAnalysisState>>({
-    [MOCK_SAMPLE_PAPER_ID]: MOCK_CLAIMS_INITIAL_STATE
-  });
-  const [similarPapersStates, setSimilarPapersStates] = useState<Record<string, SimilarPapersState>>({
-    [MOCK_SAMPLE_PAPER_ID]: {
-      status: "success",
-      text:
-        typeof MOCK_SIMILAR_PAPERS_LIBRARY?.similarPapers === "string"
-          ? MOCK_SIMILAR_PAPERS_LIBRARY.similarPapers
-          : ""
-    }
-  });
-  const [patentsStates, setPatentsStates] = useState<Record<string, PatentsState>>({
-    [MOCK_SAMPLE_PAPER_ID]: MOCK_PATENTS_INITIAL_STATE
-  });
-  const [verifiedClaimsStates, setVerifiedClaimsStates] = useState<Record<string, VerifiedClaimsState>>({
-    [MOCK_SAMPLE_PAPER_ID]: MOCK_VERIFIED_CLAIMS_INITIAL_STATE
-  });
-  const [researchGroupsStates, setResearchGroupsStates] = useState<Record<string, ResearchGroupsState>>({
-    [MOCK_SAMPLE_PAPER_ID]: {
-      status: "success",
-      text: MOCK_RESEARCH_GROUPS_TEXT,
-      structured: MOCK_RESEARCH_GROUPS_STRUCTURED
-    }
-  });
-  const [researchContactsStates, setResearchContactsStates] = useState<Record<string, ResearchGroupContactsState>>({
-    [MOCK_SAMPLE_PAPER_ID]: { status: "success", contacts: [] }
-  });
-  const [researchThesesStates, setResearchThesesStates] = useState<Record<string, ResearcherThesesState>>({
-    [MOCK_SAMPLE_PAPER_ID]: MOCK_RESEARCH_THESES_INITIAL_STATE
-  });
+  const [extractionStates, setExtractionStates] = useState<Record<string, ExtractionState>>(
+    defaultActivePaperId ? { [defaultActivePaperId]: initialExtractionState } : {}
+  );
+  const [claimsStates, setClaimsStates] = useState<Record<string, ClaimsAnalysisState>>(
+    defaultActivePaperId ? { [defaultActivePaperId]: initialClaimsState } : {}
+  );
+  const [similarPapersStates, setSimilarPapersStates] = useState<Record<string, SimilarPapersState>>(
+    defaultActivePaperId ? { [defaultActivePaperId]: initialSimilarState } : {}
+  );
+  const [patentsStates, setPatentsStates] = useState<Record<string, PatentsState>>(
+    defaultActivePaperId ? { [defaultActivePaperId]: initialPatentsState } : {}
+  );
+  const [verifiedClaimsStates, setVerifiedClaimsStates] = useState<Record<string, VerifiedClaimsState>>(
+    defaultActivePaperId ? { [defaultActivePaperId]: initialVerifiedClaimsState } : {}
+  );
+  const [researchGroupsStates, setResearchGroupsStates] = useState<Record<string, ResearchGroupsState>>(
+    defaultActivePaperId ? { [defaultActivePaperId]: initialResearchGroupsState } : {}
+  );
+  const [researchContactsStates, setResearchContactsStates] =
+    useState<Record<string, ResearchGroupContactsState>>(
+      defaultActivePaperId ? { [defaultActivePaperId]: initialResearchContactsState } : {}
+    );
+  const [researchThesesStates, setResearchThesesStates] = useState<Record<string, ResearcherThesesState>>(
+    defaultActivePaperId ? { [defaultActivePaperId]: initialResearchThesesState } : {}
+  );
   const activePaper = activePaperId
     ? uploadedPapers.find((item) => item.id === activePaperId) ?? null
     : null;
@@ -3163,10 +3506,7 @@ export default function LandingPage() {
   const activeVerifiedClaimsState = activePaper ? verifiedClaimsStates[activePaper.id] : undefined;
   const activeResearchGroupState = activePaper ? researchGroupsStates[activePaper.id] : undefined;
   const activeResearchContactsState = activePaper ? researchContactsStates[activePaper.id] : undefined;
-  const activeResearchThesesState = activePaper
-    ? researchThesesStates[activePaper.id] ??
-      (isMockPaper(activePaper) ? MOCK_RESEARCH_THESES_INITIAL_STATE : undefined)
-    : undefined;
+  const activeResearchThesesState = activePaper ? researchThesesStates[activePaper.id] : undefined;
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const isPaperViewerActive = activeTab === "paper" && Boolean(activePaper);
   const dropzoneHelperText = !user
@@ -3174,6 +3514,67 @@ export default function LandingPage() {
     : isFetchingLibrary
       ? "Loading your library…"
       : undefined;
+
+  useEffect(() => {
+    if (!activePaper || !isMockPaper(activePaper)) {
+      return;
+    }
+
+    const summary = MOCK_SUMMARIES_BY_ID.get(activePaper.id);
+    if (!summary) {
+      return;
+    }
+    const raw = summary.raw;
+
+    setExtractionStates((prev) => {
+      if (prev[activePaper.id]) {
+        return prev;
+      }
+      return { ...prev, [activePaper.id]: createExtractionStateFromSummary(summary) };
+    });
+    setClaimsStates((prev) => {
+      if (prev[activePaper.id]) {
+        return prev;
+      }
+      return { ...prev, [activePaper.id]: createClaimsStateFromRaw(raw) };
+    });
+    setSimilarPapersStates((prev) => {
+      if (prev[activePaper.id]) {
+        return prev;
+      }
+      return { ...prev, [activePaper.id]: createSimilarStateFromRaw(raw) };
+    });
+    setPatentsStates((prev) => {
+      if (prev[activePaper.id]) {
+        return prev;
+      }
+      return { ...prev, [activePaper.id]: createPatentsStateFromRaw(raw) };
+    });
+    setVerifiedClaimsStates((prev) => {
+      if (prev[activePaper.id]) {
+        return prev;
+      }
+      return { ...prev, [activePaper.id]: createVerifiedClaimsStateFromRaw(raw) };
+    });
+    setResearchGroupsStates((prev) => {
+      if (prev[activePaper.id]) {
+        return prev;
+      }
+      return { ...prev, [activePaper.id]: createResearchGroupsStateFromRaw(raw) };
+    });
+    setResearchContactsStates((prev) => {
+      if (prev[activePaper.id]) {
+        return prev;
+      }
+      return { ...prev, [activePaper.id]: createResearchContactsStateFromRaw() };
+    });
+    setResearchThesesStates((prev) => {
+      if (prev[activePaper.id]) {
+        return prev;
+      }
+      return { ...prev, [activePaper.id]: createResearchThesesStateFromRaw(raw) };
+    });
+  }, [activePaper]);
 
   const clearObjectUrls = useCallback(() => {
     objectUrlsRef.current.forEach((url) => {
@@ -5120,48 +5521,29 @@ export default function LandingPage() {
   useEffect(() => {
     if (!user) {
       clearObjectUrls();
-      setUploadedPapers([MOCK_UPLOADED_PAPER]);
-      setActivePaperId(MOCK_SAMPLE_PAPER_ID);
+      setUploadedPapers(initialMockPapers);
+      setActivePaperId(defaultActivePaperId);
       similarStorageFetchesRef.current.clear();
       similarStorageResolvedRef.current.clear();
       researchGroupsStorageFetchesRef.current.clear();
       setUploadStatusMessage(null);
       setUploadErrorMessage(null);
-      setExtractionStates({
-        [MOCK_SAMPLE_PAPER_ID]: {
-          status: "success",
-          data: {
-            pages: null,
-            info: null,
-            text: "Static Evidentia sample paper"
-          }
-        }
-      });
-      setClaimsStates({
-        [MOCK_SAMPLE_PAPER_ID]: MOCK_CLAIMS_INITIAL_STATE
-      });
-      setSimilarPapersStates({
-        [MOCK_SAMPLE_PAPER_ID]: {
-          status: "success",
-          text:
-            typeof MOCK_SIMILAR_PAPERS_LIBRARY?.similarPapers === "string"
-              ? MOCK_SIMILAR_PAPERS_LIBRARY.similarPapers
-              : ""
-        }
-      });
-      setResearchGroupsStates({
-        [MOCK_SAMPLE_PAPER_ID]: {
-          status: "success",
-          text: MOCK_RESEARCH_GROUPS_TEXT,
-          structured: MOCK_RESEARCH_GROUPS_STRUCTURED
-        }
-      });
-      setResearchContactsStates({
-        [MOCK_SAMPLE_PAPER_ID]: { status: "success", contacts: [] }
-      });
-      setResearchThesesStates({
-        [MOCK_SAMPLE_PAPER_ID]: MOCK_RESEARCH_THESES_INITIAL_STATE
-      });
+      setExtractionStates(defaultActivePaperId ? { [defaultActivePaperId]: initialExtractionState } : {});
+      setClaimsStates(defaultActivePaperId ? { [defaultActivePaperId]: initialClaimsState } : {});
+      setSimilarPapersStates(defaultActivePaperId ? { [defaultActivePaperId]: initialSimilarState } : {});
+      setPatentsStates(defaultActivePaperId ? { [defaultActivePaperId]: initialPatentsState } : {});
+      setVerifiedClaimsStates(
+        defaultActivePaperId ? { [defaultActivePaperId]: initialVerifiedClaimsState } : {}
+      );
+      setResearchGroupsStates(
+        defaultActivePaperId ? { [defaultActivePaperId]: initialResearchGroupsState } : {}
+      );
+      setResearchContactsStates(
+        defaultActivePaperId ? { [defaultActivePaperId]: initialResearchContactsState } : {}
+      );
+      setResearchThesesStates(
+        defaultActivePaperId ? { [defaultActivePaperId]: initialResearchThesesState } : {}
+      );
       return;
     }
 
@@ -5171,12 +5553,14 @@ export default function LandingPage() {
       }
       return prev.filter((paper) => !isMockPaper(paper));
     });
-    similarStorageFetchesRef.current.delete(MOCK_SAMPLE_PAPER_ID);
-    similarStorageResolvedRef.current.delete(MOCK_SAMPLE_PAPER_ID);
-    similarPapersGenerationRef.current.delete(MOCK_SAMPLE_PAPER_ID);
-    researchGroupsStorageFetchesRef.current.delete(MOCK_SAMPLE_PAPER_ID);
-    researchGroupsGenerationRef.current.delete(MOCK_SAMPLE_PAPER_ID);
-    setActivePaperId((prev) => (prev === MOCK_SAMPLE_PAPER_ID ? null : prev));
+    for (const id of MOCK_LIBRARY_ENTRY_IDS) {
+      similarStorageFetchesRef.current.delete(id);
+      similarStorageResolvedRef.current.delete(id);
+      similarPapersGenerationRef.current.delete(id);
+      researchGroupsStorageFetchesRef.current.delete(id);
+      researchGroupsGenerationRef.current.delete(id);
+    }
+    setActivePaperId((prev) => (prev && MOCK_LIBRARY_ENTRY_IDS_SET.has(prev) ? null : prev));
     setExtractionStates((prev) => removeMockState(prev));
     setClaimsStates((prev) => removeMockState(prev));
     setSimilarPapersStates((prev) => removeMockState(prev));
@@ -5229,7 +5613,10 @@ export default function LandingPage() {
         });
 
         setExtractionStates((prev) => removeMockState(prev));
+        setClaimsStates((prev) => removeMockState(prev));
         setSimilarPapersStates((prev) => removeMockState(prev));
+        setPatentsStates((prev) => removeMockState(prev));
+        setVerifiedClaimsStates((prev) => removeMockState(prev));
         setResearchGroupsStates((prev) => removeMockState(prev));
         setResearchContactsStates((prev) => removeMockState(prev));
         setResearchThesesStates((prev) => removeMockState(prev));
@@ -5410,7 +5797,7 @@ export default function LandingPage() {
 
     patentsGenerationRef.current.add(activePaper.id);
     void runPatents(activePaper, activeExtraction.data, activeClaimsState);
-  }, [activePaper, activeExtraction, activeClaimsState, activePatentsState, runPatents]);
+  }, [activePaper, activeExtraction, activeClaimsState, activeSimilarPapersState, activeResearchGroupState, activePatentsState, runPatents]);
 
   useEffect(() => {
     if (!activePaper) {
@@ -5846,9 +6233,43 @@ export default function LandingPage() {
     runVerifiedClaims
   ]);
 
+  const handleRetryClaims = useCallback(() => {
+    if (!activePaper || !activeExtraction || activeExtraction.status !== "success") {
+      return;
+    }
+
+    // Clear claims state to trigger re-generation
+    setClaimsStates((prev) => {
+      const next = { ...prev };
+      delete next[activePaper.id];
+      return next;
+    });
+
+    // The useEffect will automatically re-run claims generation
+  }, [activePaper, activeExtraction]);
+
+  const handleRetryTheses = useCallback(() => {
+    if (!activePaper || !activeResearchGroupState || activeResearchGroupState.status !== "success") {
+      return;
+    }
+
+    if (!activeResearchGroupState.structured || activeResearchGroupState.structured.length === 0) {
+      return;
+    }
+
+    // Clear theses state to trigger re-generation
+    setResearchThesesStates((prev) => {
+      const next = { ...prev };
+      delete next[activePaper.id];
+      return next;
+    });
+
+    // The useEffect will automatically re-run theses generation
+  }, [activePaper, activeResearchGroupState]);
+
   const handleDeletePaper = useCallback(
     async (paperId: string) => {
-      if (paperId === MOCK_SAMPLE_PAPER_ID) {
+      if (MOCK_LIBRARY_ENTRY_IDS_SET.has(paperId)) {
         return;
       }
 
@@ -5965,6 +6386,7 @@ export default function LandingPage() {
           paper={activePaper}
           extraction={activeExtraction}
           state={activeClaimsState}
+          onRetry={handleRetryClaims}
         />
       );
     }
@@ -6013,6 +6435,7 @@ export default function LandingPage() {
                 ? activeResearchThesesState.deepDives
                 : undefined
           }
+          onRetry={handleRetryTheses}
         />
       );
     }
