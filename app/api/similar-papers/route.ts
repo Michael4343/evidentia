@@ -69,6 +69,7 @@ Output requirements:
   - summary: string (keep concise, two sentences max)
   - keyMethodSignals: array of 3-5 short strings (no numbering)
   - searchQueries: array of 3-5 search phrases
+  - methodMatrix: object with keys (sampleModel, materialsSetup, equipmentSetup, procedureSteps, controls, outputsMetrics, qualityChecks, outcomeSummary). Extract these from the source paper's claims brief and methods snapshot. Use "Not reported" when information is missing.
 - similarPapers: array of 3-5 objects. Each object must include:
   identifier (string), title (string), doi (string|null), url (string|null),
   authors (array of strings), year (number|null), venue (string|null),
@@ -534,12 +535,21 @@ export async function POST(request: Request) {
       claimsSummaryText
     ].join("\n");
 
+    console.log("[similar-papers] Starting discovery phase with OpenAI API...", {
+      promptLength: assembledPrompt.length,
+      model: "gpt-5-mini-2025-08-07"
+    });
+
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 600_000);
+    const timeoutId = setTimeout(() => {
+      console.log("[similar-papers] Discovery request timed out after 600 seconds");
+      controller.abort();
+    }, 600_000);
 
     let response: Response;
 
     try {
+      console.log("[similar-papers] Sending discovery request to OpenAI...");
       response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
@@ -549,13 +559,23 @@ export async function POST(request: Request) {
         // The model asked for confirmation before running web search, which stalls the pipeline.
         // Keep the request self-contained until we have a supervised search flow again.
         body: JSON.stringify({
-          model: "gpt-5-mini",
+          model: "gpt-5-mini-2025-08-07",
           reasoning: { effort: "low" },
           input: assembledPrompt,
           max_output_tokens: 6_144
         }),
         signal: controller.signal
       });
+      console.log("[similar-papers] Discovery request completed", {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
+      console.error("[similar-papers] Discovery fetch failed with network error:", errorMessage);
+      throw fetchError;
     } finally {
       clearTimeout(timeoutId);
     }
@@ -624,12 +644,21 @@ export async function POST(request: Request) {
     // Step 2: Convert the discovery notes to structured JSON
     const cleanupPrompt = buildCleanupPrompt(outputText);
 
+    console.log("[similar-papers] Starting cleanup phase with OpenAI API...", {
+      discoveryTextLength: outputText.length,
+      model: "gpt-5-mini-2025-08-07"
+    });
+
     const controller2 = new AbortController();
-    const timeoutId2 = setTimeout(() => controller2.abort(), 600_000);
+    const timeoutId2 = setTimeout(() => {
+      console.log("[similar-papers] Cleanup request timed out after 600 seconds");
+      controller2.abort();
+    }, 600_000);
 
     let response2: Response;
 
     try {
+      console.log("[similar-papers] Sending cleanup request to OpenAI...");
       response2 = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
@@ -637,13 +666,23 @@ export async function POST(request: Request) {
           Authorization: `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          model: "gpt-5-mini",
+          model: "gpt-5-mini-2025-08-07",
           reasoning: { effort: "low" },
           input: cleanupPrompt,
           max_output_tokens: 8_192
         }),
         signal: controller2.signal
       });
+      console.log("[similar-papers] Cleanup request completed", {
+        status: response2.status,
+        statusText: response2.statusText,
+        ok: response2.ok
+      });
+    } catch (fetchError) {
+      clearTimeout(timeoutId2);
+      const errorMessage = fetchError instanceof Error ? fetchError.message : String(fetchError);
+      console.error("[similar-papers] Cleanup fetch failed with network error:", errorMessage);
+      throw fetchError;
     } finally {
       clearTimeout(timeoutId2);
     }
@@ -705,13 +744,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ text: outputText, structured: null });
     }
 
+    console.log("[similar-papers] Successfully completed both discovery and cleanup phases", {
+      hasText: Boolean(outputText),
+      hasStructured: Boolean(structuredSimilarPapers),
+      structuredPapersCount: structuredSimilarPapers?.similarPapers?.length ?? 0
+    });
+
     return NextResponse.json({
       text: outputText,
       structured: structuredSimilarPapers
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected server error.";
-    console.error("[similar-papers] Error:", error);
+    const stack = error instanceof Error ? error.stack : undefined;
+    console.error("[similar-papers] Unhandled error:", {
+      message,
+      stack,
+      errorType: error?.constructor?.name
+    });
     return NextResponse.json({ error: `Failed to gather similar papers: ${message}` }, { status: 500 });
   }
 }

@@ -223,3 +223,113 @@ export async function loadClaimsFromStorage({ client, storagePath }: LoadClaimsI
 
   return parsed;
 }
+
+export interface SaveSimilarPapersInput {
+  client: SupabaseClient;
+  userId: string;
+  paperId: string;
+  storagePath: string;
+  similarData: any;
+}
+
+export async function saveSimilarPapersToStorage({ client, userId, paperId, storagePath, similarData }: SaveSimilarPapersInput) {
+  const similarPath = storagePath.replace(/\.pdf$/i, "-similar.json");
+  const payload = new Blob([JSON.stringify(similarData, null, 2)], {
+    type: "application/json"
+  });
+
+  const uploadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .upload(similarPath, payload, {
+      cacheControl: "3600",
+      upsert: true,
+      contentType: "application/json"
+    });
+
+  if (uploadResult.error) {
+    throw uploadResult.error;
+  }
+
+  return { similarPath };
+}
+
+export interface LoadSimilarPapersInput {
+  client: SupabaseClient;
+  storagePath: string;
+}
+
+export async function loadSimilarPapersFromStorage({ client, storagePath }: LoadSimilarPapersInput) {
+  const similarPath = storagePath.replace(/\.pdf$/i, "-similar.json");
+
+  const downloadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .download(similarPath);
+
+  if (downloadResult.error) {
+    return null;
+  }
+
+  const text = await downloadResult.data.text();
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    console.warn("Failed to parse similar papers payload", error);
+    return null;
+  }
+}
+
+export interface SaveResearchGroupsInput {
+  client: SupabaseClient;
+  userId: string;
+  paperId: string;
+  storagePath: string;
+  groupsData: any;
+}
+
+export async function saveResearchGroupsToStorage({ client, userId, paperId, storagePath, groupsData }: SaveResearchGroupsInput) {
+  const groupsPath = storagePath.replace(/\.pdf$/i, "-groups.json");
+  const payload = new Blob([JSON.stringify(groupsData, null, 2)], {
+    type: "application/json"
+  });
+
+  const uploadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .upload(groupsPath, payload, {
+      cacheControl: "3600",
+      upsert: true,
+      contentType: "application/json"
+    });
+
+  if (uploadResult.error) {
+    throw uploadResult.error;
+  }
+
+  return { groupsPath };
+}
+
+export interface LoadResearchGroupsInput {
+  client: SupabaseClient;
+  storagePath: string;
+}
+
+export async function loadResearchGroupsFromStorage({ client, storagePath }: LoadResearchGroupsInput) {
+  const groupsPath = storagePath.replace(/\.pdf$/i, "-groups.json");
+
+  const downloadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .download(groupsPath);
+
+  if (downloadResult.error) {
+    return null;
+  }
+
+  const text = await downloadResult.data.text();
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    console.warn("Failed to parse research groups payload", error);
+    return null;
+  }
+}

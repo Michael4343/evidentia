@@ -46,7 +46,7 @@ interface RiskItem {
   readonly note?: string | null;
 }
 
-const DISCOVERY_PROMPT_TEMPLATE = `You are Evidentia's research co-pilot. Map the active research groups linked to these papers so our team can reach out to the right labs.
+const DISCOVERY_PROMPT_TEMPLATE = `You are Evidentia's research co-pilot. You have web search tools enabled. Use them immediately to map active research groups linked to these papers so our team can reach out to the right labs.
 
 Source paper:
 - Title: [SOURCE_TITLE]
@@ -57,29 +57,29 @@ Source paper:
 Similar papers to cross-reference:
 [SIMILAR_PAPERS]
 
-Search Methodology:
+Execute this research workflow now using web search:
+
 1. Extract 3-5 core domain keywords from the source paper's method signals and similar papers' themes.
-2. For each paper, run Google Scholar searches:
-   - Use 'Since 2020' time filter to find recent work
-   - Search: author names + 'lab' OR 'group' to find lab pages
-   - Use site:.edu OR site:.ac.uk OR site:.ac.* filters for academic sources
-3. Verify each group:
-   - Check the group has 2-3+ publications since 2020 matching the domain keywords
-   - Confirm an active lab/group webpage exists
-   - Verify the PI is currently listed at that institution
 
-Task:
-- For the source paper and each similar paper, identify the active research groups, labs, or centres directly connected to those works.
-- Under each paper heading, list relevant groups, then within each group list principal investigators, current graduate students, and postdoctoral researchers when available.
+2. For each paper, execute Google Scholar searches immediately:
+   - Filter: Since 2020 to find recent work
+   - Query: author names + "lab" OR "group" to locate lab pages
+   - Filter: site:.edu OR site:.ac.uk OR site:.ac.* for academic sources
 
-Finding Researchers & Contact Information:
-- Check lab/group pages for current members (PhD students, postdocs, research staff)
-- Review recent paper author lists (last 2 years) to identify current lab members
-- Search institution directories for academic/institutional emails
-- If email is not publicly listed, note 'Check lab website contact form' instead of 'Not provided'
-- Prioritize finding at least 2-3 contacts per group with proper institutional emails
+3. Include only groups that meet these criteria:
+   - Have 2-3+ publications since 2020 matching the domain keywords
+   - Have an active lab/group webpage you can verify
+   - Have the PI currently listed at that institution
 
-Required notes format (use plain text headings — no JSON yet):
+4. For each verified group, find current researchers and contact information:
+   - Search lab/group pages for current members (PhD students, postdocs, research staff)
+   - Check recent paper author lists (last 2 years) to identify current lab members
+   - Search institution directories for academic/institutional emails
+   - If email not publicly available, note "Check lab website contact form"
+   - Find at least 2-3 contacts per group with proper institutional emails
+
+Output your findings using this plain text format (no JSON yet):
+
 Paper: <Title> (<Identifier>)
 Groups:
   - Group: <Group name> (<Institution>)
@@ -89,11 +89,14 @@ Groups:
       - Name | Email | Role
       - Name | Email | Role
 
-Guidelines:
+Important:
+- Execute all searches and verification steps automatically without asking for permission
 - Only include groups you can verify are currently active with recent publications
-- Repeat the group block for each paper that cites or collaborates with that group; if a group spans multiple papers, duplicate it under each relevant paper heading and note the connection in the summary.
-- If information genuinely cannot be found after checking lab pages and recent papers, use 'Not provided', never leave blanks.
-- Aim for depth over breadth: 3-5 well-researched groups with complete contact info beats 10 groups with missing details.`;
+- If a group spans multiple papers, duplicate it under each relevant paper heading and note the connection
+- Use "Not provided" only when information genuinely cannot be found after thorough searching
+- Prioritize depth over breadth: 3-5 well-researched groups with complete contact info beats 10 groups with missing details
+
+Begin web search and research immediately.`;
 
 const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's Research Groups UI.
 
