@@ -213,66 +213,68 @@ NEXT_PUBLIC_POSTHOG_KEY=...      # PostHog project key
 NEXT_PUBLIC_POSTHOG_HOST=...     # PostHog instance URL
 ```
 
-## Directory Snapshot (2025-10-19)
+## Mock Data Workflow Scripts
+
+The `/scripts` directory contains interactive helpers for building mock data pipelines. These scripts:
+- Read/write to `lib/mock-similar-papers.ts`
+- Use a two-prompt pattern (discovery → cleanup)
+- Copy prompts to clipboard for manual LLM workflow
+- Accept cleaned JSON back and save to mock library
+
+### Available Scripts
+- `generate-claims-analysis.js` - Extract claims from PDF text
+- `generate-research-groups.js` - Find research groups for paper authors
+- `generate-researcher-theses.js` - Find PhD theses from research group members
+- `generate-similar-papers.js` - Find similar papers using crosswalk methodology
+- `generate-patents.js` - Search for patents matching paper claims
+- `generate-verified-claims.js` - Verify claims against ALL gathered evidence (NEW)
+
+### Usage Pattern
+```bash
+node scripts/generate-verified-claims.js
+# 1. Script copies discovery prompt to clipboard (includes ALL evidence)
+# 2. Paste into LLM agent and collect verification results
+# 3. Press ENTER to get cleanup prompt
+# 4. Paste cleanup prompt + results to get JSON
+# 5. Paste JSON back to script
+# 6. Script saves to mock-similar-papers.ts
+```
+
+**Note:** `generate-verified-claims.js` synthesizes ALL previous tabs (claims, similar papers, research groups, theses, patents) into one comprehensive verification layer. Run it last!
+
+## Directory Snapshot (2025-10-20)
 - `app/`
-  - `(marketing)/page.tsx`
-  - `globals.css`
   - `layout.tsx` (includes PostHogProvider)
-  - `page.tsx`
-  - `paper/[doi]/layout.tsx`
-  - `paper/[doi]/page.tsx`
-  - `paper/[doi]/experts/page.tsx`
-  - `paper/[doi]/patents/page.tsx`
-  - `paper/[doi]/similar-papers/page.tsx`
-  - `paper/[doi]/theses/page.tsx`
+  - `page.tsx` (includes PatentsPanel for mock data display)
 - `components/`
-  - `annotation-sidebar.tsx`
   - `app-sidebar.tsx`
   - `auth-modal-provider.tsx` (includes PostHog tracking)
   - `auth-modal.tsx`
-  - `homepage-app.tsx`
-  - `paper-hero.tsx`
-  - `paper-reader-content.tsx`
-  - `paper-reader-header.tsx`
-  - `paper-reader-shell.tsx`
+  - `mock-similar-papers-showcase.tsx`
   - `paper-tab-nav.tsx`
-  - `pdf-viewer-mock.tsx`
   - `pdf-viewer.tsx`
-  - `reader-sidebar.tsx`
-  - `site-header.tsx`
-  - `status-banner.tsx`
-  - `tab-highlights.tsx`
   - `upload-dropzone.tsx`
-- `docs/`
-  - `homepage-prototype.md`
 - `lib/`
-  - `mock-data.ts`
+  - `clean-url-strict.js`
+  - `mock-sample-paper.ts`
+  - `mock-similar-papers.ts` (main mock data library)
   - `pdf-doi.ts`
-  - `posthog-provider.tsx` (NEW - analytics provider)
+  - `posthog-provider.tsx`
+  - `reader-tabs.ts`
   - `supabase-browser.ts`
   - `user-papers.ts`
+- `scripts/`
+  - `generate-claims-analysis.js`
+  - `generate-research-groups.js`
+  - `generate-researcher-theses.js`
+  - `generate-similar-papers.js`
+  - `generate-patents.js`
+  - `generate-verified-claims.js` (NEW - evidence synthesis & verification)
 - `tasks/`
-  - `auth-modal.md`
-  - `clean-webpage-format.md`
-  - `halo-tabs.md`
-  - `header-cleanup.md`
-  - `homepage-single-app.md`
-  - `pdf-doi-extraction-fix.md`
-  - `pdf-doi-persistence.md`
-  - `pdf-title-link.md`
-  - `pdf-upload-sidebar-button.md`
-  - `pdf-viewer-bugfix.md`
-  - `pdf-viewer-full-width.md`
-  - `posthog-setup.md` (NEW - analytics setup)
-  - `reader-header.md`
-  - `sidebar-debug.md`
-  - `sidebar-library.md`
-  - `sidebar-shell-plan.md`
-  - `sidebar-sidebar.md`
-  - `single-page-app.md`
-  - `single-page-prototype.md`
-  - `single-page-sidebar-refactor.md`
-  - `supabase-auth.md`
-  - `v0_ui_mock.md`
+  - `patent-search.md`
+  - `posthog-setup.md`
+  - `researcher-theses-prompt.md`
+  - `verified-claims.md` (NEW - claim verification implementation plan)
+  - [... other task docs]
 
 **If you're not slightly embarrassed by your v0.1, you waited too long to ship.**

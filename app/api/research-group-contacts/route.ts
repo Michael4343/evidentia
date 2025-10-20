@@ -29,6 +29,42 @@ function truncateText(text: string, limit: number) {
   return `${text.slice(0, limit)}\n\n[Truncated input to ${limit} characters for the request]`;
 }
 
+function extractContactsArray(raw: string) {
+  const candidates: string[] = [];
+  if (raw.trim()) {
+    candidates.push(raw.trim());
+  }
+
+  const fencedMatch = raw.match(/```json([\s\S]*?)```/i);
+  if (fencedMatch && fencedMatch[1]) {
+    candidates.push(fencedMatch[1].trim());
+  }
+
+  const bracketMatch = raw.match(/\[[\s\S]*\]/);
+  if (bracketMatch && bracketMatch[0]) {
+    candidates.push(bracketMatch[0].trim());
+  }
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(candidate);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+      if (parsed && Array.isArray(parsed.contacts)) {
+        return parsed.contacts;
+      }
+    } catch (error) {
+      continue;
+    }
+  }
+
+  return null;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
@@ -121,17 +157,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Model did not return any text." }, { status: 502 });
     }
 
-    const sanitised = textOutput
-      .replace(/^```json\s*/i, "")
-      .replace(/```$/i, "")
-      .trim();
+    const sanitised = textOutput.trim();
 
-    let contacts;
-
-    try {
-      contacts = JSON.parse(sanitised);
-    } catch (parseError) {
-      console.error("[research-group-contacts] Failed to parse JSON payload", sanitised, parseError);
+    const contacts = extractContactsArray(sanitised);
+    if (!contacts) {
+      console.error("[research-group-contacts] Failed to parse JSON payload", sanitised);
       return NextResponse.json({ error: "Model returned malformed JSON." }, { status: 502 });
     }
 

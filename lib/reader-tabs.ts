@@ -5,7 +5,8 @@ export type ReaderTabKey =
   | "patents"
   | "theses"
   | "experts"
-  | "researchGroups";
+  | "researchGroups"
+  | "verifiedClaims";
 
 export const readerTabs: Array<{ key: ReaderTabKey; label: string }> = [
   { key: "paper", label: "Paper" },
@@ -14,5 +15,6 @@ export const readerTabs: Array<{ key: ReaderTabKey; label: string }> = [
   { key: "researchGroups", label: "Research Groups" },
   { key: "theses", label: "PhD Theses" },
   { key: "patents", label: "Patents" },
+  { key: "verifiedClaims", label: "Verified Claims" },
   { key: "experts", label: "Expert Network" }
 ];

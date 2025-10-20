@@ -62,6 +62,9 @@ function buildDiscoveryPrompt(researchGroups: ResearchGroupsPayload): string {
     name: string;
     email: string | null;
     group: string;
+    institution: string;
+    website: string;
+    notes: string;
     paper: string;
   }> = [];
 
@@ -71,6 +74,9 @@ function buildDiscoveryPrompt(researchGroups: ResearchGroupsPayload): string {
 
     groups.forEach((group) => {
       const groupName = cleanPlainText(group?.name || "Unknown group");
+      const institution = cleanPlainText(group?.institution || "");
+      const website = cleanPlainText(group?.website || "");
+      const notes = cleanPlainText(group?.notes || "");
       const researchers = group?.researchers || [];
 
       researchers.forEach((researcher) => {
@@ -80,6 +86,9 @@ function buildDiscoveryPrompt(researchGroups: ResearchGroupsPayload): string {
             name,
             email: researcher?.email || null,
             group: groupName,
+            institution,
+            website,
+            notes,
             paper: paperTitle
           });
         }
@@ -125,7 +134,20 @@ function buildDiscoveryPrompt(researchGroups: ResearchGroupsPayload): string {
     });
 
     researchersByGroup.forEach((groupResearchers, groupName) => {
-      lines.push(`  Group: ${groupName}`);
+      const sample = groupResearchers[0];
+      const meta: string[] = [];
+      if (sample?.institution) {
+        meta.push(sample.institution);
+      }
+      if (sample?.website) {
+        meta.push(sample.website);
+      }
+      if (sample?.notes) {
+        meta.push(sample.notes);
+      }
+
+      const metaLine = meta.length > 0 ? ` (${meta.join(" · ")})` : "";
+      lines.push(`  Group: ${groupName}${metaLine}`);
       groupResearchers.forEach((r) => {
         const emailPart = r.email ? ` (${r.email})` : "";
         lines.push(`    - ${r.name}${emailPart}`);
@@ -136,22 +158,24 @@ function buildDiscoveryPrompt(researchGroups: ResearchGroupsPayload): string {
 
   lines.push(
     "Guidelines:",
-    "- Use web search to verify official records and repositories",
-    "- Prefer institutional repositories, Google Scholar, and university thesis databases",
-    "- If you cannot confirm a field, note 'Not found' rather than guessing",
-    "- For thesis URLs, find direct PDF/download links when possible",
-    "- Keep notes structured with researcher name headers",
+    "- Use web search to verify official records and repositories for each researcher individually.",
+    "- Prefer institutional repositories, Google Scholar, DBLP, Semantic Scholar, and university thesis databases.",
+    "- If you cannot confirm a field after reasonable searching, write 'Not found' for that specific field instead of skipping it.",
+    "- Never return a blanket statement that nothing was found; produce an entry for every researcher listed.",
+    "- For thesis URLs, prioritise direct PDF/download links from trusted sources; otherwise provide the best official landing page.",
+    "- Cite sources or reasoning briefly so downstream systems can trace provenance.",
     "",
     "Output format (plain text notes, no JSON yet):",
     "For each researcher, use this exact format:",
     "",
-    "Researcher: [Name] ([Group])",
+    "Researcher: [Name] ([Group / Institution])",
     "Email: [email or Not provided]",
     "Latest Publication: [title] ([year]) - [venue]",
-    "Publication URL: [url or Not found]",
+    "Publication URL: [direct link or Not found]",
     "PhD Thesis: [title] ([year]) - [institution]",
-    "Thesis URL: [url or Not found]",
+    "Thesis URL: [direct link or Not found]",
     "Data Available: [yes/no/unknown]",
+    "Evidence: [short note on search hits, repositories, or reasoning]",
     ""
   );
 
@@ -206,7 +230,7 @@ export async function POST(request: Request) {
           Authorization: `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          model: "gpt-5-mini",
+          model: "gpt-5-mini-2025-08-07",
           reasoning: { effort: "low" },
           tools: [{ type: "web_search", search_context_size: "medium" }],
           tool_choice: "auto",
@@ -294,7 +318,7 @@ export async function POST(request: Request) {
           Authorization: `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          model: "gpt-5-mini",
+          model: "gpt-5-mini-2025-08-07",
           reasoning: { effort: "low" },
           input: cleanupPrompt,
           max_output_tokens: 8_192

@@ -1,0 +1,105 @@
+# Verified Claims - Evidence Synthesis & Validation
+
+## Minimum to Prove It Works (v0.1)
+- Create `scripts/generate-verified-claims.js` that synthesizes ALL mock data
+- Build discovery prompt combining claims, similar papers, research groups, theses, and patents
+- LLM verifies each claim against comprehensive evidence
+- Cleanup prompt converts to structured JSON
+- UI displays verification results with color-coded status badges
+
+## Skip for v0.1
+- No API route integration
+- No PDF upload pipeline integration
+- No automated verification algorithms
+- No real-time evidence gathering
+
+## Definition of Done
+- Script reads all relevant data from mock-similar-papers.ts
+- Discovery prompt includes comprehensive context from all tabs
+- Cleanup prompt produces valid verification JSON
+- UI displays claim cards with verification status badges
+- Supporting and contradicting evidence clearly listed
+- Verification summary explains reasoning
+- Pattern matches existing scripts
+
+## Input Sources
+All data from `lib/mock-similar-papers.ts`:
+- `claimsAnalysis.structured.claims` - Claims to verify
+- `similarPapers` - Supporting/contradicting research
+- `researchGroups.structured.papers` - Active researchers
+- `researcherTheses.structured.researchers` - Academic validation
+- `patents.structured.patents` - Prior art and overlaps
+
+## Output Structure
+```javascript
+{
+  verifiedClaims: {
+    text: "Formatted plaintext summary",
+    structured: {
+      claims: [
+        {
+          claimId: "C1",
+          originalClaim: "Full claim text",
+          verificationStatus: "Verified" | "Partially Verified" | "Contradicted" | "Insufficient Evidence",
+          supportingEvidence: [
+            {
+              source: "Similar Paper" | "Patent" | "Research Group" | "Thesis",
+              title: "Title or identifier",
+              relevance: "Brief explanation of how it supports"
+            }
+          ],
+          contradictingEvidence: [
+            {
+              source: "Similar Paper" | "Patent" | "Research Group" | "Thesis",
+              title: "Title or identifier",
+              relevance: "Brief explanation of contradiction"
+            }
+          ],
+          verificationSummary: "2-3 sentence explanation of verification status and reasoning",
+          confidenceLevel: "High" | "Moderate" | "Low"
+        }
+      ],
+      overallAssessment: "Brief paragraph on paper's overall claim validity"
+    }
+  }
+}
+```
+
+## Discovery Prompt Strategy
+- Present all claims upfront
+- Provide comprehensive evidence context:
+  - Similar papers with key findings
+  - Research groups with expertise areas
+  - PhD theses with data availability
+  - Patents with technical overlaps
+- Ask LLM to cross-reference each claim against ALL evidence
+- Request supporting AND contradicting evidence identification
+- Request verification status assignment with reasoning
+
+## UI Requirements
+- Full width layout like patents
+- One card per verified claim
+- Color-coded verification status badges:
+  - Green: Verified
+  - Yellow: Partially Verified
+  - Red: Contradicted
+  - Gray: Insufficient Evidence
+- Supporting evidence list with source tags
+- Contradicting evidence list (if any)
+- Verification summary in highlighted box
+- Confidence level indicator
+- Clean, scannable typography
+- Overall assessment card at top
+
+## Verification Status Criteria
+- **Verified**: Strong supporting evidence from multiple sources, no contradictions
+- **Partially Verified**: Some supporting evidence, minor contradictions or gaps
+- **Contradicted**: Evidence refutes or significantly undermines the claim
+- **Insufficient Evidence**: Not enough data from gathered sources to verify
+
+## Why This Works
+- Synthesizes ALL previous research into one validation layer
+- Provides comprehensive "ground truth" check
+- Identifies claim weaknesses early
+- Highlights where more evidence is needed
+- Final quality gate before accepting paper claims

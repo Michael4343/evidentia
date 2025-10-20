@@ -148,14 +148,19 @@ export async function deleteUserPaper({ client, userId, paperId, storagePath }: 
     // Continue with DB deletion even if storage deletion fails
   }
 
-  // Delete claims JSON if it exists
+  // Delete all associated JSON files if they exist
   const claimsPath = storagePath.replace(/\.pdf$/i, "-claims.json");
-  const deleteClaimsResult = await client.storage
-    .from(PAPERS_BUCKET)
-    .remove([claimsPath]);
+  const similarPath = storagePath.replace(/\.pdf$/i, "-similar.json");
+  const groupsPath = storagePath.replace(/\.pdf$/i, "-groups.json");
+  const contactsPath = storagePath.replace(/\.pdf$/i, "-contacts.json");
+  const thesesPath = storagePath.replace(/\.pdf$/i, "-theses.json");
 
-  if (deleteClaimsResult.error) {
-    console.warn("Failed to delete claims from storage (may not exist)", deleteClaimsResult.error);
+  const deleteJsonResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .remove([claimsPath, similarPath, groupsPath, contactsPath, thesesPath]);
+
+  if (deleteJsonResult.error) {
+    console.warn("Failed to delete JSON files from storage (may not exist)", deleteJsonResult.error);
   }
 
   // Delete from database
@@ -330,6 +335,116 @@ export async function loadResearchGroupsFromStorage({ client, storagePath }: Loa
     return JSON.parse(text);
   } catch (error) {
     console.warn("Failed to parse research groups payload", error);
+    return null;
+  }
+}
+
+export interface SaveContactsInput {
+  client: SupabaseClient;
+  userId: string;
+  paperId: string;
+  storagePath: string;
+  contactsData: any;
+}
+
+export async function saveContactsToStorage({ client, userId, paperId, storagePath, contactsData }: SaveContactsInput) {
+  const contactsPath = storagePath.replace(/\.pdf$/i, "-contacts.json");
+  const payload = new Blob([JSON.stringify(contactsData, null, 2)], {
+    type: "application/json"
+  });
+
+  const uploadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .upload(contactsPath, payload, {
+      cacheControl: "3600",
+      upsert: true,
+      contentType: "application/json"
+    });
+
+  if (uploadResult.error) {
+    throw uploadResult.error;
+  }
+
+  return { contactsPath };
+}
+
+export interface LoadContactsInput {
+  client: SupabaseClient;
+  storagePath: string;
+}
+
+export async function loadContactsFromStorage({ client, storagePath }: LoadContactsInput) {
+  const contactsPath = storagePath.replace(/\.pdf$/i, "-contacts.json");
+
+  const downloadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .download(contactsPath);
+
+  if (downloadResult.error) {
+    return null;
+  }
+
+  const text = await downloadResult.data.text();
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    console.warn("Failed to parse contacts payload", error);
+    return null;
+  }
+}
+
+export interface SaveThesesInput {
+  client: SupabaseClient;
+  userId: string;
+  paperId: string;
+  storagePath: string;
+  thesesData: any;
+}
+
+export async function saveThesesToStorage({ client, userId, paperId, storagePath, thesesData }: SaveThesesInput) {
+  const thesesPath = storagePath.replace(/\.pdf$/i, "-theses.json");
+  const payload = new Blob([JSON.stringify(thesesData, null, 2)], {
+    type: "application/json"
+  });
+
+  const uploadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .upload(thesesPath, payload, {
+      cacheControl: "3600",
+      upsert: true,
+      contentType: "application/json"
+    });
+
+  if (uploadResult.error) {
+    throw uploadResult.error;
+  }
+
+  return { thesesPath };
+}
+
+export interface LoadThesesInput {
+  client: SupabaseClient;
+  storagePath: string;
+}
+
+export async function loadThesesFromStorage({ client, storagePath }: LoadThesesInput) {
+  const thesesPath = storagePath.replace(/\.pdf$/i, "-theses.json");
+
+  const downloadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .download(thesesPath);
+
+  if (downloadResult.error) {
+    return null;
+  }
+
+  const text = await downloadResult.data.text();
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    console.warn("Failed to parse theses payload", error);
     return null;
   }
 }

@@ -1,15 +1,14 @@
-# PhD Thesis Prompt Helper Plan
+# Researcher Theses Prompt Fix
 
-## Minimum viable slice
-- Add a CLI script that reuses the existing mock library to build a thesis-focused research prompt and cleanup prompt.
-- Accept cleaned JSON and persist it alongside the mock library so the UI can render structured thesis data.
+## Minimum to Prove It Works (v0.1)
+- Adjust the `/api/researcher-theses` discovery instructions so GPT returns at least a structured set of researcher notes instead of the generic "No researcher publications" message.
+- Update the model ID while we touch the prompt to match the version already used by similar endpoints.
 
 ## Skip for v0.1
-- No automated validation beyond JSON parsing/shape checks.
-- No API integration or supabase wiring; script only touches mock library.
-- No extensive error handling for partial thesis metadata.
+- No retries, streaming, or alternate providers.
+- No front-end changes beyond what is needed for the new payload format.
+- No schema migrations or caching changes.
 
-## Definition of done
-- Script runs locally, copies both prompts to the clipboard, and writes normalised thesis data into the mock file.
-- Mock library gains a `researcherTheses` block with formatted text + structured array.
-- Manual review confirms prompts emphasise latest publications, thesis lookup, and data availability hints.
+## Definition of Done
+- Running the researcher theses route with existing research group data yields entries per researcher (with "Not found" fallbacks if needed) rather than a blanket failure message.
+- Logs show the updated model version and discovery prompt in use with no runtime errors.
