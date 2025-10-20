@@ -1,17 +1,12 @@
-CODEX
-get full agent working and save to db
+impement phd thesis
 
-compile similar patents mock
+mock patent search
+mock verified claims
+dynamic patent search
+dynamic verified claims
+
+
 refine expert network mock
-
-implement into working prototype
-
-
-
-CLAUDE 
-error compiling for pdf upload
-
-
 
 
 Annotation tools for paper

@@ -14,7 +14,7 @@ import { ReaderTabKey } from "@/lib/reader-tabs";
 import { extractDoiFromPdf } from "@/lib/pdf-doi";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { parseUploadError, validateFileSize } from "@/lib/upload-errors";
-import { deleteUserPaper, fetchUserPapers, persistUserPaper, type UserPaperRecord } from "@/lib/user-papers";
+import { deleteUserPaper, fetchUserPapers, persistUserPaper, saveClaimsToStorage, loadClaimsFromStorage, type UserPaperRecord } from "@/lib/user-papers";
 
 const RESEARCH_CACHE_VERSION = "v1";
 
@@ -202,6 +202,40 @@ interface ResearcherThesisRecord {
   data_publicly_available: "yes" | "no" | "unknown";
 }
 
+interface ResearcherThesisDeepDiveThesis {
+  thesis_title: string | null;
+  author: string | null;
+  year: number | null;
+  research_group: string | null;
+  principal_investigator: string | null;
+  thesis_url: string | null;
+  data_url: string | null;
+  data_synopsis: string | null;
+  data_access: "public" | "restricted" | "unknown";
+  notes: string | null;
+}
+
+interface ResearcherThesisDeepDive {
+  generatedAt?: string | null;
+  paper: {
+    title: string | null;
+    identifier: string | null;
+    year: number | null;
+  };
+  group: {
+    name: string | null;
+    institution: string | null;
+    website: string | null;
+  };
+  text?: string | null;
+  structured?: {
+    theses: ResearcherThesisDeepDiveThesis[];
+    sources_checked?: string[];
+    follow_up?: string[];
+    promptNotes?: string | null;
+  };
+}
+
 type ExtractionState =
   | { status: "loading" }
   | { status: "success"; data: ExtractedText }
@@ -216,44 +250,67 @@ type ResearchGroupsState =
     }
   | { status: "error"; message: string };
 
+interface SimilarPapersStructured {
+  sourcePaper?: {
+    summary?: string;
+    keyMethodSignals?: string[];
+    searchQueries?: string[];
+  };
+  similarPapers?: Array<{
+    identifier: string;
+    title: string;
+    doi?: string | null;
+    url?: string | null;
+    authors?: string[];
+    year?: number | null;
+    venue?: string | null;
+    clusterLabel?: string;
+    whyRelevant?: string;
+    overlapHighlights?: string[];
+    methodMatrix?: Record<string, string>;
+    gapsOrUncertainties?: string | null;
+  }>;
+  promptNotes?: string;
+}
+
 type SimilarPapersState =
   | { status: "loading" }
-  | { status: "success"; text: string }
+  | { status: "success"; text: string; structured?: SimilarPapersStructured }
   | { status: "error"; message: string };
 
 type ClaimsAnalysisStrength = "High" | "Moderate" | "Low" | "Unclear";
 
 interface ClaimsAnalysisClaim {
-  id: string;
-  claim: string;
-  evidenceSummary?: string | null;
-  keyNumbers?: string[];
-  source?: string | null;
-  strength?: ClaimsAnalysisStrength;
-  assumptions?: string | null;
-  evidenceType?: string | null;
+  readonly id: string;
+  readonly claim: string;
+  readonly evidenceSummary?: string | null;
+  readonly keyNumbers?: string[] | readonly string[];
+  readonly source?: string | null;
+  readonly strength?: ClaimsAnalysisStrength;
+  readonly assumptions?: string | null;
+  readonly evidenceType?: string | null;
 }
 
 interface ClaimsAnalysisGap {
-  category: string;
-  detail: string;
-  relatedClaimIds?: string[];
+  readonly category: string;
+  readonly detail: string;
+  readonly relatedClaimIds?: string[] | readonly string[];
 }
 
 interface ClaimsAnalysisRiskItem {
-  item: string;
-  status: "met" | "partial" | "missing" | "unclear";
-  note?: string | null;
+  readonly item: string;
+  readonly status: "met" | "partial" | "missing" | "unclear";
+  readonly note?: string | null;
 }
 
 interface ClaimsAnalysisStructured {
-  executiveSummary?: string[];
-  claims?: ClaimsAnalysisClaim[];
-  gaps?: ClaimsAnalysisGap[];
-  methodsSnapshot?: string[];
-  riskChecklist?: ClaimsAnalysisRiskItem[];
-  openQuestions?: string[];
-  crossPaperComparison?: string[];
+  executiveSummary?: string[] | readonly string[];
+  claims?: ClaimsAnalysisClaim[] | readonly ClaimsAnalysisClaim[];
+  gaps?: ClaimsAnalysisGap[] | readonly ClaimsAnalysisGap[];
+  methodsSnapshot?: string[] | readonly string[];
+  riskChecklist?: ClaimsAnalysisRiskItem[] | readonly ClaimsAnalysisRiskItem[];
+  openQuestions?: string[] | readonly string[];
+  crossPaperComparison?: string[] | readonly string[];
 }
 
 type ClaimsAnalysisState =
@@ -271,13 +328,14 @@ type ResearchGroupContactsState =
   | { status: "error"; message: string };
 
 type ResearcherThesesState =
-  | { status: "loading" }
+  | { status: "loading"; deepDives?: ResearcherThesisDeepDive[] }
   | {
       status: "success";
       researchers: ResearcherThesisRecord[];
       text?: string;
+      deepDives?: ResearcherThesisDeepDive[];
     }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string; deepDives?: ResearcherThesisDeepDive[] };
 
 const MOCK_RESEARCH_THESES_TEXT =
   typeof MOCK_SIMILAR_PAPERS_LIBRARY?.researcherTheses?.text === "string"
@@ -291,25 +349,30 @@ const MOCK_RESEARCH_THESES_STRUCTURED: ResearcherThesisRecord[] = Array.isArray(
       .researchers as ResearcherThesisRecord[])
   : [];
 
+const MOCK_RESEARCH_THESES_DEEP_DIVES: ResearcherThesisDeepDive[] = Array.isArray(
+  MOCK_SIMILAR_PAPERS_LIBRARY?.researcherTheses?.deepDives?.entries
+)
+  ? (MOCK_SIMILAR_PAPERS_LIBRARY.researcherTheses.deepDives.entries as ResearcherThesisDeepDive[])
+  : [];
+
 const MOCK_RESEARCH_THESES_INITIAL_STATE: ResearcherThesesState =
   MOCK_RESEARCH_THESES_STRUCTURED.length > 0
     ? {
         status: "success",
         researchers: MOCK_RESEARCH_THESES_STRUCTURED,
-        text: MOCK_RESEARCH_THESES_TEXT
+        text: MOCK_RESEARCH_THESES_TEXT,
+        deepDives: MOCK_RESEARCH_THESES_DEEP_DIVES
       }
     : {
         status: "success",
         researchers: [],
-        text: MOCK_RESEARCH_THESES_TEXT
+        text: MOCK_RESEARCH_THESES_TEXT,
+        deepDives: MOCK_RESEARCH_THESES_DEEP_DIVES
       };
 
 const MOCK_CLAIMS_ANALYSIS =
   typeof MOCK_SIMILAR_PAPERS_LIBRARY?.claimsAnalysis === "object"
-    ? (MOCK_SIMILAR_PAPERS_LIBRARY.claimsAnalysis as {
-        text?: string;
-        structured?: ClaimsAnalysisStructured;
-      })
+    ? MOCK_SIMILAR_PAPERS_LIBRARY.claimsAnalysis
     : null;
 
 const MOCK_CLAIMS_TEXT =
@@ -628,7 +691,7 @@ function ClaimsStructuredView({
                         <h4 className="mt-1 text-base font-semibold text-slate-900">{claim.claim}</h4>
                       </div>
                     </div>
-                    {claim.evidenceSummary && claim.evidenceSummary.trim().length > 0 && (
+                    {typeof claim.evidenceSummary === "string" && claim.evidenceSummary.trim().length > 0 && (
                       <p className="mt-3 text-sm leading-relaxed text-slate-700">{claim.evidenceSummary}</p>
                     )}
                     <dl className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -642,25 +705,25 @@ function ClaimsStructuredView({
                           </dd>
                         </div>
                       )}
-                      {claim.source && claim.source.trim().length > 0 && (
+                      {typeof claim.source === "string" && claim.source.trim().length > 0 && (
                         <div>
                           <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Source</dt>
                           <dd className="mt-1 text-sm text-slate-700">{claim.source}</dd>
                         </div>
                       )}
-                      {(claim.evidenceType && claim.evidenceType.trim().length > 0) ||
-                      (claim.strength && claim.strength.trim().length > 0 && claim.strength.trim().toLowerCase() !== "unclear") ? (
+                      {(typeof claim.evidenceType === "string" && claim.evidenceType.trim().length > 0) ||
+                      (typeof claim.strength === "string" && claim.strength.trim().length > 0 && claim.strength.trim().toLowerCase() !== "unclear") ? (
                         <div>
                           <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Evidence type</dt>
                           <dd className="mt-1 text-sm text-slate-700">
-                            {claim.evidenceType && claim.evidenceType.trim().length > 0 ? claim.evidenceType : "Not specified"}
-                            {claim.strength && claim.strength.trim().length > 0 && claim.strength.trim().toLowerCase() !== "unclear"
+                            {typeof claim.evidenceType === "string" && claim.evidenceType.trim().length > 0 ? claim.evidenceType : "Not specified"}
+                            {typeof claim.strength === "string" && claim.strength.trim().length > 0 && claim.strength.trim().toLowerCase() !== "unclear"
                               ? ` (${claim.strength.trim()} evidence)`
                               : ""}
                           </dd>
                         </div>
                       ) : null}
-                      {claim.assumptions && claim.assumptions.trim().length > 0 && (
+                      {typeof claim.assumptions === "string" && claim.assumptions.trim().length > 0 && (
                         <div className="sm:col-span-2">
                           <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Assumptions</dt>
                           <dd className="mt-1 text-sm text-slate-700">{claim.assumptions}</dd>
@@ -836,6 +899,135 @@ function ClaimsPanel({
   );
 }
 
+function SimilarPapersStructuredView({ structured }: { structured: SimilarPapersStructured }) {
+  const methodRows = [
+    { label: "Sample / model", key: "sampleModel" },
+    { label: "Materials", key: "materialsSetup" },
+    { label: "Equipment", key: "equipmentSetup" },
+    { label: "Procedure", key: "procedureSteps" },
+    { label: "Controls", key: "controls" },
+    { label: "Outputs / metrics", key: "outputsMetrics" },
+    { label: "Quality checks", key: "qualityChecks" },
+    { label: "Outcome summary", key: "outcomeSummary" }
+  ] as const;
+
+  const similarPapers = Array.isArray(structured.similarPapers) ? structured.similarPapers : [];
+
+  if (similarPapers.length === 0) {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+        <p className="text-sm text-slate-600">No similar papers found in the structured response.</p>
+      </div>
+    );
+  }
+
+  const getMatrixValue = (paper: typeof similarPapers[number], key: string) => {
+    const value = paper?.methodMatrix?.[key];
+    if (!value || !value.trim()) {
+      return "Not reported";
+    }
+    return value;
+  };
+
+  return (
+    <div className="space-y-8">
+      {structured.sourcePaper?.summary && (
+        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+          <h3 className="text-sm font-semibold text-slate-700">Source Paper Summary</h3>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">{structured.sourcePaper.summary}</p>
+        </div>
+      )}
+
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+        <table className="min-w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-slate-500">Method dimension</th>
+              {similarPapers.map((paper, index) => (
+                <th key={paper.identifier ?? index} className="px-4 py-3 text-slate-600">
+                  <div className="space-y-0.5">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      Paper #{index + 1}
+                    </p>
+                    <p className="text-sm font-semibold text-slate-900 leading-snug">
+                      {paper.title ?? "Untitled"}
+                    </p>
+                    <p className="text-xs text-slate-500">
+                      {[paper.year, paper.venue].filter(Boolean).join(" · ") || "Metadata pending"}
+                    </p>
+                  </div>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {methodRows.map((row) => (
+              <tr key={row.key} className="border-t border-slate-100 align-top">
+                <th className="sticky left-0 z-10 bg-white px-4 py-4 text-left text-sm font-medium text-slate-700">
+                  {row.label}
+                </th>
+                {similarPapers.map((paper, index) => (
+                  <td key={`${paper.identifier ?? index}-${row.key}`} className="px-4 py-4 text-sm leading-relaxed text-slate-700">
+                    {getMatrixValue(paper, row.key)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="space-y-6">
+        {similarPapers.map((paper, index) => (
+          <div key={paper.identifier ?? index} className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="space-y-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                  Paper #{index + 1}
+                </p>
+                <h4 className="mt-1 text-base font-semibold text-slate-900">{paper.title}</h4>
+                {paper.authors && paper.authors.length > 0 && (
+                  <p className="mt-1 text-sm text-slate-600">{paper.authors.join(", ")}</p>
+                )}
+                {(paper.doi || paper.url) && (
+                  <p className="mt-1 text-xs text-slate-500">
+                    {paper.doi ? `DOI: ${paper.doi}` : paper.url}
+                  </p>
+                )}
+              </div>
+
+              {paper.whyRelevant && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Why relevant</p>
+                  <p className="mt-1 text-sm leading-relaxed text-slate-700">{paper.whyRelevant}</p>
+                </div>
+              )}
+
+              {paper.overlapHighlights && paper.overlapHighlights.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Overlap highlights</p>
+                  <ul className="mt-2 space-y-1 pl-4 text-sm text-slate-700 list-disc marker:text-slate-400">
+                    {paper.overlapHighlights.map((highlight, idx) => (
+                      <li key={idx}>{highlight}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {paper.gapsOrUncertainties && (
+                <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Gaps or uncertainties</p>
+                  <p className="mt-1 text-sm text-amber-800">{paper.gapsOrUncertainties}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SimilarPapersPanel({
   paper,
   extraction,
@@ -923,15 +1115,19 @@ function SimilarPapersPanel({
 
   return (
     <div className="flex-1 overflow-auto">
-      <div className="mx-auto w-full max-w-3xl space-y-6 px-6 py-8">
-        <header className="space-y-1">
+      <div className="w-full space-y-6 px-6 py-8">
+        <header className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Similarity scan</p>
-          <h3 className="text-lg font-semibold text-slate-900">Cross-paper alignment</h3>
-          <p className="text-sm text-slate-600">Findings for {paper?.name ?? "the current paper"}.</p>
+          <h3 className="text-xl font-semibold text-slate-900">Cross-paper alignment</h3>
+          <p className="text-sm text-slate-600">Compiled for {paper?.name ?? "the selected paper"}.</p>
         </header>
-        <article className="space-y-4">
-          {renderPlaintextSections(state.text)}
-        </article>
+        {state.structured && state.structured.similarPapers && state.structured.similarPapers.length > 0 ? (
+          <SimilarPapersStructuredView structured={state.structured} />
+        ) : (
+          <article className="space-y-4">
+            {renderPlaintextSections(state.text)}
+          </article>
+        )}
       </div>
     </div>
   );
@@ -1143,14 +1339,18 @@ function ResearcherThesesPanel({
   state,
   hasResearchGroups,
   isMock,
-  structuredGroups
+  structuredGroups,
+  deepDives
 }: {
   state: ResearcherThesesState | undefined;
   hasResearchGroups: boolean;
   isMock: boolean;
   structuredGroups?: ResearchGroupPaperEntry[];
+  deepDives?: ResearcherThesisDeepDive[];
 }) {
-  const hasLoadedResearchers = state?.status === "success" && state.researchers.length > 0;
+  const hasLoadedResearchers =
+    state?.status === "success" &&
+    (state.researchers.length > 0 || (state.deepDives && state.deepDives.length > 0));
   if (isMock && !hasLoadedResearchers) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
@@ -1191,6 +1391,23 @@ function ResearcherThesesPanel({
   }
 
   const researchers = state.researchers;
+  const deepDiveEntries =
+    Array.isArray(deepDives) && deepDives.length > 0
+      ? deepDives
+      : state?.status === "success" && Array.isArray(state.deepDives)
+        ? state.deepDives ?? []
+        : [];
+
+  const normaliseTimestamp = (value: string | null | undefined) => {
+    if (!value) {
+      return 0;
+    }
+    const parsed = new Date(value);
+    const time = parsed.getTime();
+    return Number.isNaN(time) ? 0 : time;
+  };
+
+  const orderedDeepDives = [...deepDiveEntries].sort((a, b) => normaliseTimestamp(b.generatedAt) - normaliseTimestamp(a.generatedAt));
 
   if (researchers.length === 0) {
     return (
@@ -1357,13 +1574,53 @@ function ResearcherThesesPanel({
   if (!structuredGroups || structuredGroups.length === 0) {
     return (
       <div className="flex-1 overflow-auto">
-        <section className="space-y-6 px-6 py-6">{flatList}</section>
+        <section className="space-y-6 px-6 py-6">
+          {flatList}
+          {orderedDeepDives.length > 0 && (
+            <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+              <header className="space-y-1 border-b border-slate-100 pb-3">
+                <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                  Deep-dive datasets
+                </div>
+                <p className="text-sm text-slate-600">
+                  Focused thesis passes are available for this paper. Assign groups to surface them inline.
+                </p>
+              </header>
+              <div className="space-y-4">
+                {renderStandaloneDeepDives(orderedDeepDives)}
+              </div>
+            </div>
+          )}
+        </section>
       </div>
     );
   }
 
-  const normaliseGroupKey = (value: string | null | undefined) =>
+  const normaliseKey = (value: string | null | undefined) =>
     value ? value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() : "";
+
+  const normaliseGroupKey = normaliseKey;
+
+  const makePaperKey = (title: string | null | undefined, identifier: string | null | undefined) => {
+    const titleKey = normaliseKey(title);
+    const identifierKey = normaliseKey(identifier);
+    return `${titleKey}::${identifierKey}`;
+  };
+
+  const deepDiveBuckets = new Map<string, ResearcherThesisDeepDive[]>();
+
+  orderedDeepDives.forEach((entry) => {
+    const groupKey = normaliseGroupKey(entry.group?.name ?? null);
+    if (!groupKey) {
+      return;
+    }
+    const paperKey = makePaperKey(entry.paper?.title ?? null, entry.paper?.identifier ?? null);
+    const bucketKey = `${paperKey}::${groupKey}`;
+    if (!deepDiveBuckets.has(bucketKey)) {
+      deepDiveBuckets.set(bucketKey, []);
+    }
+    deepDiveBuckets.get(bucketKey)!.push(entry);
+  });
 
   const groupedByGroup = new Map<string, ResearcherThesisRecord[]>();
   const grouplessResearchers: ResearcherThesisRecord[] = [];
@@ -1397,7 +1654,217 @@ function ResearcherThesesPanel({
     );
   };
 
+  const formatTimestamp = (value: string | null | undefined) => {
+    if (!value) {
+      return null;
+    }
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+    return parsed.toLocaleString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+  };
+
+  const dataAccessBadge = (value: ResearcherThesisDeepDiveThesis["data_access"]) => {
+    const styles: Record<ResearcherThesisDeepDiveThesis["data_access"], string> = {
+      public: "border-emerald-100 bg-emerald-50 text-emerald-700",
+      restricted: "border-amber-100 bg-amber-50 text-amber-700",
+      unknown: "border-slate-200 bg-slate-100 text-slate-600"
+    };
+
+    const labels: Record<ResearcherThesisDeepDiveThesis["data_access"], string> = {
+      public: "Public dataset",
+      restricted: "Restricted access",
+      unknown: "Access unknown"
+    };
+
+    return (
+      <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-medium ${styles[value]}`}>
+        {labels[value]}
+      </span>
+    );
+  };
+
+  const renderDeepDiveTheses = (theses: ResearcherThesisDeepDiveThesis[]) => {
+    if (!theses.length) {
+      return <p className="text-sm text-slate-600">No theses confirmed in this pass.</p>;
+    }
+
+    return (
+      <ol className="space-y-4">
+        {theses.map((thesis, index) => {
+          const title = thesis.thesis_title || "Thesis title unavailable";
+          const subtitle = [thesis.author, thesis.year ? String(thesis.year) : null]
+            .filter(Boolean)
+            .join(" · ");
+
+          return (
+            <li
+              key={`${title}-${thesis.author ?? "unknown"}-${index}`}
+              className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4"
+            >
+              <div className="space-y-1">
+                <p className="text-sm font-semibold text-slate-900">{title}</p>
+                {subtitle && <p className="text-xs text-slate-500">{subtitle}</p>}
+                {(thesis.research_group || thesis.principal_investigator) && (
+                  <p className="text-xs text-slate-500">
+                    {[thesis.research_group, thesis.principal_investigator]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </p>
+                )}
+              </div>
+              {thesis.data_synopsis && (
+                <p className="text-sm leading-relaxed text-slate-700">{thesis.data_synopsis}</p>
+              )}
+
+              <div className="flex flex-wrap items-center gap-3 text-xs">
+                {dataAccessBadge(thesis.data_access)}
+                {thesis.thesis_url && (
+                  <a
+                    href={thesis.thesis_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline-offset-4 hover:underline"
+                  >
+                    Thesis PDF
+                  </a>
+                )}
+                {thesis.data_url && (
+                  <a
+                    href={thesis.data_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline-offset-4 hover:underline"
+                  >
+                    Dataset link
+                  </a>
+                )}
+              </div>
+
+              {thesis.notes && (
+                <p className="text-xs text-slate-500">Notes: {thesis.notes}</p>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    );
+  };
+
+  const renderDeepDiveExtras = (entry: ResearcherThesisDeepDive) => {
+    const sources = entry.structured?.sources_checked ?? [];
+    const followUp = entry.structured?.follow_up ?? [];
+    const notes = entry.structured?.promptNotes;
+
+    if (!sources.length && !followUp.length && !notes) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-3 text-sm text-slate-600">
+        {sources.length > 0 && (
+          <div>
+            <p className="font-medium text-slate-700">Sources checked</p>
+            <ul className="mt-1 space-y-1 text-sm text-slate-600">
+              {sources.map((source, index) => (
+                <li key={`${source}-${index}`} className="list-disc pl-4">
+                  {source}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {followUp.length > 0 && (
+          <div>
+            <p className="font-medium text-slate-700">Follow-up</p>
+            <ul className="mt-1 space-y-1 text-sm text-slate-600">
+              {followUp.map((item, index) => (
+                <li key={`${item}-${index}`} className="list-disc pl-4">
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {notes && (
+          <div>
+            <p className="font-medium text-slate-700">Prompt notes</p>
+            <p className="mt-1 text-sm text-slate-600">{notes}</p>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  function renderStandaloneDeepDives(entries: ResearcherThesisDeepDive[]) {
+    if (!entries.length) {
+      return null;
+    }
+
+    return entries.map((entry, index) => (
+      <article
+        key={`${entry.group?.name ?? "deep-dive"}-${index}`}
+        className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4"
+      >
+        <header className="flex flex-wrap items-center justify-between gap-2">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold text-slate-900">
+              {entry.group?.name ?? "Research group"}
+            </p>
+            {entry.group?.institution && <p className="text-xs text-slate-500">{entry.group.institution}</p>}
+          </div>
+          {formatTimestamp(entry.generatedAt) && (
+            <p className="text-xs text-slate-500">Run {formatTimestamp(entry.generatedAt)}</p>
+          )}
+        </header>
+        {renderDeepDiveTheses(entry.structured?.theses ?? [])}
+        {renderDeepDiveExtras(entry)}
+      </article>
+    ));
+  }
+
+  function renderGroupDeepDives(entries: ResearcherThesisDeepDive[]) {
+    if (!entries.length) {
+      return null;
+    }
+
+    return (
+      <div className="space-y-4 rounded-lg border border-emerald-100 bg-emerald-50/60 p-4">
+        <header className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-600">
+            Deep-dive datasets
+          </p>
+          {formatTimestamp(entries[0]?.generatedAt) && (
+            <p className="text-xs text-emerald-700">
+              Last run {formatTimestamp(entries[0]?.generatedAt)}
+            </p>
+          )}
+        </header>
+        <div className="space-y-4">
+          {entries.map((entry, index) => (
+            <article key={`${entry.generatedAt ?? "entry"}-${index}`} className="space-y-4 rounded-lg border border-emerald-100 bg-white p-4 shadow-sm">
+              {entries.length > 1 && (
+                <p className="text-xs font-semibold uppercase tracking-[0.14em] text-emerald-500">
+                  Pass {index + 1}
+                </p>
+              )}
+              {renderDeepDiveTheses(entry.structured?.theses ?? [])}
+              {renderDeepDiveExtras(entry)}
+            </article>
+          ))}
+        </div>
+      </div>
+    );
+  }
   const paperSections = structuredGroups.map((paper, paperIndex) => {
+    const paperKey = makePaperKey(paper.title, paper.identifier);
     return (
       <article
         key={`${paper.title}-${paperIndex}`}
@@ -1422,6 +1889,11 @@ function ResearcherThesesPanel({
             if (key) {
               remainingGroups.delete(key);
             }
+
+            const deepDiveKey = `${paperKey}::${key}`;
+            const groupDeepDiveEntries = key && deepDiveBuckets.has(deepDiveKey)
+              ? deepDiveBuckets.get(deepDiveKey) ?? []
+              : [];
 
             return (
               <section
@@ -1452,6 +1924,8 @@ function ResearcherThesesPanel({
                 )}
 
                 {renderGroupResearchers(entries)}
+
+                {renderGroupDeepDives(groupDeepDiveEntries)}
               </section>
             );
           })}
@@ -2036,14 +2510,32 @@ export default function LandingPage() {
   );
 
   const runSimilarPapers = useCallback(
-    async (paper: UploadedPaper, extraction: ExtractedText) => {
+    async (paper: UploadedPaper, extraction: ExtractedText, claims: ClaimsAnalysisState) => {
       if (!paper || isMockPaper(paper) || !extraction || typeof extraction.text !== "string" || extraction.text.trim().length === 0) {
         return;
       }
 
-      console.log("[similar-papers] starting fetch", {
+      // REQUIRE claims to be successful
+      if (!claims || claims.status !== "success") {
+        console.error("[similar-papers] Claims are required but not available", {
+          paperId: paper.id,
+          claimsStatus: claims?.status
+        });
+        setSimilarPapersStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "error",
+            message: "Claims analysis is required. Please wait for claims to complete or try uploading again."
+          }
+        }));
+        return;
+      }
+
+      console.log("[similar-papers] starting fetch with claims", {
         paperId: paper.id,
-        textLength: extraction.text.length
+        textLength: extraction.text.length,
+        hasClaimsText: Boolean(claims.text),
+        hasClaimsStructured: Boolean(claims.structured)
       });
 
       setSimilarPapersStates((prev) => ({
@@ -2072,6 +2564,10 @@ export default function LandingPage() {
               url: paper.url ?? null,
               authors: authors ?? null,
               abstract: abstract ?? null
+            },
+            claims: {
+              text: claims.text,
+              structured: claims.structured
             }
           })
         });
@@ -2089,25 +2585,29 @@ export default function LandingPage() {
           throw new Error(message);
         }
 
-        const payload = (await response.json()) as { text?: string | null };
+        const payload = (await response.json()) as { text?: string | null; structured?: SimilarPapersStructured | null };
         const outputText = typeof payload?.text === "string" ? payload.text.trim() : "";
 
         if (!outputText) {
           throw new Error("Similar paper response did not include text.");
         }
 
+        const structuredData = payload?.structured && typeof payload.structured === "object" ? payload.structured : undefined;
+
         console.log("[similar-papers] fetch success", {
           paperId: paper.id,
-          textPreview: outputText.slice(0, 120)
+          textPreview: outputText.slice(0, 120),
+          hasStructured: Boolean(structuredData)
         });
 
-        writeCachedState(paper.id, "similarPapers", { text: outputText });
+        writeCachedState(paper.id, "similarPapers", { text: outputText, structured: structuredData });
 
         setSimilarPapersStates((prev) => ({
           ...prev,
           [paper.id]: {
             status: "success",
-            text: outputText
+            text: outputText,
+            structured: structuredData
           }
         }));
       } catch (error) {
@@ -2131,6 +2631,122 @@ export default function LandingPage() {
     []
   );
 
+  const runClaimsGeneration = useCallback(
+    async (paper: UploadedPaper, extraction: ExtractedText) => {
+      if (!paper || isMockPaper(paper) || !extraction || typeof extraction.text !== "string" || extraction.text.trim().length === 0) {
+        return;
+      }
+
+      if (!supabase || !user) {
+        console.warn("[claims-generation] Supabase or user not available");
+        return;
+      }
+
+      console.log("[claims-generation] starting generation", {
+        paperId: paper.id,
+        textLength: extraction.text.length
+      });
+
+      setClaimsStates((prev) => ({
+        ...prev,
+        [paper.id]: { status: "loading" }
+      }));
+
+      try {
+        const authors = extractAuthorsFromInfo(extraction.info);
+        const metadataTitle =
+          extraction.info && typeof extraction.info.Title === "string" && extraction.info.Title.trim().length > 0
+            ? extraction.info.Title.trim()
+            : null;
+
+        const response = await fetch("/api/generate-claims", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            text: extraction.text,
+            paper: {
+              title: metadataTitle ?? paper.name ?? null,
+              doi: paper.doi ?? null,
+              authors: Array.isArray(authors) ? authors.join(", ") : null
+            }
+          })
+        });
+
+        if (!response.ok) {
+          let message = "Failed to generate claims.";
+          try {
+            const errorPayload = await response.json();
+            if (typeof errorPayload?.error === "string") {
+              message = errorPayload.error;
+            }
+          } catch (parseError) {
+            console.warn("[claims-generation] error payload parsing failed", parseError);
+          }
+          throw new Error(message);
+        }
+
+        const payload = (await response.json()) as { text?: string | null; structured?: any };
+        const outputText = typeof payload?.text === "string" ? payload.text.trim() : "";
+        const structured = payload?.structured || null;
+
+        if (!outputText && !structured) {
+          throw new Error("Claims response did not include text or structured data.");
+        }
+
+        console.log("[claims-generation] generation success", {
+          paperId: paper.id,
+          hasText: Boolean(outputText),
+          hasStructured: Boolean(structured)
+        });
+
+        // Save claims to Supabase storage
+        if (paper.storagePath) {
+          try {
+            await saveClaimsToStorage({
+              client: supabase,
+              userId: user.id,
+              paperId: paper.id,
+              storagePath: paper.storagePath,
+              claimsData: { text: outputText, structured }
+            });
+            console.log("[claims-generation] saved to storage", { paperId: paper.id });
+          } catch (storageError) {
+            console.error("[claims-generation] failed to save to storage", storageError);
+            // Continue even if storage fails
+          }
+        }
+
+        setClaimsStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "success",
+            text: outputText,
+            structured
+          }
+        }));
+      } catch (error) {
+        const message =
+          error instanceof Error && error.message ? error.message : "Failed to generate claims.";
+
+        console.error("[claims-generation] generation error", {
+          paperId: paper.id,
+          error
+        });
+
+        setClaimsStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "error",
+            message
+          }
+        }));
+      }
+    },
+    [supabase, user]
+  );
+
   const runResearcherTheses = useCallback(
     async (
       paper: UploadedPaper,
@@ -2147,7 +2763,9 @@ export default function LandingPage() {
           ...prev,
           [paper.id]: {
             status: "success",
-            researchers: []
+            researchers: [],
+            deepDives:
+              prev[paper.id]?.status === "success" ? prev[paper.id].deepDives : undefined
           }
         }));
         return;
@@ -2160,7 +2778,13 @@ export default function LandingPage() {
 
       setResearchThesesStates((prev) => ({
         ...prev,
-        [paper.id]: { status: "loading" }
+        [paper.id]: {
+          status: "loading",
+          deepDives:
+            prev[paper.id]?.status === "success"
+              ? prev[paper.id].deepDives
+              : prev[paper.id]?.deepDives
+        }
       }));
 
       try {
@@ -2206,7 +2830,9 @@ export default function LandingPage() {
           ...prev,
           [paper.id]: {
             status: "success",
-            researchers
+            researchers,
+            deepDives:
+              prev[paper.id]?.status === "success" ? prev[paper.id].deepDives : undefined
           }
         }));
       } catch (error) {
@@ -2224,7 +2850,11 @@ export default function LandingPage() {
           ...prev,
           [paper.id]: {
             status: "error",
-            message
+            message,
+            deepDives:
+              prev[paper.id]?.status === "success"
+                ? prev[paper.id].deepDives
+                : prev[paper.id]?.deepDives
           }
         }));
       }
@@ -2324,14 +2954,34 @@ export default function LandingPage() {
     }
   }, [runResearcherTheses]);
 
-  const runResearchGroups = useCallback(async (paper: UploadedPaper, extraction: ExtractedText) => {
+  const runResearchGroups = useCallback(async (paper: UploadedPaper, extraction: ExtractedText, claims: ClaimsAnalysisState, similarPapers: SimilarPapersState) => {
     if (!paper || isMockPaper(paper) || !extraction?.text) {
+      return;
+    }
+
+    // REQUIRE claims to be successful
+    if (!claims || claims.status !== "success") {
+      console.error("[research-groups] Claims are required but not available", {
+        paperId: paper.id,
+        claimsStatus: claims?.status
+      });
+      return;
+    }
+
+    // REQUIRE similar papers to be successful
+    if (!similarPapers || similarPapers.status !== "success") {
+      console.error("[research-groups] Similar papers are required but not available", {
+        paperId: paper.id,
+        similarPapersStatus: similarPapers?.status
+      });
       return;
     }
 
     console.log("[research-groups] starting fetch", {
       paperId: paper.id,
-      extractionTextLength: extraction.text.length
+      extractionTextLength: extraction.text.length,
+      hasClaimsText: Boolean(claims.text),
+      hasSimilarPapersText: Boolean(similarPapers.text)
     });
 
     setResearchGroupsStates((prev) => ({
@@ -2340,6 +2990,12 @@ export default function LandingPage() {
     }));
 
     try {
+      const authors = extractAuthorsFromInfo(extraction.info);
+      const title =
+        extraction.info && typeof extraction.info.Title === "string" && extraction.info.Title.trim().length > 0
+          ? extraction.info.Title.trim()
+          : null;
+
       const response = await fetch("/api/research-groups", {
         method: "POST",
         headers: {
@@ -2353,7 +3009,18 @@ export default function LandingPage() {
           metadata: {
             pages: extraction.pages,
             info: extraction.info
-          }
+          },
+          paper: {
+            title: title ?? paper.name,
+            doi: paper.doi,
+            authors,
+            abstract: extractAbstractFromInfo(extraction.info)
+          },
+          claims: {
+            text: claims.text,
+            structured: claims.structured
+          },
+          similarPapers: similarPapers.text
         })
       });
 
@@ -2370,25 +3037,33 @@ export default function LandingPage() {
         throw new Error(message);
       }
 
-      const payload = (await response.json()) as { text?: string | null };
+      const payload = (await response.json()) as {
+        text?: string | null;
+        structured?: ResearchGroupPaperEntry[] | null;
+      };
       const outputText = typeof payload?.text === "string" ? payload.text.trim() : "";
 
       if (!outputText) {
         throw new Error("Research response did not include text.");
       }
 
+      const structuredData = Array.isArray(payload?.structured) ? payload.structured : undefined;
+
       console.log("[research-groups] fetch success", {
         paperId: paper.id,
-        textPreview: outputText.slice(0, 120)
+        textPreview: outputText.slice(0, 120),
+        hasStructured: Boolean(structuredData),
+        structuredPapersCount: structuredData?.length ?? 0
       });
 
-      writeCachedState(paper.id, "groups", { text: outputText });
+      writeCachedState(paper.id, "groups", { text: outputText, structured: structuredData });
 
       setResearchGroupsStates((prev) => ({
         ...prev,
         [paper.id]: {
           status: "success",
-          text: outputText
+          text: outputText,
+          structured: structuredData
         }
       }));
 
@@ -2584,18 +3259,19 @@ export default function LandingPage() {
       return;
     }
 
+    // WAIT for claims to be successful before running similar papers
+    if (!activeClaimsState || activeClaimsState.status !== "success") {
+      return;
+    }
+
     if (activeSimilarPapersState) {
       return;
     }
 
-    void runSimilarPapers(activePaper, activeExtraction.data);
-  }, [activePaper, activeExtraction, activeSimilarPapersState, runSimilarPapers]);
+    void runSimilarPapers(activePaper, activeExtraction.data, activeClaimsState);
+  }, [activePaper, activeExtraction, activeClaimsState, activeSimilarPapersState, runSimilarPapers]);
 
   useEffect(() => {
-    if (activeTab !== "researchGroups") {
-      return;
-    }
-
     if (!activePaper) {
       return;
     }
@@ -2604,12 +3280,68 @@ export default function LandingPage() {
       return;
     }
 
+    if (activeClaimsState) {
+      return;
+    }
+
+    // Try to load from storage first
+    if (activePaper.storagePath && supabase) {
+      loadClaimsFromStorage({
+        client: supabase,
+        storagePath: activePaper.storagePath
+      })
+        .then((claimsData) => {
+          if (claimsData) {
+            console.log("[claims-generation] loaded from storage", { paperId: activePaper.id });
+            setClaimsStates((prev) => ({
+              ...prev,
+              [activePaper.id]: {
+                status: "success",
+                text: claimsData.text,
+                structured: claimsData.structured
+              }
+            }));
+          } else {
+            // No claims in storage, generate them
+            void runClaimsGeneration(activePaper, activeExtraction.data);
+          }
+        })
+        .catch((error) => {
+          console.error("[claims-generation] failed to load from storage", error);
+          // Fall back to generating claims
+          void runClaimsGeneration(activePaper, activeExtraction.data);
+        });
+    } else {
+      // No storage path, generate claims directly
+      void runClaimsGeneration(activePaper, activeExtraction.data);
+    }
+  }, [activePaper, activeExtraction, activeClaimsState, runClaimsGeneration, supabase]);
+
+  useEffect(() => {
+    if (!activePaper) {
+      return;
+    }
+
+    if (!activeExtraction || activeExtraction.status !== "success") {
+      return;
+    }
+
+    // WAIT for claims to be successful before running research groups
+    if (!activeClaimsState || activeClaimsState.status !== "success") {
+      return;
+    }
+
+    // WAIT for similar papers to be successful before running research groups
+    if (!activeSimilarPapersState || activeSimilarPapersState.status !== "success") {
+      return;
+    }
+
     if (activeResearchGroupState) {
       return;
     }
 
-    void runResearchGroups(activePaper, activeExtraction.data);
-  }, [activeTab, activePaper, activeExtraction, activeResearchGroupState, runResearchGroups]);
+    void runResearchGroups(activePaper, activeExtraction.data, activeClaimsState, activeSimilarPapersState);
+  }, [activePaper, activeExtraction, activeClaimsState, activeSimilarPapersState, activeResearchGroupState, runResearchGroups]);
 
   useEffect(() => {
     if (activeTab !== "theses") {
@@ -2777,8 +3509,12 @@ export default function LandingPage() {
       return;
     }
 
-    void runSimilarPapers(activePaper, activeExtraction.data);
-  }, [activePaper, activeExtraction, runSimilarPapers]);
+    if (!activeClaimsState || activeClaimsState.status !== "success") {
+      return;
+    }
+
+    void runSimilarPapers(activePaper, activeExtraction.data, activeClaimsState);
+  }, [activePaper, activeExtraction, activeClaimsState, runSimilarPapers]);
 
   const handleRetryResearchGroups = useCallback(() => {
     if (!activePaper) {
@@ -2789,8 +3525,16 @@ export default function LandingPage() {
       return;
     }
 
-    void runResearchGroups(activePaper, activeExtraction.data);
-  }, [activePaper, activeExtraction, runResearchGroups]);
+    if (!activeClaimsState || activeClaimsState.status !== "success") {
+      return;
+    }
+
+    if (!activeSimilarPapersState || activeSimilarPapersState.status !== "success") {
+      return;
+    }
+
+    void runResearchGroups(activePaper, activeExtraction.data, activeClaimsState, activeSimilarPapersState);
+  }, [activePaper, activeExtraction, activeClaimsState, activeSimilarPapersState, runResearchGroups]);
 
   const handleDeletePaper = useCallback(
     async (paperId: string) => {
@@ -2934,6 +3678,13 @@ export default function LandingPage() {
               ? MOCK_RESEARCH_GROUPS_STRUCTURED
               : activeResearchGroupState?.status === "success"
                 ? activeResearchGroupState.structured
+                : undefined
+          }
+          deepDives={
+            isActivePaperMock
+              ? MOCK_RESEARCH_THESES_DEEP_DIVES
+              : activeResearchThesesState?.status === "success"
+                ? activeResearchThesesState.deepDives
                 : undefined
           }
         />

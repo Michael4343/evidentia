@@ -2,90 +2,202 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const MAX_RESEARCHERS = 10;
+const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's researcher thesis UI.
 
-const PROMPT = `You will receive a JSON array describing research group members. Each item contains a group label and an array of people with names and optional emails.
+Output requirements:
+- Return a single JSON object with keys: researchers (array), promptNotes (optional string).
+- Each researcher object must include: name (string), email (string|null), group (string|null),
+  latest_publication (object with title (string|null), year (number|null), venue (string|null), url (string|null)),
+  phd_thesis (null or object with title (string|null), year (number|null), institution (string|null), url (string|null)),
+  data_publicly_available ("yes" | "no" | "unknown").
+- Use null for unknown scalars. Use lowercase for data_publicly_available values.
+- Every url field must be a direct https:// link. If the notes provide a markdown link or reference-style footnote, extract the underlying URL and place it in the url field. Never leave a url blank when the notes include a working link.
+- For phd_thesis.url, copy the repository/download link from the analyst notes' "Data access link" column; if multiple are provided, prefer the PDF/download URL. Only set null when no link is given or it is explicitly unavailable.
+- No markdown, commentary, or trailing prose. Valid JSON only (double quotes).
+- Preserve factual content from the notes; do not invent new theses or publications.
+- Output raw JSON only — no markdown fences, comments, trailing prose, or extra keys.`;
 
-Task (do not exceed 200 tokens in your answer):
-1. For each researcher, identify their most recent publication (2022 or later when possible). Provide title, year, venue, and URL when available.
-2. Identify their PhD thesis if verifiable (title, year, institution, URL). If none is found, set thesis to null.
-3. State whether data for their latest publication is publicly available ("yes", "no", or "unknown").
-
-Guidelines:
-- Use web search only when necessary; prefer official records and repositories.
-- If you cannot confirm a field, leave it null rather than inventing details.
-- Keep reasoning minimal; focus on the final JSON fulfilment.
-
-Output format:
-Return a JSON array of researcher objects shaped as:
-{
-  "name": string,
-  "email": string | null,
-  "group": string | null,
-  "latest_publication": {
-    "title": string | null,
-    "year": number | null,
-    "venue": string | null,
-    "url": string | null
-  },
-  "phd_thesis": {
-    "title": string | null,
-    "year": number | null,
-    "institution": string | null,
-    "url": string | null
-  } | null,
-  "data_publicly_available": "yes" | "no" | "unknown"
+interface ResearchGroup {
+  name?: string;
+  institution?: string | null;
+  website?: string | null;
+  notes?: string | null;
+  researchers?: Array<{
+    name?: string;
+    email?: string | null;
+    role?: string | null;
+  }>;
 }
-Return valid JSON with double-quoted keys. If no researchers are provided, return an empty array.`;
 
-function serialisePayload(payload: unknown) {
-  return JSON.stringify(payload, null, 2);
+interface Paper {
+  title?: string;
+  identifier?: string | null;
+  groups?: ResearchGroup[];
+}
+
+interface ResearchGroupsStructured {
+  papers?: Paper[];
+}
+
+interface ResearchGroupsPayload {
+  structured?: ResearchGroupsStructured;
+}
+
+function cleanPlainText(input: string): string {
+  if (typeof input !== "string") {
+    return "";
+  }
+  return input.replace(/\r\n/g, "\n").trim();
+}
+
+function buildDiscoveryPrompt(researchGroups: ResearchGroupsPayload): string {
+  const papers = researchGroups?.structured?.papers || [];
+
+  if (papers.length === 0) {
+    throw new Error("No papers found in research groups data.");
+  }
+
+  // Extract all researchers from all groups across all papers
+  const allResearchers: Array<{
+    name: string;
+    email: string | null;
+    group: string;
+    paper: string;
+  }> = [];
+
+  papers.forEach((paper) => {
+    const paperTitle = cleanPlainText(paper?.title || "Unknown paper");
+    const groups = paper?.groups || [];
+
+    groups.forEach((group) => {
+      const groupName = cleanPlainText(group?.name || "Unknown group");
+      const researchers = group?.researchers || [];
+
+      researchers.forEach((researcher) => {
+        const name = cleanPlainText(researcher?.name || "");
+        if (name.length > 0) {
+          allResearchers.push({
+            name,
+            email: researcher?.email || null,
+            group: groupName,
+            paper: paperTitle
+          });
+        }
+      });
+    });
+  });
+
+  if (allResearchers.length === 0) {
+    throw new Error("No researchers found in research groups data.");
+  }
+
+  const lines = [
+    "You are a research analyst identifying PhD theses and publications.",
+    "",
+    "Task:",
+    "For each researcher listed below, find:",
+    "1. Most recent publication (2022 or later preferred) - title, year, venue, URL",
+    "2. PhD thesis if verifiable - title, year, institution, direct thesis URL",
+    "3. Data availability for latest publication - yes/no/unknown",
+    "",
+    "Research Groups and Members:",
+    ""
+  ];
+
+  // Group researchers by paper for better context
+  const researchersByPaper = new Map<string, typeof allResearchers>();
+  allResearchers.forEach((r) => {
+    if (!researchersByPaper.has(r.paper)) {
+      researchersByPaper.set(r.paper, []);
+    }
+    researchersByPaper.get(r.paper)!.push(r);
+  });
+
+  researchersByPaper.forEach((researchers, paperTitle) => {
+    lines.push(`Paper: ${paperTitle}`);
+
+    const researchersByGroup = new Map<string, typeof researchers>();
+    researchers.forEach((r) => {
+      if (!researchersByGroup.has(r.group)) {
+        researchersByGroup.set(r.group, []);
+      }
+      researchersByGroup.get(r.group)!.push(r);
+    });
+
+    researchersByGroup.forEach((groupResearchers, groupName) => {
+      lines.push(`  Group: ${groupName}`);
+      groupResearchers.forEach((r) => {
+        const emailPart = r.email ? ` (${r.email})` : "";
+        lines.push(`    - ${r.name}${emailPart}`);
+      });
+    });
+    lines.push("");
+  });
+
+  lines.push(
+    "Guidelines:",
+    "- Use web search to verify official records and repositories",
+    "- Prefer institutional repositories, Google Scholar, and university thesis databases",
+    "- If you cannot confirm a field, note 'Not found' rather than guessing",
+    "- For thesis URLs, find direct PDF/download links when possible",
+    "- Keep notes structured with researcher name headers",
+    "",
+    "Output format (plain text notes, no JSON yet):",
+    "For each researcher, use this exact format:",
+    "",
+    "Researcher: [Name] ([Group])",
+    "Email: [email or Not provided]",
+    "Latest Publication: [title] ([year]) - [venue]",
+    "Publication URL: [url or Not found]",
+    "PhD Thesis: [title] ([year]) - [institution]",
+    "Thesis URL: [url or Not found]",
+    "Data Available: [yes/no/unknown]",
+    ""
+  );
+
+  return lines.join("\n");
+}
+
+function buildCleanupPrompt(discoveryNotes: string): string {
+  return `${CLEANUP_PROMPT_HEADER}\n\nAnalyst's researcher thesis notes:\n\n${discoveryNotes}`;
 }
 
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => null);
 
-    if (!body || !Array.isArray(body.contacts)) {
-      return NextResponse.json({ error: "Missing contacts array." }, { status: 400 });
+    // Validate input - expect research groups structured data
+    if (!body?.researchGroups || !body.researchGroups.structured) {
+      return NextResponse.json(
+        {
+          error: "Research groups data required. Please wait for research groups to complete first."
+        },
+        { status: 400 }
+      );
     }
 
-    const contacts = body.contacts as Array<{
-      group: string;
-      people: Array<{ name: string | null; email: string | null }>;
-    }>;
-
-    const filtered = contacts
-      .flatMap((entry) =>
-        entry.people
-          .filter((person) => typeof person.name === "string" && person.name.trim().length > 0)
-          .slice(0, MAX_RESEARCHERS)
-          .map((person) => ({
-            name: person.name,
-            email: person.email,
-            group: entry.group ?? null
-          }))
-      )
-      .slice(0, MAX_RESEARCHERS);
-
-    if (filtered.length === 0) {
-      return NextResponse.json({ researchers: [] });
-    }
+    const researchGroups = body.researchGroups as ResearchGroupsPayload;
 
     const apiKey = process.env.OPENAI_API_KEY;
-
     if (!apiKey) {
       console.error("[researcher-theses] OPENAI_API_KEY is not configured.");
       return NextResponse.json({ error: "OpenAI API key is not configured." }, { status: 500 });
     }
 
-    const promptInput = `${PROMPT}\n\nResearch group JSON:\n${serialisePayload(filtered)}`;
+    // Build discovery prompt
+    let discoveryPrompt: string;
+    try {
+      discoveryPrompt = buildDiscoveryPrompt(researchGroups);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to build discovery prompt.";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
 
+    // STEP 1: Discovery with web search
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 300_000);
+    const timeoutId = setTimeout(() => controller.abort(), 600_000);
 
     let response: Response;
-
     try {
       response = await fetch("https://api.openai.com/v1/responses", {
         method: "POST",
@@ -96,11 +208,10 @@ export async function POST(request: Request) {
         body: JSON.stringify({
           model: "gpt-5-mini",
           reasoning: { effort: "low" },
-          tools: [{ type: "web_search", search_context_size: "low" }],
+          tools: [{ type: "web_search", search_context_size: "medium" }],
           tool_choice: "auto",
-          input: promptInput,
-          max_output_tokens: 2048,
-          max_tool_calls: 10
+          input: discoveryPrompt,
+          max_output_tokens: 8_192
         }),
         signal: controller.signal
       });
@@ -125,7 +236,6 @@ export async function POST(request: Request) {
     }
 
     let payload: any;
-
     try {
       payload = await response.json();
     } catch (parseError) {
@@ -133,26 +243,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to read model response." }, { status: 502 });
     }
 
-    if (payload?.status === "incomplete" && payload?.incomplete_details?.reason) {
-      console.warn("[researcher-theses] Model response incomplete", payload.incomplete_details);
-      return NextResponse.json(
-        {
-          error:
-            payload.incomplete_details.reason === "max_output_tokens"
-              ? "Researcher lookup hit the output limit. Try again or reduce the number of contacts."
-              : `Researcher lookup ended early: ${payload.incomplete_details.reason}`
-        },
-        { status: 502 }
-      );
-    }
+    let outputText = typeof payload?.output_text === "string" ? payload.output_text.trim() : "";
 
-    let textOutput = typeof payload?.output_text === "string" ? payload.output_text.trim() : "";
-
-    if (!textOutput && Array.isArray(payload?.output)) {
-      textOutput = payload.output
-        .filter((item: any) =>
-          item && item.type === "message" && Array.isArray(item.content)
-        )
+    if (!outputText && Array.isArray(payload?.output)) {
+      outputText = payload.output
+        .filter((item: any) => item && item.type === "message" && Array.isArray(item.content))
         .flatMap((item: any) =>
           item.content
             .filter((part: any) => part?.type === "output_text" && typeof part.text === "string")
@@ -162,53 +257,114 @@ export async function POST(request: Request) {
         .trim();
     }
 
-    if (!textOutput) {
+    if (payload?.status === "incomplete" && payload?.incomplete_details?.reason) {
+      console.warn("[researcher-theses] Model response incomplete", payload.incomplete_details);
+      if (outputText) {
+        outputText = `${outputText}\n\n[Note: Response truncated because the model hit its output limit. Consider rerunning if key details are missing.]`;
+      } else {
+        return NextResponse.json(
+          {
+            error:
+              payload.incomplete_details.reason === "max_output_tokens"
+                ? "Researcher thesis discovery hit the output limit before completing. Try again in a moment."
+                : `Researcher thesis discovery ended early: ${payload.incomplete_details.reason}`
+          },
+          { status: 502 }
+        );
+      }
+    }
+
+    if (!outputText) {
       console.error("[researcher-theses] Empty response payload", payload);
       return NextResponse.json({ error: "Model did not return any text." }, { status: 502 });
     }
 
-    const sanitised = textOutput
-      .replace(/^```json\s*/i, "")
-      .replace(/```$/i, "")
-      .trim();
+    // STEP 2: Cleanup - convert notes to structured JSON
+    const cleanupPrompt = buildCleanupPrompt(outputText);
 
-    let researchers;
+    const controller2 = new AbortController();
+    const timeoutId2 = setTimeout(() => controller2.abort(), 600_000);
 
+    let response2: Response;
     try {
-      researchers = JSON.parse(sanitised);
+      response2 = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: "gpt-5-mini",
+          reasoning: { effort: "low" },
+          input: cleanupPrompt,
+          max_output_tokens: 8_192
+        }),
+        signal: controller2.signal
+      });
+    } finally {
+      clearTimeout(timeoutId2);
+    }
+
+    if (!response2.ok) {
+      let message = "OpenAI cleanup request failed.";
+      try {
+        const errorPayload = await response2.json();
+        console.error("[researcher-theses] OpenAI cleanup error payload", errorPayload);
+        if (typeof errorPayload?.error === "string") {
+          message = errorPayload.error;
+        } else if (typeof errorPayload?.message === "string") {
+          message = errorPayload.message;
+        }
+      } catch (parseError) {
+        console.warn("[researcher-theses] Failed to parse OpenAI cleanup error payload", parseError);
+      }
+      return NextResponse.json({ error: message }, { status: response2.status });
+    }
+
+    let payload2: any;
+    try {
+      payload2 = await response2.json();
     } catch (parseError) {
-      console.error("[researcher-theses] Failed to parse JSON payload", sanitised, parseError);
-      return NextResponse.json({ error: "Model returned malformed JSON." }, { status: 502 });
+      console.error("[researcher-theses] Failed to parse JSON cleanup response", parseError);
+      return NextResponse.json({ error: "Failed to read model cleanup response." }, { status: 502 });
     }
 
-    if (!Array.isArray(researchers)) {
-      return NextResponse.json({ error: "Model response was not an array." }, { status: 502 });
+    let cleanupOutputText = typeof payload2?.output_text === "string" ? payload2.output_text.trim() : "";
+
+    if (!cleanupOutputText && Array.isArray(payload2?.output)) {
+      cleanupOutputText = payload2.output
+        .filter((item: any) => item && item.type === "message" && Array.isArray(item.content))
+        .flatMap((item: any) =>
+          item.content
+            .filter((part: any) => part?.type === "output_text" && typeof part.text === "string")
+            .map((part: any) => part.text)
+        )
+        .join("\n")
+        .trim();
     }
 
-    const normalised = researchers.map((item: any) => ({
-      name: typeof item?.name === "string" ? item.name : null,
-      email: typeof item?.email === "string" ? item.email : null,
-      group: typeof item?.group === "string" ? item.group : null,
-      latest_publication: {
-        title: typeof item?.latest_publication?.title === "string" ? item.latest_publication.title : null,
-        year: typeof item?.latest_publication?.year === "number" ? item.latest_publication.year : null,
-        venue: typeof item?.latest_publication?.venue === "string" ? item.latest_publication.venue : null,
-        url: typeof item?.latest_publication?.url === "string" ? item.latest_publication.url : null
-      },
-      phd_thesis: item?.phd_thesis && typeof item.phd_thesis === "object"
-        ? {
-            title: typeof item.phd_thesis.title === "string" ? item.phd_thesis.title : null,
-            year: typeof item.phd_thesis.year === "number" ? item.phd_thesis.year : null,
-            institution: typeof item.phd_thesis.institution === "string" ? item.phd_thesis.institution : null,
-            url: typeof item.phd_thesis.url === "string" ? item.phd_thesis.url : null
-          }
-        : null,
-      data_publicly_available: item?.data_publicly_available === "yes" || item?.data_publicly_available === "no"
-        ? item.data_publicly_available
-        : "unknown"
-    }));
+    if (!cleanupOutputText) {
+      console.error("[researcher-theses] Empty cleanup response payload", payload2);
+      return NextResponse.json({ error: "Model did not return cleanup JSON." }, { status: 502 });
+    }
 
-    return NextResponse.json({ researchers: normalised });
+    // Parse structured output
+    let structuredTheses: any;
+    try {
+      // Remove markdown code fences if present
+      const cleanedOutput = cleanupOutputText.replace(/^```json\s*\n?|\n?```\s*$/g, "").trim();
+      structuredTheses = JSON.parse(cleanedOutput);
+    } catch (parseError) {
+      console.error("[researcher-theses] Failed to parse structured JSON", parseError);
+      console.error("[researcher-theses] Raw cleanup output:", cleanupOutputText);
+      // Fall back to returning just the text analysis
+      return NextResponse.json({ text: outputText, structured: null });
+    }
+
+    return NextResponse.json({
+      text: outputText,
+      structured: structuredTheses
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unexpected server error.";
     console.error("[researcher-theses] Error:", error);

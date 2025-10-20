@@ -148,6 +148,16 @@ export async function deleteUserPaper({ client, userId, paperId, storagePath }: 
     // Continue with DB deletion even if storage deletion fails
   }
 
+  // Delete claims JSON if it exists
+  const claimsPath = storagePath.replace(/\.pdf$/i, "-claims.json");
+  const deleteClaimsResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .remove([claimsPath]);
+
+  if (deleteClaimsResult.error) {
+    console.warn("Failed to delete claims from storage (may not exist)", deleteClaimsResult.error);
+  }
+
   // Delete from database
   const deleteDbResult = await client
     .from("user_papers")
@@ -160,4 +170,56 @@ export async function deleteUserPaper({ client, userId, paperId, storagePath }: 
   }
 
   return { success: true };
+}
+
+export interface SaveClaimsInput {
+  client: SupabaseClient;
+  userId: string;
+  paperId: string;
+  storagePath: string;
+  claimsData: any;
+}
+
+export async function saveClaimsToStorage({ client, userId, paperId, storagePath, claimsData }: SaveClaimsInput) {
+  const claimsPath = storagePath.replace(/\.pdf$/i, "-claims.json");
+  const claimsBlob = new Blob([JSON.stringify(claimsData, null, 2)], {
+    type: "application/json"
+  });
+
+  const uploadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .upload(claimsPath, claimsBlob, {
+      cacheControl: "3600",
+      upsert: true,
+      contentType: "application/json"
+    });
+
+  if (uploadResult.error) {
+    throw uploadResult.error;
+  }
+
+  return { claimsPath };
+}
+
+export interface LoadClaimsInput {
+  client: SupabaseClient;
+  storagePath: string;
+}
+
+export async function loadClaimsFromStorage({ client, storagePath }: LoadClaimsInput) {
+  const claimsPath = storagePath.replace(/\.pdf$/i, "-claims.json");
+
+  const downloadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .download(claimsPath);
+
+  if (downloadResult.error) {
+    // File doesn't exist yet - this is OK
+    return null;
+  }
+
+  const text = await downloadResult.data.text();
+  const parsed = JSON.parse(text);
+
+  return parsed;
 }
