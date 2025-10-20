@@ -14,7 +14,7 @@ import { ReaderTabKey } from "@/lib/reader-tabs";
 import { extractDoiFromPdf } from "@/lib/pdf-doi";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { parseUploadError, validateFileSize } from "@/lib/upload-errors";
-import { deleteUserPaper, fetchUserPapers, persistUserPaper, saveClaimsToStorage, loadClaimsFromStorage, saveSimilarPapersToStorage, loadSimilarPapersFromStorage, savePatentsToStorage, loadPatentsFromStorage, saveResearchGroupsToStorage, loadResearchGroupsFromStorage, saveContactsToStorage, loadContactsFromStorage, saveThesesToStorage, loadThesesFromStorage, type UserPaperRecord } from "@/lib/user-papers";
+import { deleteUserPaper, fetchUserPapers, persistUserPaper, saveClaimsToStorage, loadClaimsFromStorage, saveSimilarPapersToStorage, loadSimilarPapersFromStorage, savePatentsToStorage, loadPatentsFromStorage, saveVerifiedClaimsToStorage, loadVerifiedClaimsFromStorage, saveResearchGroupsToStorage, loadResearchGroupsFromStorage, saveContactsToStorage, loadContactsFromStorage, saveThesesToStorage, loadThesesFromStorage, type UserPaperRecord } from "@/lib/user-papers";
 
 const RESEARCH_CACHE_VERSION = "v1";
 
@@ -70,7 +70,7 @@ function removeMockState<T>(state: Record<string, T>): Record<string, T> {
   return rest as Record<string, T>;
 }
 
-type CacheStage = "similarPapers" | "groups" | "contacts" | "theses" | "patents";
+type CacheStage = "similarPapers" | "groups" | "contacts" | "theses" | "patents" | "verifiedClaims";
 
 function getCacheKey(paperId: string, stage: CacheStage) {
   return `paper-cache:${RESEARCH_CACHE_VERSION}:${paperId}:${stage}`;
@@ -305,6 +305,112 @@ function normalizePatentsStructured(raw: unknown): PatentsStructured | undefined
   };
 }
 
+function normalizeVerifiedClaimEvidence(raw: any): VerifiedClaimEvidence | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const source = typeof raw.source === "string" && raw.source.trim().length > 0 ? raw.source.trim() : "";
+  const title = typeof raw.title === "string" && raw.title.trim().length > 0 ? raw.title.trim() : "";
+  const relevance = typeof raw.relevance === "string" && raw.relevance.trim().length > 0 ? raw.relevance.trim() : null;
+
+  if (!source || !title) {
+    return null;
+  }
+
+  return {
+    source,
+    title,
+    ...(relevance ? { relevance } : {})
+  };
+}
+
+function normalizeVerifiedClaimsStructured(raw: unknown): VerifiedClaimsStructured | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+
+  const rawObject = raw as { claims?: unknown; overallAssessment?: unknown; promptNotes?: unknown };
+
+  const claimsArray = Array.isArray(rawObject.claims) ? rawObject.claims : [];
+
+  const claims = claimsArray
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      const claimId = typeof (entry as any).claimId === "string" && (entry as any).claimId.trim().length > 0
+        ? (entry as any).claimId.trim()
+        : null;
+      const originalClaim = typeof (entry as any).originalClaim === "string" && (entry as any).originalClaim.trim().length > 0
+        ? (entry as any).originalClaim.trim()
+        : null;
+
+      if (!claimId || !originalClaim) {
+        return null;
+      }
+
+      const verificationStatusRaw = typeof (entry as any).verificationStatus === "string"
+        ? (entry as any).verificationStatus.trim()
+        : "";
+      const verificationStatus: VerifiedClaimStatus =
+        verificationStatusRaw === "Verified" ||
+        verificationStatusRaw === "Partially Verified" ||
+        verificationStatusRaw === "Contradicted" ||
+        verificationStatusRaw === "Insufficient Evidence"
+          ? verificationStatusRaw
+          : "Insufficient Evidence";
+
+      const confidenceRaw = typeof (entry as any).confidenceLevel === "string"
+        ? (entry as any).confidenceLevel.trim()
+        : "";
+      const confidenceLevel: VerifiedClaimConfidence =
+        confidenceRaw === "High" || confidenceRaw === "Moderate" || confidenceRaw === "Low"
+          ? confidenceRaw
+          : "Low";
+
+      const supportingEvidence = Array.isArray((entry as any).supportingEvidence)
+        ? (entry as any).supportingEvidence.map(normalizeVerifiedClaimEvidence).filter(Boolean)
+        : [];
+      const contradictingEvidence = Array.isArray((entry as any).contradictingEvidence)
+        ? (entry as any).contradictingEvidence.map(normalizeVerifiedClaimEvidence).filter(Boolean)
+        : [];
+
+      const verificationSummary = typeof (entry as any).verificationSummary === "string"
+        ? (entry as any).verificationSummary.trim()
+        : null;
+
+      return {
+        claimId,
+        originalClaim,
+        verificationStatus,
+        supportingEvidence: supportingEvidence as VerifiedClaimEvidence[],
+        contradictingEvidence: contradictingEvidence as VerifiedClaimEvidence[],
+        ...(verificationSummary ? { verificationSummary } : {}),
+        confidenceLevel
+      } satisfies VerifiedClaimEntry;
+    })
+    .filter((entry): entry is VerifiedClaimEntry => Boolean(entry));
+
+  if (claims.length === 0) {
+    return undefined;
+  }
+
+  const overallAssessment = typeof rawObject.overallAssessment === "string" && rawObject.overallAssessment.trim().length > 0
+    ? rawObject.overallAssessment.trim()
+    : undefined;
+  const promptNotes = typeof rawObject.promptNotes === "string" && rawObject.promptNotes.trim().length > 0
+    ? rawObject.promptNotes.trim()
+    : undefined;
+
+  return {
+    claims,
+    ...(overallAssessment ? { overallAssessment } : {}),
+    ...(promptNotes ? { promptNotes } : {})
+  };
+}
+
 function extractAuthorsFromInfo(info: Record<string, any> | null | undefined): string[] | null {
   if (!info) {
     return null;
@@ -494,6 +600,36 @@ type PatentsState =
   | { status: "success"; text?: string; structured?: PatentsStructured }
   | { status: "error"; message: string };
 
+type VerifiedClaimStatus = "Verified" | "Partially Verified" | "Contradicted" | "Insufficient Evidence";
+type VerifiedClaimConfidence = "High" | "Moderate" | "Low";
+
+interface VerifiedClaimEvidence {
+  source: string;
+  title: string;
+  relevance?: string | null;
+}
+
+interface VerifiedClaimEntry {
+  claimId: string;
+  originalClaim: string;
+  verificationStatus: VerifiedClaimStatus;
+  supportingEvidence: VerifiedClaimEvidence[];
+  contradictingEvidence: VerifiedClaimEvidence[];
+  verificationSummary?: string | null;
+  confidenceLevel: VerifiedClaimConfidence;
+}
+
+interface VerifiedClaimsStructured {
+  claims: VerifiedClaimEntry[];
+  overallAssessment?: string | null;
+  promptNotes?: string | null;
+}
+
+type VerifiedClaimsState =
+  | { status: "loading" }
+  | { status: "success"; text?: string; structured?: VerifiedClaimsStructured }
+  | { status: "error"; message: string };
+
 type ClaimsAnalysisStrength = "High" | "Moderate" | "Low" | "Unclear";
 
 interface ClaimsAnalysisClaim {
@@ -642,6 +778,31 @@ const MOCK_VERIFIED_CLAIMS_LIST = Array.isArray(MOCK_VERIFIED_CLAIMS?.structured
 const MOCK_VERIFIED_CLAIMS_OVERALL = typeof MOCK_VERIFIED_CLAIMS?.structured?.overallAssessment === "string"
   ? MOCK_VERIFIED_CLAIMS.structured.overallAssessment
   : "";
+
+const MOCK_VERIFIED_CLAIMS_PROMPT_NOTES =
+  typeof MOCK_VERIFIED_CLAIMS?.structured?.promptNotes === "string"
+    ? MOCK_VERIFIED_CLAIMS.structured.promptNotes
+    : null;
+
+const MOCK_VERIFIED_CLAIMS_TEXT = typeof MOCK_VERIFIED_CLAIMS?.text === "string" ? MOCK_VERIFIED_CLAIMS.text : "";
+
+const MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA: VerifiedClaimsStructured | undefined =
+  MOCK_VERIFIED_CLAIMS_LIST.length > 0
+    ? {
+        claims: MOCK_VERIFIED_CLAIMS_LIST as unknown as VerifiedClaimEntry[],
+        ...(MOCK_VERIFIED_CLAIMS_OVERALL ? { overallAssessment: MOCK_VERIFIED_CLAIMS_OVERALL } : {}),
+        ...(MOCK_VERIFIED_CLAIMS_PROMPT_NOTES ? { promptNotes: MOCK_VERIFIED_CLAIMS_PROMPT_NOTES } : {})
+      }
+    : undefined;
+
+const MOCK_VERIFIED_CLAIMS_INITIAL_STATE: VerifiedClaimsState =
+  MOCK_VERIFIED_CLAIMS_TEXT || MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA
+    ? {
+        status: "success",
+        ...(MOCK_VERIFIED_CLAIMS_TEXT ? { text: MOCK_VERIFIED_CLAIMS_TEXT } : {}),
+        ...(MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA ? { structured: MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA } : {})
+      }
+    : { status: "success" };
 
 function sanitizeFileName(...values: Array<string | null | undefined>) {
   for (const raw of values) {
@@ -2540,161 +2701,237 @@ function PatentsPanel({
   return renderPatentsView(patents, promptNotes, analystNotes);
 }
 
-function VerifiedClaimsPanel({ isMock }: { isMock: boolean }) {
-  if (isMock && MOCK_VERIFIED_CLAIMS_LIST.length === 0) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
-        <p className="text-base font-medium text-slate-700">No verified claims yet</p>
-        <p className="max-w-md text-sm text-slate-500">
-          Run the verified claims script to cross-reference claims against all gathered evidence.
-        </p>
-      </div>
-    );
-  }
+function VerifiedClaimsPanel({
+  state,
+  isMock,
+  onRetry
+}: {
+  state: VerifiedClaimsState | undefined;
+  isMock: boolean;
+  onRetry?: () => void;
+}) {
+  const getStatusBadgeClasses = (status: string) => {
+    switch (status) {
+      case "Verified":
+        return "bg-green-100 text-green-800 border-green-300";
+      case "Partially Verified":
+        return "bg-yellow-100 text-yellow-800 border-yellow-300";
+      case "Contradicted":
+        return "bg-red-100 text-red-800 border-red-300";
+      case "Insufficient Evidence":
+      default:
+        return "bg-slate-100 text-slate-700 border-slate-300";
+    }
+  };
 
-  if (isMock && MOCK_VERIFIED_CLAIMS_LIST.length > 0) {
-    const getStatusBadgeClasses = (status: string) => {
-      switch (status) {
-        case "Verified":
-          return "bg-green-100 text-green-800 border-green-300";
-        case "Partially Verified":
-          return "bg-yellow-100 text-yellow-800 border-yellow-300";
-        case "Contradicted":
-          return "bg-red-100 text-red-800 border-red-300";
-        case "Insufficient Evidence":
-        default:
-          return "bg-slate-100 text-slate-700 border-slate-300";
-      }
-    };
+  const getConfidenceBadgeClasses = (confidence: string) => {
+    switch (confidence) {
+      case "High":
+        return "bg-blue-100 text-blue-800";
+      case "Moderate":
+        return "bg-indigo-100 text-indigo-800";
+      case "Low":
+      default:
+        return "bg-slate-100 text-slate-600";
+    }
+  };
 
-    const getConfidenceBadgeClasses = (confidence: string) => {
-      switch (confidence) {
-        case "High":
-          return "bg-blue-100 text-blue-800";
-        case "Moderate":
-          return "bg-indigo-100 text-indigo-800";
-        case "Low":
-        default:
-          return "bg-slate-100 text-slate-600";
-      }
-    };
+  const renderClaimsView = (
+    claims: VerifiedClaimEntry[],
+    overallAssessment?: string | null,
+    promptNotes?: string | null,
+    analystNotes?: string
+  ) => (
+    <div className="flex flex-1 flex-col overflow-auto">
+      <div className="flex-1 overflow-auto bg-slate-50">
+        <section className="w-full space-y-6 px-6 py-8">
+          <header className="space-y-2">
+            <h2 className="text-xl font-semibold text-slate-900">Verified Claims</h2>
+            <p className="text-sm leading-relaxed text-slate-600">
+              Claims cross-referenced against similar papers, research groups, PhD theses, and patents.
+            </p>
+          </header>
 
-    return (
-      <div className="flex flex-1 flex-col overflow-auto">
-        <div className="flex-1 overflow-auto bg-slate-50">
-          <section className="w-full space-y-6 px-6 py-8">
-            <header className="space-y-2">
-              <h2 className="text-xl font-semibold text-slate-900">Verified Claims</h2>
-              <p className="text-sm leading-relaxed text-slate-600">
-                Claims cross-referenced against similar papers, research groups, PhD theses, and patents.
-              </p>
-            </header>
+          {promptNotes && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {promptNotes}
+            </div>
+          )}
 
-            {MOCK_VERIFIED_CLAIMS_OVERALL && (
-              <article className="rounded-lg border border-slate-300 bg-white px-5 py-4 shadow-sm">
-                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400 mb-3">
-                  Overall Assessment
-                </h3>
-                <p className="text-sm leading-relaxed text-slate-700">{MOCK_VERIFIED_CLAIMS_OVERALL}</p>
-              </article>
-            )}
+          {analystNotes && (
+            <details className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+              <summary className="cursor-pointer font-medium text-slate-900">Analyst notes</summary>
+              <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{analystNotes}</pre>
+            </details>
+          )}
 
-            <div className="space-y-4">
-              {MOCK_VERIFIED_CLAIMS_LIST.map((claim, index) => (
-                <article
-                  key={claim.claimId ?? index}
-                  className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm"
-                >
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                          {claim.claimId}
-                        </span>
-                        <span
-                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusBadgeClasses(claim.verificationStatus)}`}
-                        >
-                          {claim.verificationStatus}
-                        </span>
-                      </div>
+          {overallAssessment && (
+            <article className="rounded-lg border border-slate-300 bg-white px-5 py-4 shadow-sm">
+              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400 mb-3">
+                Overall Assessment
+              </h3>
+              <p className="text-sm leading-relaxed text-slate-700">{overallAssessment}</p>
+            </article>
+          )}
+
+          <div className="space-y-4">
+            {claims.map((claim, index) => (
+              <article key={claim.claimId ?? index} className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        {claim.claimId ?? `Claim ${index + 1}`}
+                      </span>
                       <span
-                        className={`rounded-full px-3 py-1 text-xs font-semibold ${getConfidenceBadgeClasses(claim.confidenceLevel)}`}
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusBadgeClasses(claim.verificationStatus)}`}
                       >
-                        Confidence: {claim.confidenceLevel}
+                        {claim.verificationStatus}
                       </span>
                     </div>
-
-                    <div>
-                      <p className="text-sm font-semibold text-slate-600 mb-1">Original Claim:</p>
-                      <p className="text-sm leading-relaxed text-slate-700">{claim.originalClaim}</p>
-                    </div>
-
-                    {claim.supportingEvidence?.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-green-700">
-                          ✓ Supporting Evidence
-                        </p>
-                        <ul className="space-y-2 pl-4">
-                          {claim.supportingEvidence.map((evidence, evIndex) => (
-                            <li key={evIndex} className="text-sm leading-relaxed text-slate-700">
-                              <span className="inline-block rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 mr-2">
-                                {evidence.source}
-                              </span>
-                              <span className="font-medium">{evidence.title}</span>
-                              {evidence.relevance && (
-                                <p className="mt-1 text-sm text-slate-600 ml-0">{evidence.relevance}</p>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {claim.contradictingEvidence?.length > 0 && (
-                      <div className="space-y-2">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">
-                          ✗ Contradicting Evidence
-                        </p>
-                        <ul className="space-y-2 pl-4">
-                          {claim.contradictingEvidence.map((evidence, evIndex) => (
-                            <li key={evIndex} className="text-sm leading-relaxed text-slate-700">
-                              <span className="inline-block rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 mr-2">
-                                {evidence.source}
-                              </span>
-                              <span className="font-medium">{evidence.title}</span>
-                              {evidence.relevance && (
-                                <p className="mt-1 text-sm text-slate-600 ml-0">{evidence.relevance}</p>
-                              )}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    {claim.verificationSummary && (
-                      <div className="rounded border border-blue-200 bg-blue-50/60 px-4 py-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700 mb-1.5">
-                          Verification Summary
-                        </p>
-                        <p className="text-sm leading-relaxed text-blue-800">{claim.verificationSummary}</p>
-                      </div>
-                    )}
+                    <span
+                      className={`rounded-full px-3 py-1 text-xs font-semibold ${getConfidenceBadgeClasses(claim.confidenceLevel)}`}
+                    >
+                      Confidence: {claim.confidenceLevel}
+                    </span>
                   </div>
-                </article>
-              ))}
-            </div>
-          </section>
+
+                  <div>
+                    <p className="text-sm font-semibold text-slate-600 mb-1">Original Claim:</p>
+                    <p className="text-sm leading-relaxed text-slate-700">{claim.originalClaim}</p>
+                  </div>
+
+                  {claim.supportingEvidence.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-green-700">✓ Supporting Evidence</p>
+                      <ul className="space-y-2 pl-4">
+                        {claim.supportingEvidence.map((evidence, evIndex) => (
+                          <li key={evIndex} className="text-sm leading-relaxed text-slate-700">
+                            <span className="inline-block rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 mr-2">
+                              {evidence.source}
+                            </span>
+                            <span className="font-medium">{evidence.title}</span>
+                            {evidence.relevance && (
+                              <p className="mt-1 text-sm text-slate-600 ml-0">{evidence.relevance}</p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {claim.contradictingEvidence.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">✗ Contradicting Evidence</p>
+                      <ul className="space-y-2 pl-4">
+                        {claim.contradictingEvidence.map((evidence, evIndex) => (
+                          <li key={evIndex} className="text-sm leading-relaxed text-slate-700">
+                            <span className="inline-block rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 mr-2">
+                              {evidence.source}
+                            </span>
+                            <span className="font-medium">{evidence.title}</span>
+                            {evidence.relevance && (
+                              <p className="mt-1 text-sm text-slate-600 ml-0">{evidence.relevance}</p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {claim.verificationSummary && (
+                    <div className="rounded border border-blue-200 bg-blue-50/60 px-4 py-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700 mb-1.5">
+                        Verification Summary
+                      </p>
+                      <p className="text-sm leading-relaxed text-blue-800">{claim.verificationSummary}</p>
+                    </div>
+                  )}
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+
+  if (isMock) {
+    if (MOCK_VERIFIED_CLAIMS_LIST.length === 0) {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+          <p className="text-base font-medium text-slate-700">No verified claims yet</p>
+          <p className="max-w-md text-sm text-slate-500">
+            Run the verified claims script to cross-reference claims against all gathered evidence.
+          </p>
         </div>
+      );
+    }
+
+    return renderClaimsView(
+      (MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA?.claims ?? []) as VerifiedClaimEntry[],
+      MOCK_VERIFIED_CLAIMS_OVERALL,
+      MOCK_VERIFIED_CLAIMS_PROMPT_NOTES,
+      MOCK_VERIFIED_CLAIMS_TEXT
+    );
+  }
+
+  if (!state || state.status === "loading") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center p-6">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+        <p className="text-sm text-slate-600">Synthesising verified claims…</p>
       </div>
     );
   }
 
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center p-6">
-      <p className="text-base font-medium text-slate-700">Verified claims will appear here</p>
-      <p className="text-sm text-slate-500">Upload a paper and run the verification workflow.</p>
-    </div>
-  );
+  if (state.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-red-700">Verified claims failed</p>
+          <p className="text-sm text-red-600">{state.message}</p>
+        </div>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
+          >
+            Try again
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const claims = state.structured?.claims ?? [];
+  const overallAssessment = state.structured?.overallAssessment;
+  const promptNotes = state.structured?.promptNotes ?? null;
+  const analystNotes = state.text && state.text.trim().length > 0 ? state.text.trim() : undefined;
+
+  if (claims.length === 0 && !overallAssessment && !promptNotes && !analystNotes) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center p-6">
+        <p className="text-base font-medium text-slate-700">No verified claims yet</p>
+        <p className="text-sm text-slate-500">
+          We could not synthesise verified claims. You can retry after confirming the upstream tabs look good.
+        </p>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
+          >
+            Re-run verification
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return renderClaimsView(claims, overallAssessment, promptNotes ?? undefined, analystNotes);
 }
 
 function ExpertNetworkPanel({ paper, isMock }: { paper: UploadedPaper | null; isMock: boolean }) {
@@ -2859,6 +3096,9 @@ export default function LandingPage() {
   const patentsStorageFetchesRef = useRef<Set<string>>(new Set<string>());
   const patentsStorageResolvedRef = useRef<Set<string>>(new Set<string>());
   const patentsGenerationRef = useRef<Set<string>>(new Set<string>());
+  const verifiedClaimsStorageFetchesRef = useRef<Set<string>>(new Set<string>());
+  const verifiedClaimsStorageResolvedRef = useRef<Set<string>>(new Set<string>());
+  const verifiedClaimsGenerationRef = useRef<Set<string>>(new Set<string>());
   const researchGroupsStorageFetchesRef = useRef<Set<string>>(new Set<string>());
   const researchGroupsGenerationRef = useRef<Set<string>>(new Set<string>());
   const contactsStorageFetchesRef = useRef<Set<string>>(new Set<string>());
@@ -2896,6 +3136,9 @@ export default function LandingPage() {
   const [patentsStates, setPatentsStates] = useState<Record<string, PatentsState>>({
     [MOCK_SAMPLE_PAPER_ID]: MOCK_PATENTS_INITIAL_STATE
   });
+  const [verifiedClaimsStates, setVerifiedClaimsStates] = useState<Record<string, VerifiedClaimsState>>({
+    [MOCK_SAMPLE_PAPER_ID]: MOCK_VERIFIED_CLAIMS_INITIAL_STATE
+  });
   const [researchGroupsStates, setResearchGroupsStates] = useState<Record<string, ResearchGroupsState>>({
     [MOCK_SAMPLE_PAPER_ID]: {
       status: "success",
@@ -2917,6 +3160,7 @@ export default function LandingPage() {
   const activeClaimsState = activePaper ? claimsStates[activePaper.id] : undefined;
   const activeSimilarPapersState = activePaper ? similarPapersStates[activePaper.id] : undefined;
   const activePatentsState = activePaper ? patentsStates[activePaper.id] : undefined;
+  const activeVerifiedClaimsState = activePaper ? verifiedClaimsStates[activePaper.id] : undefined;
   const activeResearchGroupState = activePaper ? researchGroupsStates[activePaper.id] : undefined;
   const activeResearchContactsState = activePaper ? researchContactsStates[activePaper.id] : undefined;
   const activeResearchThesesState = activePaper
@@ -3154,6 +3398,106 @@ export default function LandingPage() {
       void patentsPromise;
     } else if (!patentsStorageResolvedRef.current.has(paperId)) {
       patentsStorageResolvedRef.current.add(paperId);
+    }
+
+    const cachedVerified = readCachedState<{ text?: string; structured?: VerifiedClaimsStructured | any }>(
+      paperId,
+      "verifiedClaims"
+    );
+
+    if (
+      !activeVerifiedClaimsState &&
+      (typeof cachedVerified?.text === "string" || (cachedVerified?.structured && typeof cachedVerified.structured === "object"))
+    ) {
+      const text = typeof cachedVerified?.text === "string" ? cachedVerified.text : undefined;
+      const structured = cachedVerified?.structured
+        ? normalizeVerifiedClaimsStructured(cachedVerified.structured)
+        : undefined;
+
+      setVerifiedClaimsStates((prev) => ({
+        ...prev,
+        [paperId]: {
+          status: "success",
+          ...(text ? { text } : {}),
+          ...(structured ? { structured } : {})
+        }
+      }));
+
+      verifiedClaimsStorageResolvedRef.current.add(paperId);
+    }
+
+    const hasAttemptedVerifiedLoad = verifiedClaimsStorageFetchesRef.current.has(paperId);
+    if (
+      !activeVerifiedClaimsState &&
+      !cachedVerified &&
+      activePaper.storagePath &&
+      supabase &&
+      !hasAttemptedVerifiedLoad
+    ) {
+      verifiedClaimsStorageFetchesRef.current.add(paperId);
+      verifiedClaimsStorageResolvedRef.current.delete(paperId);
+
+      setVerifiedClaimsStates((prev) => ({
+        ...prev,
+        [paperId]: { status: "loading" }
+      }));
+
+      const verifiedPromise = loadVerifiedClaimsFromStorage({
+        client: supabase,
+        storagePath: activePaper.storagePath
+      })
+        .then((storedData) => {
+          if (cancelled) {
+            return;
+          }
+
+          const text = typeof storedData?.text === "string" ? storedData.text.trim() : "";
+          const structured = storedData?.structured
+            ? normalizeVerifiedClaimsStructured((storedData as any).structured)
+            : undefined;
+
+          if (text || structured) {
+            const resolvedText = text || (typeof storedData?.text === "string" ? storedData.text : undefined);
+            writeCachedState(paperId, "verifiedClaims", {
+              ...(resolvedText ? { text: resolvedText } : {}),
+              ...(structured ? { structured } : {})
+            });
+            setVerifiedClaimsStates((prev) => ({
+              ...prev,
+              [paperId]: {
+                status: "success",
+                ...(resolvedText ? { text: resolvedText } : {}),
+                ...(structured ? { structured } : {})
+              }
+            }));
+            return;
+          }
+
+          setVerifiedClaimsStates((prev) => {
+            const next = { ...prev };
+            delete next[paperId];
+            return next;
+          });
+        })
+        .catch((error) => {
+          if (cancelled) {
+            return;
+          }
+          console.error("[verified-claims] failed to load from storage", error);
+          setVerifiedClaimsStates((prev) => {
+            const next = { ...prev };
+            delete next[paperId];
+            return next;
+          });
+        })
+        .finally(() => {
+          verifiedClaimsStorageFetchesRef.current.delete(paperId);
+          verifiedClaimsStorageResolvedRef.current.add(paperId);
+        });
+
+      void verifiedPromise;
+    } else if (!verifiedClaimsStorageResolvedRef.current.has(paperId)) {
+      verifiedClaimsStorageResolvedRef.current.add(paperId);
     }
 
     const cachedGroups = readCachedState<{ text: string; structured?: ResearchGroupPaperEntry[] | any }>(
@@ -3940,6 +4284,205 @@ export default function LandingPage() {
         });
 
         setPatentsStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "error",
+            message
+          }
+        }));
+      }
+    },
+    [supabase, user]
+  );
+
+  const runVerifiedClaims = useCallback(
+    async (
+      paper: UploadedPaper,
+      claims: ClaimsAnalysisState,
+      similar: SimilarPapersState,
+      groups: ResearchGroupsState,
+      patents: PatentsState,
+      theses: ResearcherThesesState | undefined
+    ) => {
+      if (!paper || isMockPaper(paper)) {
+        return;
+      }
+
+      if (!claims || claims.status !== "success") {
+        console.error("[verified-claims] Claims are required but not available", {
+          paperId: paper.id,
+          claimsStatus: claims?.status
+        });
+        setVerifiedClaimsStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "error",
+            message: "Claims analysis is required before running verification."
+          }
+        }));
+        return;
+      }
+
+      if (!similar || similar.status !== "success") {
+        console.error("[verified-claims] Similar papers are required but not available", {
+          paperId: paper.id,
+          similarStatus: similar?.status
+        });
+        return;
+      }
+
+      if (!groups || groups.status !== "success") {
+        console.error("[verified-claims] Research groups are required but not available", {
+          paperId: paper.id,
+          groupsStatus: groups?.status
+        });
+        return;
+      }
+
+      if (!patents || patents.status !== "success") {
+        console.error("[verified-claims] Patents are required but not available", {
+          paperId: paper.id,
+          patentsStatus: patents?.status
+        });
+        return;
+      }
+
+      console.log("[verified-claims] starting fetch", {
+        paperId: paper.id,
+        hasClaimsText: Boolean(claims.text),
+        hasSimilarText: Boolean(similar.text),
+        hasGroupsText: Boolean(groups.text),
+        hasPatentsText: Boolean(patents.text)
+      });
+
+      setVerifiedClaimsStates((prev) => ({
+        ...prev,
+        [paper.id]: { status: "loading" }
+      }));
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => {
+          console.warn("[verified-claims] Frontend timeout fired; aborting request", {
+            paperId: paper.id,
+            timeout: PIPELINE_TIMEOUT_LABEL
+          });
+          controller.abort();
+        }, PIPELINE_TIMEOUT_MS);
+
+        let response: Response;
+
+        try {
+          response = await fetch("/api/verified-claims", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              paper: {
+                title: paper.name ?? null,
+                doi: paper.doi ?? null
+              },
+              claims: {
+                text: claims.text ?? null,
+                structured: claims.structured ?? null
+              },
+              similarPapers: {
+                text: similar.text ?? null,
+                structured: similar.structured ?? null
+              },
+              researchGroups: {
+                text: groups.text ?? null,
+                structured: groups.structured ?? null
+              },
+              theses:
+                theses && theses.status === "success"
+                  ? {
+                      text: theses.text ?? null,
+                      structured: theses.researchers ?? null
+                    }
+                  : null,
+              patents: {
+                text: patents.text ?? null,
+                structured: patents.structured ?? null
+              }
+            }),
+            signal: controller.signal
+          });
+        } catch (fetchError) {
+          window.clearTimeout(timeoutId);
+          const isAbort = fetchError instanceof DOMException && fetchError.name === "AbortError";
+          if (isAbort) {
+            throw new Error("Verified claims analysis timed out. Please try again.");
+          }
+          throw fetchError;
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
+
+        if (!response.ok) {
+          let message = "Failed to verify claims.";
+          try {
+            const errorPayload = await response.json();
+            if (typeof errorPayload?.error === "string") {
+              message = errorPayload.error;
+            }
+          } catch (parseError) {
+            console.warn("[verified-claims] error payload parsing failed", parseError);
+          }
+          throw new Error(message);
+        }
+
+        const payload = (await response.json()) as { text?: string | null; structured?: VerifiedClaimsStructured | null };
+        const text = typeof payload?.text === "string" ? payload.text.trim() : "";
+        const structuredData = payload?.structured ? normalizeVerifiedClaimsStructured(payload.structured) : undefined;
+
+        if (!text && !structuredData) {
+          throw new Error("Verified claims response did not include notes or structured data.");
+        }
+
+        console.log("[verified-claims] fetch success", {
+          paperId: paper.id,
+          hasText: Boolean(text),
+          claimsCount: structuredData?.claims.length ?? 0
+        });
+
+        writeCachedState(paper.id, "verifiedClaims", {
+          ...(text ? { text } : {}),
+          ...(structuredData ? { structured: structuredData } : {})
+        });
+
+        if (paper.storagePath && supabase && user) {
+          saveVerifiedClaimsToStorage({
+            client: supabase,
+            userId: user.id,
+            paperId: paper.id,
+            storagePath: paper.storagePath,
+            verifiedClaimsData: {
+              ...(text ? { text } : {}),
+              ...(structuredData ? { structured: structuredData } : {})
+            }
+          }).catch((error) => {
+            console.error("[verified-claims] failed to save to storage", error);
+          });
+        }
+
+        setVerifiedClaimsStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "success",
+            ...(text ? { text } : {}),
+            ...(structuredData ? { structured: structuredData } : {})
+          }
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to verify claims.";
+        console.error("[verified-claims] fetch error", {
+          paperId: paper.id,
+          error
+        });
+
+        setVerifiedClaimsStates((prev) => ({
           ...prev,
           [paper.id]: {
             status: "error",
@@ -4805,11 +5348,7 @@ export default function LandingPage() {
   }, [activePaper, activeExtraction, activeClaimsState, activeSimilarPapersState, runSimilarPapers]);
 
   useEffect(() => {
-    if (!activePaper) {
-      return;
-    }
-
-    if (isMockPaper(activePaper)) {
+    if (!activePaper || isMockPaper(activePaper)) {
       return;
     }
 
@@ -4818,6 +5357,18 @@ export default function LandingPage() {
     }
 
     if (!activeClaimsState || activeClaimsState.status !== "success") {
+      return;
+    }
+
+    if (activeVerifiedClaimsState?.status === "success" || activeVerifiedClaimsState?.status === "error") {
+      return;
+    }
+
+    if (!activeSimilarPapersState || activeSimilarPapersState.status !== "success") {
+      return;
+    }
+
+    if (!activeResearchGroupState || activeResearchGroupState.status !== "success") {
       return;
     }
 
@@ -4860,6 +5411,81 @@ export default function LandingPage() {
     patentsGenerationRef.current.add(activePaper.id);
     void runPatents(activePaper, activeExtraction.data, activeClaimsState);
   }, [activePaper, activeExtraction, activeClaimsState, activePatentsState, runPatents]);
+
+  useEffect(() => {
+    if (!activePaper) {
+      return;
+    }
+
+    if (isMockPaper(activePaper)) {
+      return;
+    }
+
+    if (!activeExtraction || activeExtraction.status !== "success") {
+      return;
+    }
+
+    if (!activeClaimsState || activeClaimsState.status !== "success") {
+      return;
+    }
+
+    if (activeVerifiedClaimsState?.status === "success" || activeVerifiedClaimsState?.status === "error") {
+      return;
+    }
+
+    if (activePaper.storagePath && !verifiedClaimsStorageResolvedRef.current.has(activePaper.id)) {
+      console.log("[verified-claims-effect] Waiting for Supabase resolution", {
+        paperId: activePaper.id
+      });
+      return;
+    }
+
+    if (
+      verifiedClaimsStorageFetchesRef.current.has(activePaper.id) &&
+      !verifiedClaimsGenerationRef.current.has(activePaper.id)
+    ) {
+      console.log("[verified-claims-effect] Waiting for Supabase load (state not ready yet)", {
+        paperId: activePaper.id
+      });
+      return;
+    }
+
+    if (
+      activeVerifiedClaimsState?.status === "loading" &&
+      !verifiedClaimsGenerationRef.current.has(activePaper.id) &&
+      verifiedClaimsStorageFetchesRef.current.has(activePaper.id)
+    ) {
+      console.log("[verified-claims-effect] Waiting for Supabase load to resolve before generating", {
+        paperId: activePaper.id
+      });
+      return;
+    }
+
+    if (verifiedClaimsGenerationRef.current.has(activePaper.id)) {
+      return;
+    }
+
+    verifiedClaimsGenerationRef.current.add(activePaper.id);
+    void runVerifiedClaims(
+      activePaper,
+      activeClaimsState,
+      activeSimilarPapersState,
+      activeResearchGroupState,
+      activePatentsState,
+      activeResearchThesesState && activeResearchThesesState.status === "success"
+        ? activeResearchThesesState
+        : undefined
+    );
+  }, [
+    activePaper,
+    activeClaimsState,
+    activeSimilarPapersState,
+    activeResearchGroupState,
+    activePatentsState,
+    activeResearchThesesState,
+    activeVerifiedClaimsState,
+    runVerifiedClaims
+  ]);
 
   useEffect(() => {
     if (!activePaper) {
@@ -5166,6 +5792,48 @@ export default function LandingPage() {
     void runPatents(activePaper, activeExtraction.data, activeClaimsState);
   }, [activePaper, activeExtraction, activeClaimsState, runPatents]);
 
+  const handleRetryVerifiedClaims = useCallback(() => {
+    if (!activePaper) {
+      return;
+    }
+
+    if (!activeClaimsState || activeClaimsState.status !== "success") {
+      return;
+    }
+
+    if (!activeSimilarPapersState || activeSimilarPapersState.status !== "success") {
+      return;
+    }
+
+    if (!activeResearchGroupState || activeResearchGroupState.status !== "success") {
+      return;
+    }
+
+    if (!activePatentsState || activePatentsState.status !== "success") {
+      return;
+    }
+
+    verifiedClaimsGenerationRef.current.delete(activePaper.id);
+    void runVerifiedClaims(
+      activePaper,
+      activeClaimsState,
+      activeSimilarPapersState,
+      activeResearchGroupState,
+      activePatentsState,
+      activeResearchThesesState && activeResearchThesesState.status === "success"
+        ? activeResearchThesesState
+        : undefined
+    );
+  }, [
+    activePaper,
+    activeClaimsState,
+    activeSimilarPapersState,
+    activeResearchGroupState,
+    activePatentsState,
+    activeResearchThesesState,
+    runVerifiedClaims
+  ]);
+
   const handleDeletePaper = useCallback(
     async (paperId: string) => {
       if (paperId === MOCK_SAMPLE_PAPER_ID) {
@@ -5202,6 +5870,9 @@ export default function LandingPage() {
         patentsStorageFetchesRef.current.delete(paperId);
         patentsStorageResolvedRef.current.delete(paperId);
         patentsGenerationRef.current.delete(paperId);
+        verifiedClaimsStorageFetchesRef.current.delete(paperId);
+        verifiedClaimsStorageResolvedRef.current.delete(paperId);
+        verifiedClaimsGenerationRef.current.delete(paperId);
         researchGroupsStorageFetchesRef.current.delete(paperId);
         researchGroupsGenerationRef.current.delete(paperId);
         contactsStorageFetchesRef.current.delete(paperId);
@@ -5351,7 +6022,13 @@ export default function LandingPage() {
     }
 
     if (activeTab === "verifiedClaims") {
-      return <VerifiedClaimsPanel isMock={Boolean(isActivePaperMock)} />;
+      return (
+        <VerifiedClaimsPanel
+          state={activeVerifiedClaimsState}
+          isMock={Boolean(isActivePaperMock)}
+          onRetry={handleRetryVerifiedClaims}
+        />
+      );
     }
 
     return <ExtractionDebugPanel state={activeExtraction} paper={activePaper} />;

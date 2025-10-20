@@ -155,10 +155,11 @@ export async function deleteUserPaper({ client, userId, paperId, storagePath }: 
   const contactsPath = storagePath.replace(/\.pdf$/i, "-contacts.json");
   const thesesPath = storagePath.replace(/\.pdf$/i, "-theses.json");
   const patentsPath = storagePath.replace(/\.pdf$/i, "-patents.json");
+  const verifiedPath = storagePath.replace(/\.pdf$/i, "-verified-claims.json");
 
   const deleteJsonResult = await client.storage
     .from(PAPERS_BUCKET)
-    .remove([claimsPath, similarPath, groupsPath, contactsPath, thesesPath, patentsPath]);
+    .remove([claimsPath, similarPath, groupsPath, contactsPath, thesesPath, patentsPath, verifiedPath]);
 
   if (deleteJsonResult.error) {
     console.warn("Failed to delete JSON files from storage (may not exist)", deleteJsonResult.error);
@@ -336,6 +337,67 @@ export async function loadPatentsFromStorage({ client, storagePath }: LoadPatent
     return JSON.parse(text);
   } catch (error) {
     console.warn("Failed to parse patents payload", error);
+    return null;
+  }
+}
+
+export interface SaveVerifiedClaimsInput {
+  client: SupabaseClient;
+  userId: string;
+  paperId: string;
+  storagePath: string;
+  verifiedClaimsData: any;
+}
+
+export async function saveVerifiedClaimsToStorage({
+  client,
+  userId,
+  paperId,
+  storagePath,
+  verifiedClaimsData
+}: SaveVerifiedClaimsInput) {
+  const verifiedPath = storagePath.replace(/\.pdf$/i, "-verified-claims.json");
+  const payload = new Blob([JSON.stringify(verifiedClaimsData, null, 2)], {
+    type: "application/json"
+  });
+
+  const uploadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .upload(verifiedPath, payload, {
+      cacheControl: "3600",
+      upsert: true,
+      contentType: "application/json"
+    });
+
+  if (uploadResult.error) {
+    throw uploadResult.error;
+  }
+
+  return { verifiedPath };
+}
+
+export interface LoadVerifiedClaimsInput {
+  client: SupabaseClient;
+  storagePath: string;
+}
+
+export async function loadVerifiedClaimsFromStorage({ client, storagePath }: LoadVerifiedClaimsInput) {
+  const verifiedPath = storagePath.replace(/\.pdf$/i, "-verified-claims.json");
+
+  const downloadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .download(verifiedPath);
+
+  if (downloadResult.error) {
+    return null;
+  }
+
+  const text = await downloadResult.data.text();
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    console.warn("Failed to parse verified claims payload", error);
     return null;
   }
 }

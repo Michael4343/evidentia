@@ -1,10 +1,10 @@
 CODEX
-dynamic patent search
 dynamic verified claims
 scripts add paper to home page mock
+remove legacy loading 
 
 CLAUDE
-LINKS to patents
+patents and verify claims save to database
 fix build
 
 Annotation tools for paper
