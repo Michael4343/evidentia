@@ -154,10 +154,11 @@ export async function deleteUserPaper({ client, userId, paperId, storagePath }: 
   const groupsPath = storagePath.replace(/\.pdf$/i, "-groups.json");
   const contactsPath = storagePath.replace(/\.pdf$/i, "-contacts.json");
   const thesesPath = storagePath.replace(/\.pdf$/i, "-theses.json");
+  const patentsPath = storagePath.replace(/\.pdf$/i, "-patents.json");
 
   const deleteJsonResult = await client.storage
     .from(PAPERS_BUCKET)
-    .remove([claimsPath, similarPath, groupsPath, contactsPath, thesesPath]);
+    .remove([claimsPath, similarPath, groupsPath, contactsPath, thesesPath, patentsPath]);
 
   if (deleteJsonResult.error) {
     console.warn("Failed to delete JSON files from storage (may not exist)", deleteJsonResult.error);
@@ -280,6 +281,61 @@ export async function loadSimilarPapersFromStorage({ client, storagePath }: Load
     return JSON.parse(text);
   } catch (error) {
     console.warn("Failed to parse similar papers payload", error);
+    return null;
+  }
+}
+
+export interface SavePatentsInput {
+  client: SupabaseClient;
+  userId: string;
+  paperId: string;
+  storagePath: string;
+  patentsData: any;
+}
+
+export async function savePatentsToStorage({ client, userId, paperId, storagePath, patentsData }: SavePatentsInput) {
+  const patentsPath = storagePath.replace(/\.pdf$/i, "-patents.json");
+  const payload = new Blob([JSON.stringify(patentsData, null, 2)], {
+    type: "application/json"
+  });
+
+  const uploadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .upload(patentsPath, payload, {
+      cacheControl: "3600",
+      upsert: true,
+      contentType: "application/json"
+    });
+
+  if (uploadResult.error) {
+    throw uploadResult.error;
+  }
+
+  return { patentsPath };
+}
+
+export interface LoadPatentsInput {
+  client: SupabaseClient;
+  storagePath: string;
+}
+
+export async function loadPatentsFromStorage({ client, storagePath }: LoadPatentsInput) {
+  const patentsPath = storagePath.replace(/\.pdf$/i, "-patents.json");
+
+  const downloadResult = await client.storage
+    .from(PAPERS_BUCKET)
+    .download(patentsPath);
+
+  if (downloadResult.error) {
+    return null;
+  }
+
+  const text = await downloadResult.data.text();
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    console.warn("Failed to parse patents payload", error);
     return null;
   }
 }

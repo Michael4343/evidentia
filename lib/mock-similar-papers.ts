@@ -1487,7 +1487,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
             ],
             "summary": "The claims recite receiving phased haplotype data, matching IBD segments across predefined genomic bins, and aggregating weighted scores to infer pairwise relatedness. DAP's ≥10,000 low-pass WGS effort requires kinship and population-structure control for GWAS; the patented IBD segmentation and scoring procedures map directly to building relatedness matrices and detecting cryptic relationships within the cohort. This enables accurate association testing and pedigree deconvolution exactly as contemplated in the paper's genetic architecture aims."
           },
-          "url": null
+          "url": "https://patents.google.com/patent/US11501851B2"
         },
         {
           "patentNumber": "US7729863B2",
@@ -1502,7 +1502,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
             ],
             "summary": "Independent claims cover selecting breed-informative SNPs or markers and classifying unknown dogs by comparing genotype profiles with breed reference panels. DAP's genomic analyses require robust breed assignment and stratification control to mitigate confounding in large-scale GWAS; the claimed marker selection and classifier mapping mirror the paper's approach to infer ancestry and adjust models accordingly. This enables proper population structure adjustment that is essential for the paper's planned genetic architecture studies."
           },
-          "url": null
+          "url": "https://patents.google.com/patent/US7729863B2"
         },
         {
           "patentNumber": "GB2626276A",
@@ -1517,7 +1517,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
             ],
             "summary": "Claims 1-8 describe receiving pet genomic data, identifying local DNA fragment patterns with shared segments, and computing IBD statistics to infer kinship. DAP's nationwide cohort needs scalable relatedness detection to build relationship graphs and adjust association models; the claimed IBD matching and kinship inference steps are the same computations used to generate the cohort's relatedness matrices. This directly supports the paper's strategy to map canine genetic architecture while controlling for family structure."
           },
-          "url": null
+          "url": "https://patents.google.com/patent/GB2626276A"
         },
         {
           "patentNumber": "US20220119864A1",
@@ -1532,7 +1532,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
             ],
             "summary": "The claims disclose serial faecal sampling, microbiome sequencing, and comparative analytics against a reference to detect deviations over time. DAP's Precision/TRIAD cohorts plan annual faecal collections with QA/QC and multi-omic profiling to derive biomarkers; the claimed longitudinal microbiome workflows map to the paper's biomarker development pipeline and temporal deviation detection. This enables monitoring of microbiome-based ageing and disease signatures as described in the study."
           },
-          "url": null
+          "url": "https://patents.google.com/patent/US20220119864A1"
         },
         {
           "patentNumber": "US9615547B2",
@@ -1547,7 +1547,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
             ],
             "summary": "Claims cover collecting accelerometer data and physiological signals from a pet, computing activity, rest, posture, and anomaly metrics, and generating alerts. DAP specifies accelerometry and clinicopathology in its annual profiling; the claimed device and algorithms produce the continuous activity and rest features used for frailty and healthspan biomarker development. This provides instrumentation and derived measures directly aligned with the paper's multi-omic phenotyping."
           },
-          "url": null
+          "url": "https://patents.google.com/patent/US9615547B2"
         },
         {
           "patentNumber": "WO2021124264A1",
@@ -1562,7 +1562,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
             ],
             "summary": "Independent claims recite canine-applicable oral formulations and dosing ranges for rapamycin to modulate disease processes relevant to ageing. TRIAD tests weekly low-dose rapamycin in middle-aged, large-breed dogs for lifespan and healthspan endpoints; the claimed compositions and veterinary dosing encompass the same active agent, species, and ageing-linked indications operationalised by the trial. This provides coverage over the interventional agent and practical delivery that the paper's RCT implements."
           },
-          "url": null
+          "url": "https://patents.google.com/patent/WO2021124264A1"
         },
         {
           "patentNumber": "US20220401421A1",
@@ -1577,7 +1577,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
             ],
             "summary": "Claims disclose oral dosage forms and dosing regimens for rapamycin in dogs and cats for conditions tied to ageing physiology. The TRIAD protocol's weekly low-dose rapamycin administration in dogs falls within the claimed veterinary use and dosage scope, linking the agent, species, and targeted healthspan outcomes. Thus, the patent family covers the therapeutic composition and use central to the paper's interventional study."
           },
-          "url": null
+          "url": "https://patents.google.com/patent/US20220401421A1"
         },
         {
           "patentNumber": "WO2022272120A1",
@@ -1593,7 +1593,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
             ],
             "summary": "Independent disclosures specify CpG marker sets and regression frameworks for canine and dual-species epigenetic clocks and methods to quantify age shift pre- and post-treatment. DAP's annual multi-omic profiling seeks ageing biomarkers and TRIAD requires surrogate measures of biological-age response to rapamycin; the claimed methylation clocks map directly to these measurement needs. This enables objective, model-based tracking of intervention effects and normative ageing trajectories as outlined in the paper."
           },
-          "url": null
+          "url": "https://patents.google.com/patent/WO2022272120A1"
         }
       ],
       "promptNotes": "No substantive patents were identified for C1 (longitudinal open cohort infrastructure), C2 (dogs as a model), C6 (open-science data/biobank policy), or C7 (ethics and participant engagement), which describe governance and operational frameworks rather than patentable technical inventions."

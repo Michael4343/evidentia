@@ -14,7 +14,7 @@ import { ReaderTabKey } from "@/lib/reader-tabs";
 import { extractDoiFromPdf } from "@/lib/pdf-doi";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { parseUploadError, validateFileSize } from "@/lib/upload-errors";
-import { deleteUserPaper, fetchUserPapers, persistUserPaper, saveClaimsToStorage, loadClaimsFromStorage, saveSimilarPapersToStorage, loadSimilarPapersFromStorage, saveResearchGroupsToStorage, loadResearchGroupsFromStorage, saveContactsToStorage, loadContactsFromStorage, saveThesesToStorage, loadThesesFromStorage, type UserPaperRecord } from "@/lib/user-papers";
+import { deleteUserPaper, fetchUserPapers, persistUserPaper, saveClaimsToStorage, loadClaimsFromStorage, saveSimilarPapersToStorage, loadSimilarPapersFromStorage, savePatentsToStorage, loadPatentsFromStorage, saveResearchGroupsToStorage, loadResearchGroupsFromStorage, saveContactsToStorage, loadContactsFromStorage, saveThesesToStorage, loadThesesFromStorage, type UserPaperRecord } from "@/lib/user-papers";
 
 const RESEARCH_CACHE_VERSION = "v1";
 
@@ -70,7 +70,7 @@ function removeMockState<T>(state: Record<string, T>): Record<string, T> {
   return rest as Record<string, T>;
 }
 
-type CacheStage = "similarPapers" | "groups" | "contacts" | "theses";
+type CacheStage = "similarPapers" | "groups" | "contacts" | "theses" | "patents";
 
 function getCacheKey(paperId: string, stage: CacheStage) {
   return `paper-cache:${RESEARCH_CACHE_VERSION}:${paperId}:${stage}`;
@@ -239,6 +239,72 @@ function normalizeResearchGroupsStructured(raw: unknown): ResearchGroupPaperEntr
     .filter((entry) => entry);
 }
 
+function normalizePatentEntry(raw: any): PatentEntry | null {
+  if (!raw || typeof raw !== "object") {
+    return null;
+  }
+
+  const patentNumber = typeof raw.patentNumber === "string" && raw.patentNumber.trim().length > 0 ? raw.patentNumber.trim() : null;
+  const title = typeof raw.title === "string" && raw.title.trim().length > 0 ? raw.title.trim() : null;
+  const assignee = typeof raw.assignee === "string" && raw.assignee.trim().length > 0 ? raw.assignee.trim() : null;
+  const filingDate = typeof raw.filingDate === "string" && raw.filingDate.trim().length > 0 ? raw.filingDate.trim() : null;
+  const grantDate = typeof raw.grantDate === "string" && raw.grantDate.trim().length > 0 ? raw.grantDate.trim() : null;
+  const summary = typeof raw.abstract === "string" && raw.abstract.trim().length > 0 ? raw.abstract.trim() : null;
+  const url = typeof raw.url === "string" && raw.url.trim().length > 0 ? raw.url.trim() : null;
+
+  const overlapRaw = raw.overlapWithPaper;
+  const claimIds = Array.isArray(overlapRaw?.claimIds)
+    ? overlapRaw.claimIds
+        .map((claim: any) => (typeof claim === "string" ? claim.trim() : ""))
+        .filter((claim: string) => claim.length > 0)
+    : [];
+  const overlapSummary =
+    overlapRaw && typeof overlapRaw.summary === "string" && overlapRaw.summary.trim().length > 0
+      ? overlapRaw.summary.trim()
+      : null;
+
+  const overlap: PatentOverlapWithPaper | null = claimIds.length > 0 || overlapSummary
+    ? {
+        claimIds,
+        summary: overlapSummary
+      }
+    : null;
+
+  return {
+    patentNumber,
+    title,
+    assignee,
+    filingDate,
+    grantDate,
+    abstract: summary,
+    url,
+    overlapWithPaper: overlap
+  };
+}
+
+function normalizePatentsStructured(raw: unknown): PatentsStructured | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+
+  const rawObject = raw as { patents?: unknown; promptNotes?: unknown };
+  const promptNotes = typeof rawObject.promptNotes === "string" && rawObject.promptNotes.trim().length > 0 ? rawObject.promptNotes.trim() : null;
+  const patentsArray = Array.isArray(rawObject.patents) ? rawObject.patents : [];
+
+  const patents = patentsArray
+    .map((entry) => normalizePatentEntry(entry))
+    .filter((entry): entry is PatentEntry => Boolean(entry));
+
+  if (patents.length === 0 && !promptNotes) {
+    return undefined;
+  }
+
+  return {
+    ...(patents.length > 0 ? { patents } : {}),
+    ...(promptNotes ? { promptNotes } : {})
+  };
+}
+
 function extractAuthorsFromInfo(info: Record<string, any> | null | undefined): string[] | null {
   if (!info) {
     return null;
@@ -402,6 +468,32 @@ type SimilarPapersState =
   | { status: "success"; text: string; structured?: SimilarPapersStructured }
   | { status: "error"; message: string };
 
+interface PatentOverlapWithPaper {
+  claimIds: string[];
+  summary: string | null;
+}
+
+interface PatentEntry {
+  patentNumber: string | null;
+  title: string | null;
+  assignee: string | null;
+  filingDate: string | null;
+  grantDate: string | null;
+  abstract: string | null;
+  url: string | null;
+  overlapWithPaper: PatentOverlapWithPaper | null;
+}
+
+interface PatentsStructured {
+  patents?: PatentEntry[];
+  promptNotes?: string | null;
+}
+
+type PatentsState =
+  | { status: "loading" }
+  | { status: "success"; text?: string; structured?: PatentsStructured }
+  | { status: "error"; message: string };
+
 type ClaimsAnalysisStrength = "High" | "Moderate" | "Low" | "Unclear";
 
 interface ClaimsAnalysisClaim {
@@ -525,9 +617,18 @@ const MOCK_PATENTS =
     ? MOCK_SIMILAR_PAPERS_LIBRARY.patents
     : null;
 
-const MOCK_PATENTS_LIST = Array.isArray(MOCK_PATENTS?.structured?.patents)
-  ? MOCK_PATENTS.structured.patents
-  : [];
+const MOCK_PATENTS_TEXT = typeof MOCK_PATENTS?.text === "string" ? MOCK_PATENTS.text : "";
+const MOCK_PATENTS_STRUCTURED = normalizePatentsStructured(MOCK_PATENTS?.structured);
+const MOCK_PATENTS_LIST = MOCK_PATENTS_STRUCTURED?.patents ?? [];
+
+const MOCK_PATENTS_INITIAL_STATE: PatentsState =
+  MOCK_PATENTS_LIST.length > 0 || MOCK_PATENTS_TEXT
+    ? {
+        status: "success",
+        ...(MOCK_PATENTS_TEXT ? { text: MOCK_PATENTS_TEXT } : {}),
+        ...(MOCK_PATENTS_STRUCTURED ? { structured: MOCK_PATENTS_STRUCTURED } : {})
+      }
+    : { status: "success" };
 
 const MOCK_VERIFIED_CLAIMS =
   typeof MOCK_SIMILAR_PAPERS_LIBRARY?.verifiedClaims === "object"
@@ -2207,150 +2308,236 @@ function ResearcherThesesPanel({
 }
 
 function PatentsPanel({
+  extraction: _extraction,
   state,
   paper,
-  isMock
+  isMock,
+  onRetry
 }: {
-  state: ExtractionState | undefined;
+  extraction: ExtractionState | undefined;
+  state: PatentsState | undefined;
   paper: UploadedPaper | null;
   isMock: boolean;
+  onRetry?: () => void;
 }) {
-  if (isMock && MOCK_PATENTS_LIST.length === 0) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
-        <p className="text-base font-medium text-slate-700">No patent data yet</p>
-        <p className="max-w-md text-sm text-slate-500">
-          Run the patent search script to populate this tab with relevant patents.
-        </p>
-      </div>
-    );
-  }
-
-  if (isMock && MOCK_PATENTS_LIST.length > 0) {
-    return (
-      <div className="flex flex-1 flex-col overflow-auto">
-        <div className="flex-1 overflow-auto bg-slate-50">
-          <section className="w-full space-y-6 px-6 py-8">
-            <header className="space-y-2">
-              <h2 className="text-xl font-semibold text-slate-900">Related Patents</h2>
-              <p className="text-sm leading-relaxed text-slate-600">
-                Patents covering similar methods, compositions, or systems described in the paper's claims.
-              </p>
-            </header>
-
-            <div className="space-y-4">
-              {MOCK_PATENTS_LIST.map((patent, index) => (
-                <article
-                  key={patent.patentNumber ?? index}
-                  className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm"
-                >
-                  <div className="space-y-3">
-                    <div className="space-y-1.5">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          {patent.url ? (
-                            <a
-                              href={patent.url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 hover:text-primary transition"
-                            >
-                              {patent.patentNumber}
-                            </a>
-                          ) : (
-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                              {patent.patentNumber}
-                            </p>
-                          )}
-                          <h3 className="text-base font-semibold text-slate-900">{patent.title}</h3>
-                        </div>
-                        {patent.url && (
-                          <a
-                            href={patent.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center rounded-full border border-primary px-3 py-1 text-xs font-semibold text-primary transition hover:bg-primary/5"
-                          >
-                            View patent
-                          </a>
-                        )}
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                        {patent.assignee && (
-                          <span className="font-medium">{patent.assignee}</span>
-                        )}
-                        {patent.filingDate && (
-                          <span className="text-slate-400">•</span>
-                        )}
-                        {patent.filingDate && (
-                          <span>Filed: {patent.filingDate}</span>
-                        )}
-                        {patent.grantDate && (
-                          <span className="text-slate-400">•</span>
-                        )}
-                        {patent.grantDate && (
-                          <span>Granted: {patent.grantDate}</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {patent.abstract && (
-                      <p className="text-sm leading-relaxed text-slate-700">{patent.abstract}</p>
+  const renderPatentCards = (patents: PatentEntry[]) => (
+    <div className="space-y-4">
+      {patents.map((patent, index) => {
+        const key = patent.patentNumber || patent.title || `patent-${index}`;
+        const claimIds = patent.overlapWithPaper?.claimIds ?? [];
+        return (
+          <article key={key} className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    {patent.url ? (
+                      <a
+                        href={patent.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 transition hover:text-primary"
+                      >
+                        {patent.patentNumber ?? "View patent"}
+                      </a>
+                    ) : (
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        {patent.patentNumber ?? "Patent"}
+                      </p>
                     )}
+                    <h3 className="text-base font-semibold text-slate-900">{patent.title ?? "Untitled patent"}</h3>
+                  </div>
+                  {patent.url && (
+                    <a
+                      href={patent.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center rounded-full border border-primary px-3 py-1 text-xs font-semibold text-primary transition hover:bg-primary/5"
+                    >
+                      View patent
+                    </a>
+                  )}
+                </div>
 
-                    {patent.overlapWithPaper?.claimIds?.length > 0 && (
-                      <div className="rounded border border-blue-200 bg-blue-50/60 px-4 py-3">
-                        <div className="space-y-1.5">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
-                            Overlaps with paper claims: {patent.overlapWithPaper.claimIds.join(", ")}
-                          </p>
-                          {patent.overlapWithPaper.summary && (
-                            <p className="text-sm leading-relaxed text-blue-800">
-                              {patent.overlapWithPaper.summary}
-                            </p>
-                          )}
-                        </div>
-                      </div>
+                <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                  {patent.assignee && <span className="font-medium">{patent.assignee}</span>}
+                  {patent.filingDate && <span className="text-slate-400">•</span>}
+                  {patent.filingDate && <span>Filed: {patent.filingDate}</span>}
+                  {patent.grantDate && <span className="text-slate-400">•</span>}
+                  {patent.grantDate && <span>Granted: {patent.grantDate}</span>}
+                </div>
+              </div>
+
+              {patent.abstract && <p className="text-sm leading-relaxed text-slate-700">{patent.abstract}</p>}
+
+              {claimIds.length > 0 || patent.overlapWithPaper?.summary ? (
+                <div className="rounded border border-blue-200 bg-blue-50/60 px-4 py-3">
+                  <div className="space-y-1.5">
+                    {claimIds.length > 0 && (
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
+                        Overlaps with paper claims: {claimIds.join(", ")}
+                      </p>
                     )}
-
-                    {patent.url && (
-                      <div className="pt-2">
-                        <a
-                          href={patent.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-sm text-slate-500 underline-offset-4 hover:underline"
-                        >
-                          {patent.url}
-                        </a>
-                      </div>
+                    {patent.overlapWithPaper?.summary && (
+                      <p className="text-sm leading-relaxed text-blue-800">{patent.overlapWithPaper.summary}</p>
                     )}
                   </div>
-                </article>
-              ))}
-            </div>
-          </section>
-        </div>
-      </div>
-    );
-  }
+                </div>
+              ) : null}
 
-  return (
+              {patent.url && (
+                <div className="flex justify-start pt-2">
+                  <a
+                    href={patent.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-2 rounded-lg border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white"
+                  >
+                    See Patent
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-4 w-4"
+                    >
+                      <path d="M7 7h10v10" />
+                      <path d="M7 17 17 7" />
+                    </svg>
+                  </a>
+                </div>
+              )}
+            </div>
+          </article>
+        );
+      })}
+    </div>
+  );
+
+  const renderPatentsView = (
+    patents: PatentEntry[],
+    promptNotes?: string | null,
+    analystNotes?: string
+  ) => (
     <div className="flex flex-1 flex-col overflow-auto">
-      <div className="border-b border-slate-200 bg-slate-50 px-6 py-4">
-        <div className="mx-auto max-w-5xl">
-          <h2 className="text-lg font-semibold text-slate-800">Patents</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            This section currently displays raw PDF text extraction as a placeholder. We are actively working on implementing patent search and analysis features.
-          </p>
-        </div>
-      </div>
-      <div className="flex-1 overflow-auto">
-        <ExtractionDebugPanel state={state} paper={paper} />
+      <div className="flex-1 overflow-auto bg-slate-50">
+        <section className="w-full space-y-6 px-6 py-8">
+          <header className="space-y-2">
+            <h2 className="text-xl font-semibold text-slate-900">Related Patents</h2>
+            <p className="text-sm leading-relaxed text-slate-600">
+              Patents covering similar methods, compositions, or systems described in the paper's claims.
+            </p>
+          </header>
+
+          {promptNotes && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              {promptNotes}
+            </div>
+          )}
+
+          {analystNotes && (
+            <details className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+              <summary className="cursor-pointer font-medium text-slate-900">Analyst notes</summary>
+              <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{analystNotes}</pre>
+            </details>
+          )}
+
+          {patents.length > 0 ? (
+            renderPatentCards(patents)
+          ) : (
+            <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600">
+              No patents surfaced yet.
+            </div>
+          )}
+        </section>
       </div>
     </div>
   );
+
+  if (isMock) {
+    if (MOCK_PATENTS_LIST.length === 0) {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+          <p className="text-base font-medium text-slate-700">No patent data yet</p>
+          <p className="max-w-md text-sm text-slate-500">
+            Run the patent search script to populate this tab with relevant patents.
+          </p>
+        </div>
+      );
+    }
+
+    return renderPatentsView(MOCK_PATENTS_LIST, MOCK_PATENTS_STRUCTURED?.promptNotes, MOCK_PATENTS_TEXT);
+  }
+
+  if (!paper) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center p-6">
+        <p className="text-base font-medium text-slate-700">Upload a PDF to see patent overlaps.</p>
+        <p className="text-sm text-slate-500">We will run a patent search once claims analysis completes.</p>
+      </div>
+    );
+  }
+
+  if (!state || state.status === "loading") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center p-6">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+        <p className="text-sm text-slate-600">Searching for related patents…</p>
+      </div>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-red-700">Patent search failed</p>
+          <p className="text-sm text-red-600">{state.message}</p>
+        </div>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
+          >
+            Try again
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  const patents = state.structured?.patents ?? [];
+  const promptNotes = state.structured?.promptNotes ?? null;
+  const analystNotes = state.text && state.text.trim().length > 0 ? state.text.trim() : undefined;
+
+  if (patents.length === 0 && !promptNotes && !analystNotes) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center p-6">
+        <p className="text-base font-medium text-slate-700">No patents found yet</p>
+        <p className="text-sm text-slate-500">
+          We could not surface overlapping patents for this paper. Try re-running the search after refining claims.
+        </p>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
+          >
+            Re-run search
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return renderPatentsView(patents, promptNotes, analystNotes);
 }
 
 function VerifiedClaimsPanel({ isMock }: { isMock: boolean }) {
@@ -2669,6 +2856,9 @@ export default function LandingPage() {
   const similarStorageFetchesRef = useRef<Set<string>>(new Set<string>());
   const similarStorageResolvedRef = useRef<Set<string>>(new Set<string>());
   const similarPapersGenerationRef = useRef<Set<string>>(new Set<string>());
+  const patentsStorageFetchesRef = useRef<Set<string>>(new Set<string>());
+  const patentsStorageResolvedRef = useRef<Set<string>>(new Set<string>());
+  const patentsGenerationRef = useRef<Set<string>>(new Set<string>());
   const researchGroupsStorageFetchesRef = useRef<Set<string>>(new Set<string>());
   const researchGroupsGenerationRef = useRef<Set<string>>(new Set<string>());
   const contactsStorageFetchesRef = useRef<Set<string>>(new Set<string>());
@@ -2703,6 +2893,9 @@ export default function LandingPage() {
           : ""
     }
   });
+  const [patentsStates, setPatentsStates] = useState<Record<string, PatentsState>>({
+    [MOCK_SAMPLE_PAPER_ID]: MOCK_PATENTS_INITIAL_STATE
+  });
   const [researchGroupsStates, setResearchGroupsStates] = useState<Record<string, ResearchGroupsState>>({
     [MOCK_SAMPLE_PAPER_ID]: {
       status: "success",
@@ -2723,6 +2916,7 @@ export default function LandingPage() {
   const activeExtraction = activePaper ? extractionStates[activePaper.id] : undefined;
   const activeClaimsState = activePaper ? claimsStates[activePaper.id] : undefined;
   const activeSimilarPapersState = activePaper ? similarPapersStates[activePaper.id] : undefined;
+  const activePatentsState = activePaper ? patentsStates[activePaper.id] : undefined;
   const activeResearchGroupState = activePaper ? researchGroupsStates[activePaper.id] : undefined;
   const activeResearchContactsState = activePaper ? researchContactsStates[activePaper.id] : undefined;
   const activeResearchThesesState = activePaper
@@ -2862,6 +3056,104 @@ export default function LandingPage() {
       void storagePromise;
     } else if (!similarStorageResolvedRef.current.has(paperId)) {
       similarStorageResolvedRef.current.add(paperId);
+    }
+
+    const cachedPatents = readCachedState<{ text?: string; structured?: PatentsStructured | any }>(
+      paperId,
+      "patents"
+    );
+
+    if (
+      !activePatentsState &&
+      (typeof cachedPatents?.text === "string" || (cachedPatents?.structured && typeof cachedPatents.structured === "object"))
+    ) {
+      const text = typeof cachedPatents?.text === "string" ? cachedPatents.text : undefined;
+      const structured = cachedPatents?.structured ? normalizePatentsStructured(cachedPatents.structured) : undefined;
+
+      setPatentsStates((prev) => ({
+        ...prev,
+        [paperId]: {
+          status: "success",
+          ...(text ? { text } : {}),
+          ...(structured ? { structured } : {})
+        }
+      }));
+
+      patentsStorageResolvedRef.current.add(paperId);
+    }
+
+    const hasAttemptedPatentsLoad = patentsStorageFetchesRef.current.has(paperId);
+    if (
+      !activePatentsState &&
+      !cachedPatents &&
+      activePaper.storagePath &&
+      supabase &&
+      !hasAttemptedPatentsLoad
+    ) {
+      patentsStorageFetchesRef.current.add(paperId);
+      patentsStorageResolvedRef.current.delete(paperId);
+      setPatentsStates((prev) => ({
+        ...prev,
+        [paperId]: { status: "loading" }
+      }));
+
+      const patentsPromise = loadPatentsFromStorage({
+        client: supabase,
+        storagePath: activePaper.storagePath
+      })
+        .then((storedData) => {
+          if (cancelled) {
+            return;
+          }
+
+          const rawText = typeof storedData?.text === "string" ? storedData.text : "";
+          const trimmedText = rawText.trim();
+          const structured = storedData?.structured
+            ? normalizePatentsStructured((storedData as any).structured)
+            : undefined;
+
+          if (trimmedText || structured) {
+            const text = trimmedText || rawText || "Patent notes loaded from cache.";
+            writeCachedState(paperId, "patents", {
+              ...(text ? { text } : {}),
+              ...(structured ? { structured } : {})
+            });
+            setPatentsStates((prev) => ({
+              ...prev,
+              [paperId]: {
+                status: "success",
+                ...(text ? { text } : {}),
+                ...(structured ? { structured } : {})
+              }
+            }));
+            return;
+          }
+
+          setPatentsStates((prev) => {
+            const next = { ...prev };
+            delete next[paperId];
+            return next;
+          });
+        })
+        .catch((error) => {
+          if (cancelled) {
+            return;
+          }
+          console.error("[patents] failed to load from storage", error);
+          setPatentsStates((prev) => {
+            const next = { ...prev };
+            delete next[paperId];
+            return next;
+          });
+        })
+        .finally(() => {
+          patentsStorageFetchesRef.current.delete(paperId);
+          patentsStorageResolvedRef.current.add(paperId);
+        });
+
+      void patentsPromise;
+    } else if (!patentsStorageResolvedRef.current.has(paperId)) {
+      patentsStorageResolvedRef.current.add(paperId);
     }
 
     const cachedGroups = readCachedState<{ text: string; structured?: ResearchGroupPaperEntry[] | any }>(
@@ -3492,6 +3784,162 @@ export default function LandingPage() {
         });
 
         setSimilarPapersStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "error",
+            message
+          }
+        }));
+      }
+    },
+    [supabase, user]
+  );
+
+  const runPatents = useCallback(
+    async (paper: UploadedPaper, extraction: ExtractedText, claims: ClaimsAnalysisState) => {
+      if (!paper || isMockPaper(paper) || !extraction || typeof extraction.text !== "string" || extraction.text.trim().length === 0) {
+        return;
+      }
+
+      if (!claims || claims.status !== "success") {
+        console.error("[patents] Claims are required but not available", {
+          paperId: paper.id,
+          claimsStatus: claims?.status
+        });
+        setPatentsStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "error",
+            message: "Claims analysis is required before running patent search. Please wait for claims to finish."
+          }
+        }));
+        return;
+      }
+
+      console.log("[patents] starting fetch", {
+        paperId: paper.id,
+        hasClaimsText: Boolean(claims.text),
+        hasClaimsStructured: Boolean(claims.structured)
+      });
+
+      setPatentsStates((prev) => ({
+        ...prev,
+        [paper.id]: { status: "loading" }
+      }));
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => {
+          console.warn("[patents] Frontend timeout fired; aborting request", {
+            paperId: paper.id,
+            timeout: PIPELINE_TIMEOUT_LABEL
+          });
+          controller.abort();
+        }, PIPELINE_TIMEOUT_MS);
+
+        const authors = extractAuthorsFromInfo(extraction.info);
+        const abstract = extractAbstractFromInfo(extraction.info);
+        const metadataTitle =
+          extraction.info && typeof extraction.info.Title === "string" && extraction.info.Title.trim().length > 0
+            ? extraction.info.Title.trim()
+            : null;
+
+        let response: Response;
+
+        try {
+          response = await fetch("/api/patents", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              paper: {
+                title: metadataTitle ?? paper.name ?? null,
+                doi: paper.doi ?? null,
+                authors: authors ?? null,
+                abstract: abstract ?? null
+              },
+              claims: {
+                text: claims.text,
+                structured: claims.structured
+              }
+            }),
+            signal: controller.signal
+          });
+        } catch (fetchError) {
+          window.clearTimeout(timeoutId);
+          const isAbort = fetchError instanceof DOMException && fetchError.name === "AbortError";
+          if (isAbort) {
+            throw new Error("Patent search timed out. Please try again.");
+          }
+          throw fetchError;
+        } finally {
+          window.clearTimeout(timeoutId);
+        }
+
+        if (!response.ok) {
+          let message = "Failed to fetch patent data.";
+          try {
+            const errorPayload = await response.json();
+            if (typeof errorPayload?.error === "string") {
+              message = errorPayload.error;
+            }
+          } catch (parseError) {
+            console.warn("[patents] error payload parsing failed", parseError);
+          }
+          throw new Error(message);
+        }
+
+        const payload = (await response.json()) as { text?: string | null; structured?: PatentsStructured | null };
+        const text = typeof payload?.text === "string" ? payload.text.trim() : "";
+        const structuredData = payload?.structured ? normalizePatentsStructured(payload.structured) : undefined;
+
+        if (!text && !structuredData) {
+          throw new Error("Patent response did not include notes or structured data.");
+        }
+
+        console.log("[patents] fetch success", {
+          paperId: paper.id,
+          hasText: Boolean(text),
+          patentsCount: structuredData?.patents?.length ?? 0
+        });
+
+        writeCachedState(paper.id, "patents", {
+          ...(text ? { text } : {}),
+          ...(structuredData ? { structured: structuredData } : {})
+        });
+
+        if (paper.storagePath && supabase && user) {
+          savePatentsToStorage({
+            client: supabase,
+            userId: user.id,
+            paperId: paper.id,
+            storagePath: paper.storagePath,
+            patentsData: {
+              ...(text ? { text } : {}),
+              ...(structuredData ? { structured: structuredData } : {})
+            }
+          }).catch((error) => {
+            console.error("[patents] failed to save to storage", error);
+          });
+        }
+
+        setPatentsStates((prev) => ({
+          ...prev,
+          [paper.id]: {
+            status: "success",
+            ...(text ? { text } : {}),
+            ...(structuredData ? { structured: structuredData } : {})
+          }
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to fetch patent data.";
+        console.error("[patents] fetch error", {
+          paperId: paper.id,
+          error
+        });
+
+        setPatentsStates((prev) => ({
           ...prev,
           [paper.id]: {
             status: "error",
@@ -4361,6 +4809,63 @@ export default function LandingPage() {
       return;
     }
 
+    if (isMockPaper(activePaper)) {
+      return;
+    }
+
+    if (!activeExtraction || activeExtraction.status !== "success") {
+      return;
+    }
+
+    if (!activeClaimsState || activeClaimsState.status !== "success") {
+      return;
+    }
+
+    if (activePatentsState?.status === "success" || activePatentsState?.status === "error") {
+      return;
+    }
+
+    if (activePaper.storagePath && !patentsStorageResolvedRef.current.has(activePaper.id)) {
+      console.log("[patents-effect] Waiting for Supabase resolution", {
+        paperId: activePaper.id
+      });
+      return;
+    }
+
+    if (
+      patentsStorageFetchesRef.current.has(activePaper.id) &&
+      !patentsGenerationRef.current.has(activePaper.id)
+    ) {
+      console.log("[patents-effect] Waiting for Supabase load (state not ready yet)", {
+        paperId: activePaper.id
+      });
+      return;
+    }
+
+    if (
+      activePatentsState?.status === "loading" &&
+      !patentsGenerationRef.current.has(activePaper.id) &&
+      patentsStorageFetchesRef.current.has(activePaper.id)
+    ) {
+      console.log("[patents-effect] Waiting for Supabase load to resolve before generating", {
+        paperId: activePaper.id
+      });
+      return;
+    }
+
+    if (patentsGenerationRef.current.has(activePaper.id)) {
+      return;
+    }
+
+    patentsGenerationRef.current.add(activePaper.id);
+    void runPatents(activePaper, activeExtraction.data, activeClaimsState);
+  }, [activePaper, activeExtraction, activeClaimsState, activePatentsState, runPatents]);
+
+  useEffect(() => {
+    if (!activePaper) {
+      return;
+    }
+
     if (!activeExtraction || activeExtraction.status !== "success") {
       return;
     }
@@ -4644,6 +5149,23 @@ export default function LandingPage() {
     void runResearchGroups(activePaper, activeExtraction.data, activeClaimsState, activeSimilarPapersState);
   }, [activePaper, activeExtraction, activeClaimsState, activeSimilarPapersState, runResearchGroups]);
 
+  const handleRetryPatents = useCallback(() => {
+    if (!activePaper) {
+      return;
+    }
+
+    if (!activeExtraction || activeExtraction.status !== "success") {
+      return;
+    }
+
+    if (!activeClaimsState || activeClaimsState.status !== "success") {
+      return;
+    }
+
+    patentsGenerationRef.current.delete(activePaper.id);
+    void runPatents(activePaper, activeExtraction.data, activeClaimsState);
+  }, [activePaper, activeExtraction, activeClaimsState, runPatents]);
+
   const handleDeletePaper = useCallback(
     async (paperId: string) => {
       if (paperId === MOCK_SAMPLE_PAPER_ID) {
@@ -4677,6 +5199,9 @@ export default function LandingPage() {
         similarStorageFetchesRef.current.delete(paperId);
         similarStorageResolvedRef.current.delete(paperId);
         similarPapersGenerationRef.current.delete(paperId);
+        patentsStorageFetchesRef.current.delete(paperId);
+        patentsStorageResolvedRef.current.delete(paperId);
+        patentsGenerationRef.current.delete(paperId);
         researchGroupsStorageFetchesRef.current.delete(paperId);
         researchGroupsGenerationRef.current.delete(paperId);
         contactsStorageFetchesRef.current.delete(paperId);
@@ -4814,7 +5339,15 @@ export default function LandingPage() {
     }
 
     if (activeTab === "patents") {
-      return <PatentsPanel state={activeExtraction} paper={activePaper} isMock={Boolean(isActivePaperMock)} />;
+      return (
+        <PatentsPanel
+          extraction={activeExtraction}
+          state={activePatentsState}
+          paper={activePaper}
+          isMock={Boolean(isActivePaperMock)}
+          onRetry={handleRetryPatents}
+        />
+      );
     }
 
     if (activeTab === "verifiedClaims") {

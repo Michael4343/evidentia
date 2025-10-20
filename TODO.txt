@@ -1,6 +1,7 @@
 CODEX
 dynamic patent search
 dynamic verified claims
+scripts add paper to home page mock
 
 CLAUDE
 LINKS to patents
