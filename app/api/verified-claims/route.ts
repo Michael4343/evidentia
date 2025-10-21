@@ -179,6 +179,20 @@ function formatArray(values: unknown, mapper: (value: any, index: number) => str
   return output;
 }
 
+function formatObjectArray<T>(values: unknown, mapper: (value: any, index: number) => T | null): T[] {
+  if (!Array.isArray(values)) {
+    return [];
+  }
+  const output: T[] = [];
+  values.forEach((item, index) => {
+    const mapped = mapper(item, index);
+    if (mapped !== null) {
+      output.push(mapped);
+    }
+  });
+  return output;
+}
+
 function summariseSimilarPapers(structured?: SimilarPapersStructured | null): string[] {
   if (!structured || !Array.isArray(structured.similarPapers)) {
     return ["SIMILAR PAPERS: None available"];
@@ -478,8 +492,8 @@ function normaliseVerifiedClaim(entry: any): VerifiedClaimEntry | null {
     return null;
   }
 
-  const supportingEvidence = formatArray(entry.supportingEvidence, normaliseEvidence) as VerifiedClaimEvidence[];
-  const contradictingEvidence = formatArray(entry.contradictingEvidence, normaliseEvidence) as VerifiedClaimEvidence[];
+  const supportingEvidence = formatObjectArray<VerifiedClaimEvidence>(entry.supportingEvidence, normaliseEvidence);
+  const contradictingEvidence = formatObjectArray<VerifiedClaimEvidence>(entry.contradictingEvidence, normaliseEvidence);
   const verificationSummary = cleanPlainText(entry.verificationSummary);
 
   return {
