@@ -2932,18 +2932,57 @@ function PatentsPanel({
   }
 
   if (isMock) {
-    if (MOCK_PATENTS_LIST.length === 0) {
+    if (state?.status === "success") {
+      const mockPatents = state.structured?.patents ?? [];
+      const mockPromptNotes = state.structured?.promptNotes ?? null;
+      const mockAnalystNotes = state.text && state.text.trim().length > 0 ? state.text.trim() : undefined;
+
+      if (mockPatents.length > 0 || mockPromptNotes || mockAnalystNotes) {
+        return renderPatentsView(mockPatents as PatentEntry[], mockPromptNotes, mockAnalystNotes);
+      }
+    }
+
+    if (state?.status === "loading") {
       return (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
-          <p className="text-base font-medium text-slate-700">No patent data yet</p>
-          <p className="max-w-md text-sm text-slate-500">
-            Run the patent search script to populate this tab with relevant patents.
-          </p>
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center p-6">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+          <p className="text-sm text-slate-600">Loading mock patent data…</p>
         </div>
       );
     }
 
-    return renderPatentsView(MOCK_PATENTS_LIST, MOCK_PATENTS_STRUCTURED?.promptNotes, MOCK_PATENTS_TEXT);
+    if (state?.status === "error") {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+          <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+          <div className="space-y-2">
+            <p className="text-base font-semibold text-red-700">Mock patent data unavailable</p>
+            <p className="text-sm text-red-600">{state.message}</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (
+      MOCK_PATENTS_LIST.length > 0 ||
+      (MOCK_PATENTS_STRUCTURED?.promptNotes && MOCK_PATENTS_STRUCTURED.promptNotes.length > 0) ||
+      (MOCK_PATENTS_TEXT && MOCK_PATENTS_TEXT.trim().length > 0)
+    ) {
+      return renderPatentsView(
+        MOCK_PATENTS_LIST,
+        MOCK_PATENTS_STRUCTURED?.promptNotes ?? null,
+        MOCK_PATENTS_TEXT && MOCK_PATENTS_TEXT.trim().length > 0 ? MOCK_PATENTS_TEXT : undefined
+      );
+    }
+
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <p className="text-base font-medium text-slate-700">No patent data yet</p>
+        <p className="max-w-md text-sm text-slate-500">
+          Run the patent search script to populate this tab with relevant patents.
+        </p>
+      </div>
+    );
   }
 
   if (!paper) {
@@ -3181,22 +3220,61 @@ function VerifiedClaimsPanel({
   );
 
   if (isMock) {
-    if (MOCK_VERIFIED_CLAIMS_LIST.length === 0) {
+    if (state?.status === "success") {
+      const mockClaims = (state.structured?.claims ?? []) as VerifiedClaimEntry[];
+      const mockOverall = state.structured?.overallAssessment ?? null;
+      const mockPromptNotes = state.structured?.promptNotes ?? null;
+      const mockAnalystNotes = state.text && state.text.trim().length > 0 ? state.text.trim() : undefined;
+
+      if (mockClaims.length > 0 || mockOverall || mockPromptNotes || mockAnalystNotes) {
+        return renderClaimsView(mockClaims, mockOverall, mockPromptNotes, mockAnalystNotes);
+      }
+    }
+
+    if (state?.status === "loading") {
       return (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
-          <p className="text-base font-medium text-slate-700">No verified claims yet</p>
-          <p className="max-w-md text-sm text-slate-500">
-            Run the verified claims script to cross-reference claims against all gathered evidence.
-          </p>
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center p-6">
+          <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+          <p className="text-sm text-slate-600">Loading mock verified claims…</p>
         </div>
       );
     }
 
-    return renderClaimsView(
-      (MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA?.claims ?? []) as VerifiedClaimEntry[],
-      MOCK_VERIFIED_CLAIMS_OVERALL,
-      MOCK_VERIFIED_CLAIMS_PROMPT_NOTES,
-      MOCK_VERIFIED_CLAIMS_TEXT
+    if (state?.status === "error") {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+          <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+          <div className="space-y-2">
+            <p className="text-base font-semibold text-red-700">Mock verified claims unavailable</p>
+            <p className="text-sm text-red-600">{state.message}</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (
+      (MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA?.claims?.length ?? 0) > 0 ||
+      MOCK_VERIFIED_CLAIMS_OVERALL ||
+      (MOCK_VERIFIED_CLAIMS_PROMPT_NOTES && MOCK_VERIFIED_CLAIMS_PROMPT_NOTES.length > 0) ||
+      (MOCK_VERIFIED_CLAIMS_TEXT && MOCK_VERIFIED_CLAIMS_TEXT.trim().length > 0)
+    ) {
+      return renderClaimsView(
+        (MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA?.claims ?? []) as VerifiedClaimEntry[],
+        MOCK_VERIFIED_CLAIMS_OVERALL,
+        MOCK_VERIFIED_CLAIMS_PROMPT_NOTES,
+        MOCK_VERIFIED_CLAIMS_TEXT && MOCK_VERIFIED_CLAIMS_TEXT.trim().length > 0
+          ? MOCK_VERIFIED_CLAIMS_TEXT
+          : undefined
+      );
+    }
+
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <p className="text-base font-medium text-slate-700">No verified claims yet</p>
+        <p className="max-w-md text-sm text-slate-500">
+          Run the verified claims script to cross-reference claims against all gathered evidence.
+        </p>
+      </div>
     );
   }
 
