@@ -697,7 +697,7 @@ interface VerifiedClaimEntry {
 }
 
 interface VerifiedClaimsStructured {
-  claims: VerifiedClaimEntry[];
+  claims?: VerifiedClaimEntry[];
   overallAssessment?: string | null;
   promptNotes?: string | null;
 }

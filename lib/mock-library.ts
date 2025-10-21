@@ -25,10 +25,28 @@ export type RawMockLibraryEntry = {
   agent?: Record<string, unknown> | null;
   claimsAnalysis?: Record<string, unknown> | null;
   similarPapers?: unknown;
-  researchGroups?: unknown;
-  researcherTheses?: unknown;
-  patents?: unknown;
-  verifiedClaims?: unknown;
+  researchGroups?: {
+    text?: string;
+    structured?: Record<string, unknown>;
+  };
+  researcherTheses?: {
+    text?: string;
+    structured?: {
+      researchers?: unknown[];
+    };
+    deepDives?: {
+      entries?: unknown[];
+    };
+  };
+  patents?: {
+    text?: string;
+    structured?: Record<string, unknown>;
+  };
+  verifiedClaims?: {
+    text?: string;
+    structured?: Record<string, unknown>;
+    promptNotes?: string;
+  };
   researchContacts?: unknown;
   [key: string]: unknown;
 };
