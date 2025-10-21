@@ -6145,10 +6145,9 @@ export default function LandingPage() {
           options?.resetFrom !== undefined ? PIPELINE_STAGE_INDEX[options.resetFrom] : null;
 
         try {
+          const existingExtractionState = extractionStatesRef.current[paper.id];
           let extractionData =
-            extractionStatesRef.current[paper.id]?.status === "success"
-              ? extractionStatesRef.current[paper.id]!.data
-              : null;
+            existingExtractionState?.status === "success" ? existingExtractionState.data : null;
 
           if (!extractionData || (forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.extraction)) {
             extractionData = await runExtraction(paper, options);
