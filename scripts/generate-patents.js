@@ -29,9 +29,13 @@ const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's pa
 
 Output requirements:
 - Return a single JSON object with keys: patents (array), promptNotes (optional string).
-- Each patent object must include: patentNumber (string), title (string), assignee (string|null), filingDate (string|null), grantDate (string|null), abstract (string|null), overlapWithPaper (object with claimIds array and summary string), url (string|null).
+- Each patent object must include: patentNumber (string), title (string), assignee (string|null), filingDate (string|null), grantDate (string|null), abstract (string|null), overlapWithPaper (object with claimIds array and summary string), url (string).
 - Use null for unknown scalars. Use empty arrays for missing arrays.
-- Every url field must be a direct https:// link to the patent (Google Patents, USPTO, etc.).
+- CRITICAL: Every patent MUST have a url field with a Google Patents link. Construct it as: https://patents.google.com/patent/{PATENT_NUMBER}
+  Examples:
+  * US7729863B2 → https://patents.google.com/patent/US7729863B2
+  * WO2022272120A1 → https://patents.google.com/patent/WO2022272120A1
+  * EP3438287B1 → https://patents.google.com/patent/EP3438287B1
 - Dates should be in YYYY-MM-DD format when available.
 - overlapWithPaper.claimIds should reference the paper claim IDs (e.g., ["C1", "C3"]).
 - overlapWithPaper.summary MUST be a detailed 2-3 sentence explanation of HOW the patent's technical claims map to specific methods/techniques in the paper. Be specific about the technical overlap.

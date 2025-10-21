@@ -846,7 +846,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
                 ],
                 "summary": "Independent claims recite acquiring alleles at a SNP or microsatellite panel from a canine sample and algorithmically determining breed composition via comparison to a reference database. DAP's cohort genetics require breed ancestry inference and relatedness as covariates when modelling ageing traits and environment-genetics interactions, so the claimed pipelines map directly to DAP's genotyping and ancestry-correction steps. Using these inferred breed components supports DAP's aim to identify genetic, environmental and lifestyle factors influencing ageing in dogs."
               },
-              "url": null
+              "url": "https://patents.google.com/patent/US7729863B2"
             },
             {
               "patentNumber": "US10150998B2",
@@ -861,7 +861,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
                 ],
                 "summary": "Claims specify identifying particular polymorphisms from a canine DNA sample and applying decision logic to output a disease risk phenotype. DAP's genetics aim includes deriving genotype-based disease risks that affect mobility and healthspan; these claimed variant panels and interpretive rules map to DAP's pipeline for converting genotypes into phenotypes integrated with lifestyle and environmental covariates for ageing analyses."
               },
-              "url": null
+              "url": "https://patents.google.com/patent/US10150998B2"
             },
             {
               "patentNumber": "US11501851B2",
@@ -876,7 +876,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
                 ],
                 "summary": "Independent claims encompass calculating identity-by-state or identity-by-descent metrics and using those measures in scalable database systems to output relatedness and structure calls. DAP requires relationship inference and population structure correction to run robust cohort-scale GWAS on ageing traits, so these claimed computations map to DAP's stratification control and kinship estimation used as inputs and covariates in the ageing models."
               },
-              "url": null
+              "url": "https://patents.google.com/patent/US11501851B2"
             },
             {
               "patentNumber": "US20230061512A1",
@@ -891,7 +891,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
                 ],
                 "summary": "Claims recite selecting defined variants from a genotype dataset and applying a trained predictive model to output a phenotypic call. While trait-focused, the same genotype-to-phenotype prediction workflow and variant curation are used by DAP to derive computed phenotypes and covariates that inform statistical models linking genetics, environment and lifestyle to ageing outcomes."
               },
-              "url": null
+              "url": "https://patents.google.com/patent/US20230061512A1"
             },
             {
               "patentNumber": "US11632938B2",
@@ -906,7 +906,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
                 ],
                 "summary": "Independent claims cover selecting a set of clinical markers from a biospecimen and applying a regression model to compute a biological-age output. DAP's multi-omics biomarker aim includes deriving age clocks and healthspan surrogates; these claimed marker sets and modelling steps map to DAP's biomarker discovery, training and validation workflows for canine ageing endpoints."
               },
-              "url": null
+              "url": "https://patents.google.com/patent/US11632938B2"
             },
             {
               "patentNumber": "WO2022272120A1",
@@ -922,7 +922,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
                 ],
                 "summary": "Claims include generating bisulphite-based methylation profiles on arrays and applying regularised regression to compute epigenetic age or pace-of-ageing scores, with embodiments specific to dogs and cross-species clocks. DAP plans canine methylation assays and translational analyses; these claimed methylation panels and clock algorithms map directly to DAP's biomarker pipelines and its rationale that companion dogs are suitable translational models for human ageing."
               },
-              "url": null
+              "url": "https://patents.google.com/patent/WO2022272120A1"
             },
             {
               "patentNumber": "US20220002809A1",
@@ -937,7 +937,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
                 ],
                 "summary": "Independent claims cover selecting CpGs, training a model that predicts telomere length from methylation data, and using the estimator as an ageing biomarker. DAP's multi-omics plan includes telomere biology and methylomics; applying such DNAm-based telomere estimators to canine methylomes would provide an orthogonal ageing biomarker that DAP can integrate with clinical and environmental variables."
               },
-              "url": null
+              "url": "https://patents.google.com/patent/US20220002809A1"
             },
             {
               "patentNumber": "WO2021124264A1",
@@ -952,7 +952,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
                 ],
                 "summary": "Claims include specific rapamycin formulations and method-of-treatment dosing schedules for companion animals addressing cardiac and ageing-linked endpoints. DAP's TRIAD trial tests weekly low-dose rapamycin in pet dogs with cardiac and cognitive outcomes, so these composition and method claims overlap with TRIAD's intervention domain and endpoints, mapping to the study's interventional aim."
               },
-              "url": null
+              "url": "https://patents.google.com/patent/WO2021124264A1"
             },
             {
               "patentNumber": "US12161636B2",
@@ -968,7 +968,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
                 ],
                 "summary": "Independent method claims recite administering a defined pharmaceutical class to companion animals to extend lifespan, establishing dosing schedules and therapeutic use cases. While TRIAD focuses on rapamycin, DAP's translational framework positions dogs as interventional models for geroscience; these claims align with DAP's concept that companion dogs are suitable for testing lifespan-extending therapeutics and support the programme's broader interventional scope."
               },
-              "url": null
+              "url": "https://patents.google.com/patent/US12161636B2"
             },
             {
               "patentNumber": "EP3438287B1",
@@ -984,7 +984,7 @@ export const MOCK_SIMILAR_PAPERS_LIBRARY = {
                 ],
                 "summary": "The EP claims protect the same database-comparison pipelines for breed ancestry inference that DAP uses to control for population structure and to model breed-specific risks in ageing analyses. Incorporating these inferred breed components into DAP's statistical workflows enables identification of genetic and environmental contributions to canine ageing."
               },
-              "url": null
+              "url": "https://patents.google.com/patent/EP3438287B1"
             }
           ],
           "promptNotes": "No substantive patents were identified that directly claim DAP's REDCap-based data collection and QC infrastructure (C4), open data and biospecimen access policies (C5), or ethics and consent frameworks (C6), which are typically handled as SOPs or institutional policies rather than patentable subject matter."

@@ -2191,7 +2191,11 @@ function ResearchGroupsPanel({
     );
   }
 
-  if (!similarState || similarState.status === "loading") {
+  if (!similarState) {
+    return <PipelineStagePlaceholder stageId="researchGroups" waitingForStageId="similarPapers" />;
+  }
+
+  if (similarState.status === "loading") {
     return <PipelineStagePlaceholder stageId="researchGroups" waitingForStageId="similarPapers" />;
   }
 
@@ -3536,7 +3540,11 @@ function VerifiedClaimsPanel({
     );
   }
 
-  if (!similarState || similarState.status === "loading") {
+  if (!similarState) {
+    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="similarPapers" countdown={countdown} />;
+  }
+
+  if (similarState.status === "loading") {
     return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="similarPapers" countdown={countdown} />;
   }
 
@@ -3634,7 +3642,11 @@ function VerifiedClaimsPanel({
     );
   }
 
-  if (!similarState || similarState.status === "loading") {
+  if (!similarState) {
+    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="similarPapers" />;
+  }
+
+  if (similarState.status === "loading") {
     return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="similarPapers" />;
   }
 
