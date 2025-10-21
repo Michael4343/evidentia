@@ -2,9 +2,13 @@
 
 import { listMockLibrarySummaries } from "@/lib/mock-library";
 
-export function MockSimilarPapersShowcase() {
+interface MockSimilarPapersShowcaseProps {
+  paperId?: string | null;
+}
+
+export function MockSimilarPapersShowcase({ paperId }: MockSimilarPapersShowcaseProps = {}) {
   const summaries = listMockLibrarySummaries();
-  const summary = summaries[0];
+  const summary = paperId ? summaries.find((entry) => entry.id === paperId) ?? summaries[0] : summaries[0];
   if (!summary) {
     return null;
   }

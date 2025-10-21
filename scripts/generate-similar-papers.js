@@ -1018,7 +1018,7 @@ async function run() {
 
     if (!claimsSummaryText) {
       console.error(
-        `\nNo claims analysis summary found for entry "${entryId}". Run \`node scripts/generate-claims-analysis.js\` first."
+        `\nNo claims analysis summary found for entry "${entryId}". Run \`node scripts/generate-claims-analysis.js\` first.`
       );
       return;
     }

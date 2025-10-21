@@ -55,20 +55,38 @@ const MOCK_SUMMARIES_BY_ID = new Map<string, MockLibraryEntrySummary>(
   MOCK_LIBRARY_SUMMARIES.map((summary) => [summary.id, summary])
 );
 
-function useCountdown(durationMs: number, isActive: boolean) {
+// Module-level storage for countdown start times (persists across remounts)
+const countdownStartTimes = new Map<string, number>();
+
+function useCountdown(durationMs: number, isActive: boolean, key: string) {
   const [remaining, setRemaining] = useState(durationMs);
 
   useEffect(() => {
     if (!isActive) {
+      // Clear the stored start time when inactive
+      if (key) {
+        countdownStartTimes.delete(key);
+      }
       setRemaining(durationMs);
       return;
     }
 
-    const startTime = Date.now();
-    setRemaining(durationMs);
+    // Check if we already have a start time for this step
+    let startTime = countdownStartTimes.get(key);
+
+    if (!startTime) {
+      // New step - record the start time
+      startTime = Date.now();
+      countdownStartTimes.set(key, startTime);
+    }
+
+    // Calculate initial remaining time based on stored start
+    const initialElapsed = Date.now() - startTime;
+    const initialRemaining = Math.max(0, durationMs - initialElapsed);
+    setRemaining(initialRemaining);
 
     const interval = setInterval(() => {
-      const elapsed = Date.now() - startTime;
+      const elapsed = Date.now() - startTime!;
       const left = Math.max(0, durationMs - elapsed);
       setRemaining(left);
 
@@ -78,7 +96,7 @@ function useCountdown(durationMs: number, isActive: boolean) {
     }, 100);
 
     return () => clearInterval(interval);
-  }, [durationMs, isActive]);
+  }, [durationMs, isActive, key]);
 
   const minutes = Math.floor(remaining / 60000);
   const seconds = Math.floor((remaining % 60000) / 1000);
@@ -1123,12 +1141,15 @@ function PaperTabContent({
 
 function ExtractionDebugPanel({
   state,
-  paper
+  paper,
+  countdown,
+  currentLoadingStep
 }: {
   state: ExtractionState | undefined;
   paper: UploadedPaper | null;
+  countdown?: string;
+  currentLoadingStep?: string | null;
 }) {
-  const countdown = useCountdown(PIPELINE_TIMEOUT_MS, !state || state.status === "loading");
 
   if (!paper) {
     return (
@@ -1145,7 +1166,7 @@ function ExtractionDebugPanel({
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
         <div className="space-y-1">
           <p className="text-base font-medium text-slate-700">Extracting text from PDF…</p>
-          <p className="text-xs text-slate-500">{countdown} remaining</p>
+          {countdown && <p className="text-xs text-slate-500">{countdown} remaining</p>}
         </div>
       </div>
     );
@@ -1398,14 +1419,15 @@ function ClaimsPanel({
   paper,
   extraction,
   state,
-  onRetry
+  onRetry,
+  countdown
 }: {
   paper: UploadedPaper | null;
   extraction: ExtractionState | undefined;
   state: ClaimsAnalysisState | undefined;
   onRetry?: () => void;
+  countdown?: string;
 }) {
-  const countdown = useCountdown(PIPELINE_TIMEOUT_MS, !state || state.status === "loading");
 
   if (!paper) {
     return (
@@ -1422,7 +1444,7 @@ function ClaimsPanel({
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
         <div className="space-y-1">
           <p className="text-base font-medium text-slate-700">Assembling claims brief…</p>
-          <p className="text-xs text-slate-500">{countdown} remaining</p>
+          {countdown && <p className="text-xs text-slate-500">{countdown} remaining</p>}
         </div>
       </div>
     );
@@ -1624,20 +1646,16 @@ function SimilarPapersPanel({
   extraction,
   state,
   claimsState,
-  onRetry
+  onRetry,
+  countdown
 }: {
   paper: UploadedPaper | null;
   extraction: ExtractionState | undefined;
   state: SimilarPapersState | undefined;
   claimsState: ClaimsAnalysisState | undefined;
   onRetry: () => void;
+  countdown?: string;
 }) {
-  const countdown = useCountdown(
-    PIPELINE_TIMEOUT_MS,
-    (!extraction || extraction.status === "loading") ||
-    (claimsState?.status === "loading") ||
-    (!state || state.status === "loading")
-  );
 
   if (!paper) {
     return (
@@ -1648,21 +1666,20 @@ function SimilarPapersPanel({
     );
   }
 
-  if (isMockPaper(paper)) {
-    return (
-      <div className="flex-1 overflow-auto">
-        <MockSimilarPapersShowcase />
-      </div>
-    );
-  }
-
   if (!extraction || extraction.status === "loading") {
+    if (isMockPaper(paper)) {
+      return (
+        <div className="flex-1 overflow-auto">
+          <MockSimilarPapersShowcase paperId={paper.id} />
+        </div>
+      );
+    }
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
         <div className="space-y-1">
           <p className="text-base font-medium text-slate-700">Preparing extracted text…</p>
-          <p className="text-xs text-slate-500">{countdown} remaining</p>
+          {countdown && <p className="text-xs text-slate-500">{countdown} remaining</p>}
         </div>
       </div>
     );
@@ -1685,13 +1702,20 @@ function SimilarPapersPanel({
   const claimsStatus = claimsState?.status;
 
   if (!state || state.status === "loading") {
+    if (isMockPaper(paper)) {
+      return (
+        <div className="flex-1 overflow-auto">
+          <MockSimilarPapersShowcase paperId={paper.id} />
+        </div>
+      );
+    }
     if (claimsStatus === "loading") {
       return (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
           <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
           <div className="space-y-1">
             <p className="text-base font-medium text-slate-700">Running claims analysis…</p>
-            <p className="text-xs text-slate-500">{countdown} remaining</p>
+            {countdown && <p className="text-xs text-slate-500">{countdown} remaining</p>}
           </div>
         </div>
       );
@@ -1722,7 +1746,7 @@ function SimilarPapersPanel({
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
         <div className="space-y-1">
           <p className="text-base font-medium text-slate-700">Compiling similar papers…</p>
-          <p className="text-xs text-slate-500">{countdown} remaining</p>
+          {countdown && <p className="text-xs text-slate-500">{countdown} remaining</p>}
         </div>
       </div>
     );
@@ -1872,7 +1896,7 @@ function ResearchGroupsPanel({
     );
   }
 
-  const renderGroupResearchers = (group: ResearchGroupEntry) => {
+  function renderGroupContacts(group: ResearchGroupEntry) {
     const researchers = Array.isArray(group.researchers) ? group.researchers : [];
 
     if (researchers.length === 0) {
@@ -1913,7 +1937,7 @@ function ResearchGroupsPanel({
         })}
       </ul>
     );
-  };
+  }
 
   const structuredEntries = Array.isArray(state.structured) ? state.structured : [];
   const totalGroups = structuredEntries.reduce((count, entry) => count + entry.groups.length, 0);
@@ -2019,7 +2043,7 @@ function ResearchGroupsPanel({
                             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                               Contacts
                             </p>
-                            {renderGroupResearchers(group)}
+                          {renderGroupContacts(group)}
                           </div>
                         </div>
                       ))}
@@ -2155,7 +2179,7 @@ function ResearcherThesesPanel({
     );
   }
 
-  const dataAvailabilityBadge = (value: ResearcherThesisRecord["data_publicly_available"]) => {
+  function dataAvailabilityBadge(value: ResearcherThesisRecord["data_publicly_available"]) {
     const styles: Record<ResearcherThesisRecord["data_publicly_available"], string> = {
       yes: "border-emerald-100 bg-emerald-50 text-emerald-600",
       no: "border-rose-100 bg-rose-50 text-rose-600",
@@ -2175,9 +2199,9 @@ function ResearcherThesesPanel({
         {labels[value]}
       </span>
     );
-  };
+  }
 
-  const renderPublication = (entry: ResearcherThesisRecord["latest_publication"] | null | undefined) => {
+  function renderPublication(entry: ResearcherThesisRecord["latest_publication"] | null | undefined) {
     if (!entry || (!entry.title && !entry.venue && !entry.url && entry.year == null)) {
       return <p className="text-sm text-slate-600">No recent publication details captured.</p>;
     }
@@ -2219,9 +2243,9 @@ function ResearcherThesesPanel({
         )}
       </dl>
     );
-  };
+  }
 
-  const renderThesis = (entry: ResearcherThesisRecord["phd_thesis"] | null | undefined) => {
+  function renderThesis(entry: ResearcherThesisRecord["phd_thesis"] | null | undefined) {
     if (!entry) {
       return <p className="text-sm text-slate-600">No confirmed thesis on record.</p>;
     }
@@ -2263,42 +2287,44 @@ function ResearcherThesesPanel({
         )}
       </dl>
     );
-  };
+  }
 
-  const renderResearcherCard = (record: ResearcherThesisRecord, label: string) => (
-    <article className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <header className="flex flex-col gap-3 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-            <span>{label}</span>
-          </div>
-          <p className="text-base font-semibold text-slate-900">
-            {record.name ?? record.email ?? "Unnamed researcher"}
-          </p>
-          {record.group && <p className="text-sm text-slate-600">{record.group}</p>}
-          {record.email && (
-            <p className="text-sm text-slate-600">
-              <a href={`mailto:${record.email}`} className="text-primary hover:underline">
-                {record.email}
-              </a>
+  function renderResearcherCard(record: ResearcherThesisRecord, label: string) {
+    return (
+      <article className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+        <header className="flex flex-col gap-3 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+              <span>{label}</span>
+            </div>
+            <p className="text-base font-semibold text-slate-900">
+              {record.name ?? record.email ?? "Unnamed researcher"}
             </p>
-          )}
-        </div>
-        {dataAvailabilityBadge(record.data_publicly_available)}
-      </header>
+            {record.group && <p className="text-sm text-slate-600">{record.group}</p>}
+            {record.email && (
+              <p className="text-sm text-slate-600">
+                <a href={`mailto:${record.email}`} className="text-primary hover:underline">
+                  {record.email}
+                </a>
+              </p>
+            )}
+          </div>
+          {dataAvailabilityBadge(record.data_publicly_available ?? "unknown")}
+        </header>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <section className="space-y-2">
-          <h5 className="text-sm font-semibold text-slate-700">Latest publication</h5>
-          {renderPublication(record.latest_publication)}
-        </section>
-        <section className="space-y-2">
-          <h5 className="text-sm font-semibold text-slate-700">PhD thesis</h5>
-          {renderThesis(record.phd_thesis)}
-        </section>
-      </div>
-    </article>
-  );
+        <div className="grid gap-4 sm:grid-cols-2">
+          <section className="space-y-2">
+            <h5 className="text-sm font-semibold text-slate-700">Latest publication</h5>
+            {renderPublication(record.latest_publication)}
+          </section>
+          <section className="space-y-2">
+            <h5 className="text-sm font-semibold text-slate-700">PhD thesis</h5>
+            {renderThesis(record.phd_thesis)}
+          </section>
+        </div>
+      </article>
+    );
+  }
 
   const flatList = (
     <ol className="space-y-5">
@@ -2394,7 +2420,7 @@ function ResearcherThesesPanel({
 
   const remainingGroups = new Map(groupedByGroup);
 
-  const renderGroupResearchers = (entries: ResearcherThesisRecord[]) => {
+  function renderThesisGroupResearchers(entries: ResearcherThesisRecord[]) {
     if (!entries.length) {
       return <p className="text-sm text-slate-600">No thesis records captured for this group yet.</p>;
     }
@@ -2407,9 +2433,9 @@ function ResearcherThesesPanel({
         })}
       </div>
     );
-  };
+  }
 
-  const formatTimestamp = (value: string | null | undefined) => {
+  function formatTimestamp(value: string | null | undefined) {
     if (!value) {
       return null;
     }
@@ -2424,9 +2450,9 @@ function ResearcherThesesPanel({
       hour: "2-digit",
       minute: "2-digit"
     });
-  };
+  }
 
-  const dataAccessBadge = (value: ResearcherThesisDeepDiveThesis["data_access"]) => {
+  function dataAccessBadge(value: ResearcherThesisDeepDiveThesis["data_access"]) {
     const styles: Record<ResearcherThesisDeepDiveThesis["data_access"], string> = {
       public: "border-emerald-100 bg-emerald-50 text-emerald-700",
       restricted: "border-amber-100 bg-amber-50 text-amber-700",
@@ -2444,9 +2470,9 @@ function ResearcherThesesPanel({
         {labels[value]}
       </span>
     );
-  };
+  }
 
-  const renderDeepDiveTheses = (theses: ResearcherThesisDeepDiveThesis[]) => {
+  function renderDeepDiveTheses(theses: ResearcherThesisDeepDiveThesis[]) {
     if (!theses.length) {
       return <p className="text-sm text-slate-600">No theses confirmed in this pass.</p>;
     }
@@ -2503,17 +2529,17 @@ function ResearcherThesesPanel({
                 )}
               </div>
 
-              {thesis.notes && (
-                <p className="text-xs text-slate-500">Notes: {thesis.notes}</p>
-              )}
-            </li>
-          );
-        })}
-      </ol>
+          {thesis.notes && (
+            <p className="text-xs text-slate-500">Notes: {thesis.notes}</p>
+          )}
+        </li>
+      );
+    })}
+  </ol>
     );
-  };
+  }
 
-  const renderDeepDiveExtras = (entry: ResearcherThesisDeepDive) => {
+  function renderDeepDiveExtras(entry: ResearcherThesisDeepDive) {
     const sources = entry.structured?.sources_checked ?? [];
     const followUp = entry.structured?.follow_up ?? [];
     const notes = entry.structured?.promptNotes;
@@ -2552,7 +2578,7 @@ function ResearcherThesesPanel({
         )}
       </div>
     );
-  };
+  }
 
   function renderStandaloneDeepDives(entries: ResearcherThesisDeepDive[]) {
     if (!entries.length) {
@@ -2674,7 +2700,7 @@ function ResearcherThesesPanel({
                   <p className="text-sm leading-relaxed text-slate-700">{group.notes}</p>
                 )}
 
-                {renderGroupResearchers(entries)}
+                {renderThesisGroupResearchers(entries)}
 
                 {renderGroupDeepDives(groupDeepDiveEntries)}
               </section>
@@ -2735,7 +2761,7 @@ function ResearcherThesesPanel({
                     <p className="text-sm font-semibold text-slate-900">{bucket.label ?? "Unnamed group"}</p>
                     <p className="text-xs text-slate-500">Unmapped group</p>
                   </div>
-                  {renderGroupResearchers(bucket.entries)}
+                  {renderThesisGroupResearchers(bucket.entries)}
                 </section>
               ))}
 
@@ -2763,6 +2789,79 @@ function ResearcherThesesPanel({
   );
 }
 
+  function renderPatentCards(patents: PatentEntry[]) {
+    return (
+      <div className="space-y-4">
+        {patents.map((patent, index) => {
+          const key = patent.patentNumber || patent.title || `patent-${index}`;
+          const claimIds = patent.overlapWithPaper?.claimIds ?? [];
+          return (
+            <article key={key} className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      {patent.url ? (
+                        <a
+                          href={patent.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 transition hover:text-primary"
+                        >
+                          {patent.patentNumber ?? "View patent"}
+                        </a>
+                      ) : (
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                          {patent.patentNumber ?? "Patent"}
+                        </p>
+                      )}
+                      <h3 className="text-base font-semibold text-slate-900">{patent.title ?? "Untitled patent"}</h3>
+                    </div>
+                    {patent.url && (
+                      <a
+                        href={patent.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center rounded-full border border-primary px-3 py-1 text-xs font-semibold text-primary transition hover:bg-primary/5"
+                      >
+                        View patent
+                      </a>
+                    )}
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                    {patent.assignee && <span className="font-medium">{patent.assignee}</span>}
+                    {patent.filingDate && <span className="text-slate-400">•</span>}
+                    {patent.filingDate && <span>Filed: {patent.filingDate}</span>}
+                    {patent.grantDate && <span className="text-slate-400">•</span>}
+                    {patent.grantDate && <span>Granted: {patent.grantDate}</span>}
+                  </div>
+                </div>
+
+                {patent.abstract && <p className="text-sm leading-relaxed text-slate-700">{patent.abstract}</p>}
+
+                {claimIds.length > 0 || patent.overlapWithPaper?.summary ? (
+                  <div className="rounded border border-blue-200 bg-blue-50/60 px-4 py-3">
+                    <div className="space-y-1.5">
+                      {claimIds.length > 0 && (
+                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
+                          Overlaps with paper claims: {claimIds.join(", ")}
+                        </p>
+                      )}
+                      {patent.overlapWithPaper?.summary && (
+                        <p className="text-sm leading-relaxed text-blue-800">{patent.overlapWithPaper.summary}</p>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+    );
+  }
+
 function PatentsPanel({
   extraction: _extraction,
   state,
@@ -2776,157 +2875,61 @@ function PatentsPanel({
   isMock: boolean;
   onRetry?: () => void;
 }) {
-  const renderPatentCards = (patents: PatentEntry[]) => (
-    <div className="space-y-4">
-      {patents.map((patent, index) => {
-        const key = patent.patentNumber || patent.title || `patent-${index}`;
-        const claimIds = patent.overlapWithPaper?.claimIds ?? [];
-        return (
-          <article key={key} className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
-            <div className="space-y-3">
-              <div className="space-y-1.5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    {patent.url ? (
-                      <a
-                        href={patent.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 transition hover:text-primary"
-                      >
-                        {patent.patentNumber ?? "View patent"}
-                      </a>
-                    ) : (
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {patent.patentNumber ?? "Patent"}
-                      </p>
-                    )}
-                    <h3 className="text-base font-semibold text-slate-900">{patent.title ?? "Untitled patent"}</h3>
-                  </div>
-                  {patent.url && (
-                    <a
-                      href={patent.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center rounded-full border border-primary px-3 py-1 text-xs font-semibold text-primary transition hover:bg-primary/5"
-                    >
-                      View patent
-                    </a>
-                  )}
-                </div>
 
-                <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                  {patent.assignee && <span className="font-medium">{patent.assignee}</span>}
-                  {patent.filingDate && <span className="text-slate-400">•</span>}
-                  {patent.filingDate && <span>Filed: {patent.filingDate}</span>}
-                  {patent.grantDate && <span className="text-slate-400">•</span>}
-                  {patent.grantDate && <span>Granted: {patent.grantDate}</span>}
-                </div>
-              </div>
-
-              {patent.abstract && <p className="text-sm leading-relaxed text-slate-700">{patent.abstract}</p>}
-
-              {claimIds.length > 0 || patent.overlapWithPaper?.summary ? (
-                <div className="rounded border border-blue-200 bg-blue-50/60 px-4 py-3">
-                  <div className="space-y-1.5">
-                    {claimIds.length > 0 && (
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
-                        Overlaps with paper claims: {claimIds.join(", ")}
-                      </p>
-                    )}
-                    {patent.overlapWithPaper?.summary && (
-                      <p className="text-sm leading-relaxed text-blue-800">{patent.overlapWithPaper.summary}</p>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-
-              {patent.url && (
-                <div className="flex justify-start pt-2">
-                  <a
-                    href={patent.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex items-center gap-2 rounded-lg border border-primary bg-white px-4 py-2 text-sm font-semibold text-primary transition hover:bg-primary hover:text-white"
-                  >
-                    See Patent
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      className="h-4 w-4"
-                    >
-                      <path d="M7 7h10v10" />
-                      <path d="M7 17 17 7" />
-                    </svg>
-                  </a>
-                </div>
-              )}
-            </div>
-          </article>
-        );
-      })}
-    </div>
-  );
-
-  const renderPatentsView = (
+  function renderPatentsView(
     patents: PatentEntry[],
     promptNotes?: string | null,
     analystNotes?: string
-  ) => (
-    <div className="flex flex-1 flex-col overflow-auto">
-      <div className="flex-1 overflow-auto bg-slate-50">
-        <section className="w-full space-y-6 px-6 py-8">
-          <header className="flex items-start justify-between gap-3">
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold text-slate-900">Related Patents</h2>
-              <p className="text-sm leading-relaxed text-slate-600">
-                Patents covering similar methods, compositions, or systems described in the paper's claims.
-              </p>
-            </div>
-            {onRetry && (
-              <button
-                onClick={onRetry}
-                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                title="Re-run patent search"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </button>
+  ) {
+    return (
+      <div className="flex flex-1 flex-col overflow-auto">
+        <div className="flex-1 overflow-auto bg-slate-50">
+          <section className="w-full space-y-6 px-6 py-8">
+            <header className="flex items-start justify-between gap-3">
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold text-slate-900">Related Patents</h2>
+                <p className="text-sm leading-relaxed text-slate-600">
+                  Patents covering similar methods, compositions, or systems described in the paper's claims.
+                </p>
+              </div>
+              {onRetry && (
+                <button
+                  onClick={onRetry}
+                  className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  title="Re-run patent search"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              )}
+            </header>
+
+            {promptNotes && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                {promptNotes}
+              </div>
             )}
-          </header>
 
-          {promptNotes && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              {promptNotes}
-            </div>
-          )}
+            {analystNotes && (
+              <details className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                <summary className="cursor-pointer font-medium text-slate-900">Analyst notes</summary>
+                <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{analystNotes}</pre>
+              </details>
+            )}
 
-          {analystNotes && (
-            <details className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-              <summary className="cursor-pointer font-medium text-slate-900">Analyst notes</summary>
-              <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{analystNotes}</pre>
-            </details>
-          )}
-
-          {patents.length > 0 ? (
-            renderPatentCards(patents)
-          ) : (
-            <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600">
-              No patents surfaced yet.
-            </div>
-          )}
-        </section>
+            {patents.length > 0 ? (
+              renderPatentCards(patents)
+            ) : (
+              <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600">
+                No patents surfaced yet.
+              </div>
+            )}
+          </section>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   if (isMock) {
     if (MOCK_PATENTS_LIST.length === 0) {
@@ -3424,6 +3427,7 @@ export default function LandingPage() {
   const researchGroupsGenerationRef = useRef<Set<string>>(new Set<string>());
   const contactsStorageFetchesRef = useRef<Set<string>>(new Set<string>());
   const thesesStorageFetchesRef = useRef<Set<string>>(new Set<string>());
+  const thesesStorageResolvedRef = useRef<Set<string>>(new Set<string>());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const initialMockPapers =
     MOCK_UPLOADED_PAPERS_FROM_SUMMARIES.length > 0
@@ -3526,54 +3530,38 @@ export default function LandingPage() {
     }
     const raw = summary.raw;
 
-    setExtractionStates((prev) => {
-      if (prev[activePaper.id]) {
-        return prev;
-      }
-      return { ...prev, [activePaper.id]: createExtractionStateFromSummary(summary) };
-    });
-    setClaimsStates((prev) => {
-      if (prev[activePaper.id]) {
-        return prev;
-      }
-      return { ...prev, [activePaper.id]: createClaimsStateFromRaw(raw) };
-    });
-    setSimilarPapersStates((prev) => {
-      if (prev[activePaper.id]) {
-        return prev;
-      }
-      return { ...prev, [activePaper.id]: createSimilarStateFromRaw(raw) };
-    });
-    setPatentsStates((prev) => {
-      if (prev[activePaper.id]) {
-        return prev;
-      }
-      return { ...prev, [activePaper.id]: createPatentsStateFromRaw(raw) };
-    });
-    setVerifiedClaimsStates((prev) => {
-      if (prev[activePaper.id]) {
-        return prev;
-      }
-      return { ...prev, [activePaper.id]: createVerifiedClaimsStateFromRaw(raw) };
-    });
-    setResearchGroupsStates((prev) => {
-      if (prev[activePaper.id]) {
-        return prev;
-      }
-      return { ...prev, [activePaper.id]: createResearchGroupsStateFromRaw(raw) };
-    });
-    setResearchContactsStates((prev) => {
-      if (prev[activePaper.id]) {
-        return prev;
-      }
-      return { ...prev, [activePaper.id]: createResearchContactsStateFromRaw() };
-    });
-    setResearchThesesStates((prev) => {
-      if (prev[activePaper.id]) {
-        return prev;
-      }
-      return { ...prev, [activePaper.id]: createResearchThesesStateFromRaw(raw) };
-    });
+    setExtractionStates((prev) => ({
+      ...prev,
+      [activePaper.id]: createExtractionStateFromSummary(summary)
+    }));
+    setClaimsStates((prev) => ({
+      ...prev,
+      [activePaper.id]: createClaimsStateFromRaw(raw)
+    }));
+    setSimilarPapersStates((prev) => ({
+      ...prev,
+      [activePaper.id]: createSimilarStateFromRaw(raw)
+    }));
+    setPatentsStates((prev) => ({
+      ...prev,
+      [activePaper.id]: createPatentsStateFromRaw(raw)
+    }));
+    setVerifiedClaimsStates((prev) => ({
+      ...prev,
+      [activePaper.id]: createVerifiedClaimsStateFromRaw(raw)
+    }));
+    setResearchGroupsStates((prev) => ({
+      ...prev,
+      [activePaper.id]: createResearchGroupsStateFromRaw(raw)
+    }));
+    setResearchContactsStates((prev) => ({
+      ...prev,
+      [activePaper.id]: createResearchContactsStateFromRaw()
+    }));
+    setResearchThesesStates((prev) => ({
+      ...prev,
+      [activePaper.id]: createResearchThesesStateFromRaw(raw)
+    }));
   }, [activePaper]);
 
   const clearObjectUrls = useCallback(() => {
@@ -4132,9 +4120,12 @@ export default function LandingPage() {
         })
         .finally(() => {
           thesesStorageFetchesRef.current.delete(paperId);
+          thesesStorageResolvedRef.current.add(paperId);
         });
 
       void thesesPromise;
+    } else if (!thesesStorageResolvedRef.current.has(paperId)) {
+      thesesStorageResolvedRef.current.add(paperId);
     }
 
     return () => {
@@ -4144,6 +4135,7 @@ export default function LandingPage() {
       researchGroupsStorageFetchesRef.current.delete(paperId);
       contactsStorageFetchesRef.current.delete(paperId);
       thesesStorageFetchesRef.current.delete(paperId);
+      thesesStorageResolvedRef.current.delete(paperId);
     };
   }, [
     activePaper,
@@ -6310,6 +6302,7 @@ export default function LandingPage() {
         researchGroupsGenerationRef.current.delete(paperId);
         contactsStorageFetchesRef.current.delete(paperId);
         thesesStorageFetchesRef.current.delete(paperId);
+        thesesStorageResolvedRef.current.delete(paperId);
 
         // If deleted paper was active, select another or show upload
         if (activePaperId === paperId) {
@@ -6367,6 +6360,23 @@ export default function LandingPage() {
       ? "info"
       : null;
 
+  // Determine which pipeline step is currently loading for sequential countdown
+  const getCurrentLoadingStep = (): string | null => {
+    if (!activePaper || isMockPaper(activePaper)) return null;
+    if (!activeExtraction || activeExtraction.status === "loading") return "extraction";
+    if (!activeClaimsState || activeClaimsState.status === "loading") return "claims";
+    if (!activeSimilarPapersState || activeSimilarPapersState.status === "loading") return "similarPapers";
+    if (!activeResearchGroupState || activeResearchGroupState.status === "loading") return "researchGroups";
+    if (!activeResearchThesesState || activeResearchThesesState.status === "loading") return "theses";
+    if (!activePatentsState || activePatentsState.status === "loading") return "patents";
+    if (!activeVerifiedClaimsState || activeVerifiedClaimsState.status === "loading") return "verifiedClaims";
+    return null;
+  };
+
+  const currentLoadingStep = getCurrentLoadingStep();
+  const countdownKey = activePaper && currentLoadingStep ? `${activePaper.id}-${currentLoadingStep}` : "";
+  const pipelineCountdown = useCountdown(PIPELINE_TIMEOUT_MS, Boolean(currentLoadingStep), countdownKey);
+
   const renderActiveTab = () => {
     if (activeTab === "paper") {
       return (
@@ -6387,6 +6397,7 @@ export default function LandingPage() {
           extraction={activeExtraction}
           state={activeClaimsState}
           onRetry={handleRetryClaims}
+          countdown={pipelineCountdown}
         />
       );
     }
@@ -6397,11 +6408,12 @@ export default function LandingPage() {
           paper={activePaper}
           extraction={activeExtraction}
           state={activeSimilarPapersState}
-      onRetry={handleRetrySimilarPapers}
-      claimsState={activeClaimsState}
-    />
-  );
-}
+          onRetry={handleRetrySimilarPapers}
+          claimsState={activeClaimsState}
+          countdown={pipelineCountdown}
+        />
+      );
+    }
 
     if (activeTab === "researchGroups") {
       return (
@@ -6466,7 +6478,7 @@ export default function LandingPage() {
       );
     }
 
-    return <ExtractionDebugPanel state={activeExtraction} paper={activePaper} />;
+    return <ExtractionDebugPanel state={activeExtraction} paper={activePaper} countdown={pipelineCountdown} />;
   };
 
   return (
