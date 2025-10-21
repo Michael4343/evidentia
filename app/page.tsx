@@ -817,6 +817,7 @@ const PIPELINE_STAGE_ORDER: readonly PipelineStageId[] = [
   "claims",
   "similarPapers",
   "researchGroups",
+  "contacts",
   "theses",
   "patents",
   "verifiedClaims"
@@ -827,9 +828,10 @@ const PIPELINE_STAGE_INDEX: Record<PipelineStageId, number> = {
   claims: 1,
   similarPapers: 2,
   researchGroups: 3,
-  theses: 4,
-  patents: 5,
-  verifiedClaims: 6
+  contacts: 4,
+  theses: 5,
+  patents: 6,
+  verifiedClaims: 7
 };
 
 const PIPELINE_STAGE_METADATA: Record<PipelineStageId, { label: string; helper: string }> = {
@@ -849,12 +851,16 @@ const PIPELINE_STAGE_METADATA: Record<PipelineStageId, { label: string; helper: 
     label: "Research Groups",
     helper: "Mapping active teams"
   },
+  contacts: {
+    label: "Contacts",
+    helper: "Finding researcher contacts"
+  },
   theses: {
-    label: "Theses Deep Dive",
+    label: "PhD Theses",
     helper: "Pulling thesis insights"
   },
   patents: {
-    label: "Patent Scan",
+    label: "Patents",
     helper: "Checking overlapping patents"
   },
   verifiedClaims: {
@@ -868,6 +874,7 @@ const PIPELINE_STAGE_EMOJI: Record<PipelineStageId, string> = {
   claims: "🗂️",
   similarPapers: "🔍",
   researchGroups: "🧪",
+  contacts: "👥",
   theses: "🎓",
   patents: "🛠️",
   verifiedClaims: "✅"
@@ -3685,26 +3692,6 @@ function VerifiedClaimsPanel({
         <p className="max-w-md text-sm text-slate-500">
           Run the verified claims script to cross-reference claims against all gathered evidence.
         </p>
-      </div>
-    );
-  }
-
-  if (!claimsState || claimsState.status === "loading") {
-    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="claims" />;
-  }
-
-  if (claimsState.status === "error") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
-        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
-        <div className="space-y-2">
-          <p className="text-base font-semibold text-red-700">Claims analysis required</p>
-          <p className="text-sm text-red-600">
-            {"message" in claimsState && typeof claimsState.message === "string"
-              ? claimsState.message
-              : "Finish the claims step to unlock verification."}
-          </p>
-        </div>
       </div>
     );
   }
