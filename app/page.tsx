@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 import { AppSidebar } from "@/components/app-sidebar";
 import { PaperTabNav } from "@/components/paper-tab-nav";
@@ -766,6 +767,133 @@ type ResearcherThesesState =
     }
   | { status: "error"; message: string; deepDives?: ResearcherThesisDeepDive[] };
 
+interface ClaimsGenerationResult {
+  text?: string;
+  structured?: ClaimsAnalysisStructured;
+}
+
+interface SimilarPapersResult {
+  text: string;
+  structured?: SimilarPapersStructured;
+}
+
+interface ResearchGroupsResult {
+  text: string;
+  structured?: ResearchGroupPaperEntry[];
+}
+
+interface ResearchContactsResult {
+  contacts: Array<{ group: string; people: Array<{ name: string | null; email: string | null }> }>;
+}
+
+interface ResearcherThesesResult {
+  researchers: ResearcherThesisRecord[];
+  text?: string;
+  deepDives?: ResearcherThesisDeepDive[];
+}
+
+interface PatentsResult {
+  text?: string;
+  structured?: PatentsStructured;
+}
+
+interface VerifiedClaimsResult {
+  text?: string;
+  structured?: VerifiedClaimsStructured;
+}
+
+type PipelineStageId =
+  | "extraction"
+  | "claims"
+  | "similarPapers"
+  | "researchGroups"
+  | "contacts"
+  | "theses"
+  | "patents"
+  | "verifiedClaims";
+
+const PIPELINE_STAGE_ORDER: readonly PipelineStageId[] = [
+  "extraction",
+  "claims",
+  "similarPapers",
+  "researchGroups",
+  "theses",
+  "patents",
+  "verifiedClaims"
+];
+
+const PIPELINE_STAGE_INDEX: Record<PipelineStageId, number> = {
+  extraction: 0,
+  claims: 1,
+  similarPapers: 2,
+  researchGroups: 3,
+  theses: 4,
+  patents: 5,
+  verifiedClaims: 6
+};
+
+const PIPELINE_STAGE_METADATA: Record<PipelineStageId, { label: string; helper: string }> = {
+  extraction: {
+    label: "PDF Upload",
+    helper: "Extracting the paper contents"
+  },
+  claims: {
+    label: "Claims Brief",
+    helper: "Summarising core assertions"
+  },
+  similarPapers: {
+    label: "Similar Papers",
+    helper: "Finding related research"
+  },
+  researchGroups: {
+    label: "Research Groups",
+    helper: "Mapping active teams"
+  },
+  theses: {
+    label: "Theses Deep Dive",
+    helper: "Pulling thesis insights"
+  },
+  patents: {
+    label: "Patent Scan",
+    helper: "Checking overlapping patents"
+  },
+  verifiedClaims: {
+    label: "Verified Claims",
+    helper: "Running fact checks"
+  }
+};
+
+const PIPELINE_STAGE_EMOJI: Record<PipelineStageId, string> = {
+  extraction: "📄",
+  claims: "🗂️",
+  similarPapers: "🔍",
+  researchGroups: "🧪",
+  theses: "🎓",
+  patents: "🛠️",
+  verifiedClaims: "✅"
+};
+
+const PIPELINE_STAGE_TO_TAB: Partial<Record<PipelineStageId, ReaderTabKey>> = {
+  extraction: "paper",
+  claims: "claims",
+  similarPapers: "similarPapers",
+  researchGroups: "researchGroups",
+  theses: "theses",
+  patents: "patents",
+  verifiedClaims: "verifiedClaims"
+};
+
+type StageStatus = "idle" | "loading" | "success" | "error";
+
+interface PipelineStageView {
+  id: PipelineStageId;
+  index: number;
+  label: string;
+  helper: string;
+  status: StageStatus;
+  errorMessage?: string;
+}
+
 function createExtractionStateFromSummary(summary: MockLibraryEntrySummary): ExtractionState {
   const pages = summary.raw.sourcePdf?.pages;
   return {
@@ -1139,6 +1267,183 @@ function PaperTabContent({
   );
 }
 
+function PipelineStageTracker({
+  stages,
+  activeStageId,
+  countdown,
+  onStageSelect,
+  isStageInteractive
+}: {
+  stages: PipelineStageView[];
+  activeStageId: PipelineStageId | null;
+  countdown?: string;
+  onStageSelect?: (stageId: PipelineStageId) => void;
+  isStageInteractive?: (stageId: PipelineStageId) => boolean;
+}) {
+  if (!stages || stages.length === 0) {
+    return null;
+  }
+
+  const truncate = (value: string, limit = 80) => {
+    if (value.length <= limit) {
+      return value;
+    }
+    return `${value.slice(0, limit - 1)}…`;
+  };
+
+  return (
+    <div className="w-full border-b border-slate-200 bg-white/90 backdrop-blur">
+      <div className="flex w-full flex-col gap-3 px-4 py-3 sm:px-6 md:px-10">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+            Processing Pipeline
+          </span>
+          {activeStageId && (
+            <span className="text-xs text-slate-500">
+              Active: {PIPELINE_STAGE_METADATA[activeStageId].label}
+            </span>
+          )}
+        </div>
+        <div className="overflow-x-auto pb-1">
+          <div className="grid min-w-full grid-cols-1 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+            {stages.map((stage) => {
+              const isActive = stage.id === activeStageId;
+              const baseClasses =
+                "flex min-w-0 flex-col gap-2 rounded-xl border px-3 py-3 text-left transition";
+              const statusClass =
+                stage.status === "success"
+                  ? "border-emerald-200 bg-emerald-50/70"
+                  : stage.status === "loading"
+                    ? "border-sky-200 bg-sky-50/70"
+                    : stage.status === "error"
+                      ? "border-red-200 bg-red-50/70"
+                      : "border-slate-200 bg-white";
+              const activeClass = isActive ? "shadow-sm" : "shadow-none";
+
+              let description: string;
+              if (stage.status === "loading") {
+                description = isActive && countdown ? `${countdown} remaining` : "Running…";
+              } else if (stage.status === "success") {
+                description = "Complete";
+              } else if (stage.status === "error") {
+                description = stage.errorMessage ? truncate(stage.errorMessage) : "Needs attention";
+              } else {
+                description = stage.helper;
+              }
+
+              let icon: ReactNode;
+              if (stage.status === "loading") {
+                icon = (
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-sky-200 bg-white">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-sky-400 border-t-transparent" />
+                  </span>
+                );
+              } else if (stage.status === "success") {
+                icon = (
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-emerald-200 bg-white text-emerald-600">
+                    ✓
+                  </span>
+                );
+              } else if (stage.status === "error") {
+                icon = (
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-red-200 bg-white text-red-600">
+                    !
+                  </span>
+                );
+              } else {
+                icon = (
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-xs font-semibold text-slate-500">
+                    {stage.index + 1}
+                  </span>
+                );
+              }
+
+              const descriptionClass =
+                stage.status === "error"
+                  ? "text-xs leading-snug text-red-700"
+                  : stage.status === "loading"
+                    ? "text-xs leading-snug text-sky-700"
+                    : stage.status === "success"
+                      ? "text-xs leading-snug text-emerald-700"
+                      : "text-xs leading-snug text-slate-500";
+
+              const selectable = isStageInteractive?.(stage.id) ?? Boolean(onStageSelect);
+
+              const content = (
+                <>
+                  <div className="flex items-center gap-3">
+                    {icon}
+                    <div className="flex flex-col">
+                      <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">
+                        Step {stage.index + 1}
+                      </span>
+                      <span className="text-sm font-medium text-slate-800">{stage.label}</span>
+                    </div>
+                  </div>
+                  <div className={descriptionClass}>{description}</div>
+                </>
+              );
+
+              if (selectable) {
+                return (
+                  <button
+                    key={stage.id}
+                    type="button"
+                    onClick={() => onStageSelect?.(stage.id)}
+                    className={`${baseClasses} ${statusClass} ${activeClass} cursor-pointer text-left shadow-sm transition-transform hover:-translate-y-0.5 hover:shadow-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40`}
+                  >
+                    {content}
+                  </button>
+                );
+              }
+
+              return (
+                <div key={stage.id} className={`${baseClasses} ${statusClass} ${activeClass}`}>
+                  {content}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PipelineStagePlaceholder({
+  stageId,
+  waitingForStageId,
+  countdown
+}: {
+  stageId: PipelineStageId;
+  waitingForStageId?: PipelineStageId | null;
+  countdown?: string;
+}) {
+  const stageMeta = PIPELINE_STAGE_METADATA[stageId];
+  const waitingMeta = waitingForStageId ? PIPELINE_STAGE_METADATA[waitingForStageId] : null;
+  const emoji = PIPELINE_STAGE_EMOJI[waitingForStageId ?? stageId];
+
+  const headline = waitingMeta
+    ? `Up next: ${stageMeta.label}`
+    : `${stageMeta.label} in progress`;
+
+  const supportingText = waitingMeta
+    ? `We’ll kick this off right after ${waitingMeta.label.toLowerCase()} finishes up.`
+    : countdown
+      ? `${stageMeta.helper}. ${countdown} to go.`
+      : `${stageMeta.helper}. Hang tight!`;
+
+  return (
+    <div className="flex flex-1 items-center justify-center p-4">
+      <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white/90 p-6 text-center shadow-sm">
+        <div className="mb-3 text-3xl" aria-hidden>{emoji}</div>
+        <p className="text-base font-semibold text-slate-900">{headline}</p>
+        <p className="mt-2 text-sm text-slate-600">{supportingText}</p>
+      </div>
+    </div>
+  );
+}
+
 function ExtractionDebugPanel({
   state,
   paper,
@@ -1438,16 +1743,27 @@ function ClaimsPanel({
     );
   }
 
-  if (!state || state.status === "loading") {
+  if (!extraction || extraction.status === "loading") {
+    return <PipelineStagePlaceholder stageId="claims" waitingForStageId="extraction" />;
+  }
+
+  if (extraction.status === "error") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
         <div className="space-y-1">
-          <p className="text-base font-medium text-slate-700">Assembling claims brief…</p>
-          {countdown && <p className="text-xs text-slate-500">{countdown} remaining</p>}
+          <p className="text-base font-semibold text-red-700">Extraction required</p>
+          <p className="text-sm text-red-600">
+            {extraction.message || "We couldn’t extract text from this PDF, so claims can’t run yet."}
+          </p>
+          {extraction.hint && <p className="text-xs text-red-500">{extraction.hint}</p>}
         </div>
       </div>
     );
+  }
+
+  if (!state || state.status === "loading") {
+    return <PipelineStagePlaceholder stageId="claims" countdown={countdown} />;
   }
 
   if (state.status === "error") {
@@ -1674,15 +1990,7 @@ function SimilarPapersPanel({
         </div>
       );
     }
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
-        <div className="space-y-1">
-          <p className="text-base font-medium text-slate-700">Preparing extracted text…</p>
-          {countdown && <p className="text-xs text-slate-500">{countdown} remaining</p>}
-        </div>
-      </div>
-    );
+    return <PipelineStagePlaceholder stageId="similarPapers" waitingForStageId="extraction" />;
   }
 
   if (extraction.status === "error") {
@@ -1701,6 +2009,37 @@ function SimilarPapersPanel({
 
   const claimsStatus = claimsState?.status;
 
+  if (!claimsState || claimsStatus === "loading") {
+    if (isMockPaper(paper) && (!state || state.status === "loading")) {
+      return (
+        <div className="flex-1 overflow-auto">
+          <MockSimilarPapersShowcase paperId={paper.id} />
+        </div>
+      );
+    }
+    return <PipelineStagePlaceholder stageId="similarPapers" waitingForStageId="claims" />;
+  }
+
+  if (claimsStatus === "error") {
+    const claimsMessage =
+      claimsState && "message" in claimsState && typeof claimsState.message === "string"
+        ? claimsState.message
+        : "Claims analysis failed, so we can't compute similar papers yet.";
+
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-1">
+          <p className="text-base font-semibold text-red-700">Claims analysis required</p>
+          <p className="text-sm text-red-600">{claimsMessage}</p>
+        </div>
+        <p className="max-w-sm text-xs text-slate-500">
+          Re-run the claims tab or retry the upload to unblock the similar papers step.
+        </p>
+      </div>
+    );
+  }
+
   if (!state || state.status === "loading") {
     if (isMockPaper(paper)) {
       return (
@@ -1709,47 +2048,7 @@ function SimilarPapersPanel({
         </div>
       );
     }
-    if (claimsStatus === "loading") {
-      return (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-          <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
-          <div className="space-y-1">
-            <p className="text-base font-medium text-slate-700">Running claims analysis…</p>
-            {countdown && <p className="text-xs text-slate-500">{countdown} remaining</p>}
-          </div>
-        </div>
-      );
-    }
-
-    if (claimsStatus === "error") {
-      const claimsMessage =
-        claimsState && "message" in claimsState && typeof claimsState.message === "string"
-          ? claimsState.message
-          : "Claims analysis failed, so we can't compute similar papers yet.";
-
-      return (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-          <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
-          <div className="space-y-1">
-            <p className="text-base font-semibold text-red-700">Claims analysis required</p>
-            <p className="text-sm text-red-600">{claimsMessage}</p>
-          </div>
-          <p className="max-w-sm text-xs text-slate-500">
-            Re-run the claims tab or retry the upload to unblock the similar papers step.
-          </p>
-        </div>
-      );
-    }
-
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
-        <div className="space-y-1">
-          <p className="text-base font-medium text-slate-700">Compiling similar papers…</p>
-          {countdown && <p className="text-xs text-slate-500">{countdown} remaining</p>}
-        </div>
-      </div>
-    );
+    return <PipelineStagePlaceholder stageId="similarPapers" countdown={countdown} />;
   }
 
   if (state.status === "error") {
@@ -1807,12 +2106,18 @@ function ResearchGroupsPanel({
   extraction,
   state,
   contacts,
+  claimsState,
+  similarState,
+  countdown,
   onRetry
 }: {
   paper: UploadedPaper | null;
   extraction: ExtractionState | undefined;
   state: ResearchGroupsState | undefined;
   contacts: ResearchGroupContactsState | undefined;
+  claimsState: ClaimsAnalysisState | undefined;
+  similarState: SimilarPapersState | undefined;
+  countdown?: string;
   onRetry: () => void;
 }) {
   if (!paper) {
@@ -1842,14 +2147,7 @@ function ResearchGroupsPanel({
   }
 
   if (!extraction || extraction.status === "loading") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
-        <div className="space-y-1">
-          <p className="text-base font-medium text-slate-700">Preparing extracted text…</p>
-        </div>
-      </div>
-    );
+    return <PipelineStagePlaceholder stageId="researchGroups" waitingForStageId="extraction" />;
   }
 
   if (extraction.status === "error") {
@@ -1866,15 +2164,44 @@ function ResearchGroupsPanel({
     );
   }
 
-  if (!state || state.status === "loading") {
+  if (!claimsState || claimsState.status === "loading") {
+    return <PipelineStagePlaceholder stageId="researchGroups" waitingForStageId="claims" />;
+  }
+
+  if (claimsState.status === "error") {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
         <div className="space-y-1">
-          <p className="text-base font-medium text-slate-700">Researching active groups…</p>
+          <p className="text-base font-semibold text-red-700">Claims analysis required</p>
+          <p className="text-sm text-red-600">
+            {"message" in claimsState && typeof claimsState.message === "string"
+              ? claimsState.message
+              : "Finish the claims tab before we scout research groups."}
+          </p>
         </div>
       </div>
     );
+  }
+
+  if (!similarState || similarState.status === "loading") {
+    return <PipelineStagePlaceholder stageId="researchGroups" waitingForStageId="similarPapers" />;
+  }
+
+  if (similarState.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-1">
+          <p className="text-base font-semibold text-red-700">Similar papers required</p>
+          <p className="text-sm text-red-600">Resolve the similar papers tab so we know what to look for.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!state || state.status === "loading") {
+    return <PipelineStagePlaceholder stageId="researchGroups" countdown={countdown} />;
   }
 
   if (state.status === "error") {
@@ -2071,6 +2398,7 @@ function ResearcherThesesPanel({
   isMock,
   structuredGroups,
   deepDives,
+  countdown,
   onRetry
 }: {
   state: ResearcherThesesState | undefined;
@@ -2078,6 +2406,7 @@ function ResearcherThesesPanel({
   isMock: boolean;
   structuredGroups?: ResearchGroupPaperEntry[];
   deepDives?: ResearcherThesisDeepDive[];
+  countdown?: string;
   onRetry?: () => void;
 }) {
   const hasLoadedResearchers =
@@ -2093,21 +2422,11 @@ function ResearcherThesesPanel({
   }
 
   if (!hasResearchGroups) {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-        <p className="text-base font-medium text-slate-700">Run the Research Groups tab first.</p>
-        <p className="text-sm text-slate-500">We need group results before we can look for theses.</p>
-      </div>
-    );
+    return <PipelineStagePlaceholder stageId="theses" waitingForStageId="researchGroups" />;
   }
 
   if (!state || state.status === "loading") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
-        <p className="text-sm text-slate-600">Collecting latest publications and theses…</p>
-      </div>
-    );
+    return <PipelineStagePlaceholder stageId="theses" countdown={countdown} />;
   }
 
   if (state.status === "error") {
@@ -2867,12 +3186,16 @@ function PatentsPanel({
   state,
   paper,
   isMock,
+  claimsState,
+  countdown,
   onRetry
 }: {
   extraction: ExtractionState | undefined;
   state: PatentsState | undefined;
   paper: UploadedPaper | null;
   isMock: boolean;
+  claimsState: ClaimsAnalysisState | undefined;
+  countdown?: string;
   onRetry?: () => void;
 }) {
 
@@ -2986,21 +3309,31 @@ function PatentsPanel({
   }
 
   if (!paper) {
+    return <PipelineStagePlaceholder stageId="patents" waitingForStageId="claims" />;
+  }
+
+  if (!claimsState || claimsState.status === "loading") {
+    return <PipelineStagePlaceholder stageId="patents" waitingForStageId="claims" />;
+  }
+
+  if (claimsState.status === "error") {
+    const message =
+      "message" in claimsState && typeof claimsState.message === "string"
+        ? claimsState.message
+        : "Claims analysis didn’t finish, so we can’t run the patent scan.";
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center p-6">
-        <p className="text-base font-medium text-slate-700">Upload a PDF to see patent overlaps.</p>
-        <p className="text-sm text-slate-500">We will run a patent search once claims analysis completes.</p>
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-red-700">Claims analysis required</p>
+          <p className="text-sm text-red-600">{message}</p>
+        </div>
       </div>
     );
   }
 
   if (!state || state.status === "loading") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center p-6">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
-        <p className="text-sm text-slate-600">Searching for related patents…</p>
-      </div>
-    );
+    return <PipelineStagePlaceholder stageId="patents" countdown={countdown} />;
   }
 
   if (state.status === "error") {
@@ -3054,11 +3387,21 @@ function PatentsPanel({
 function VerifiedClaimsPanel({
   state,
   isMock,
-  onRetry
+  onRetry,
+  claimsState,
+  similarState,
+  groupsState,
+  patentsState,
+  countdown
 }: {
   state: VerifiedClaimsState | undefined;
   isMock: boolean;
   onRetry?: () => void;
+  claimsState: ClaimsAnalysisState | undefined;
+  similarState: SimilarPapersState | undefined;
+  groupsState: ResearchGroupsState | undefined;
+  patentsState: PatentsState | undefined;
+  countdown?: string;
 }) {
   const getStatusBadgeClasses = (status: string) => {
     switch (status) {
@@ -3219,6 +3562,74 @@ function VerifiedClaimsPanel({
     </div>
   );
 
+  if (!claimsState || claimsState.status === "loading") {
+    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="claims" countdown={countdown} />;
+  }
+
+  if (claimsState.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-red-700">Claims analysis required</p>
+          <p className="text-sm text-red-600">
+            {"message" in claimsState && typeof claimsState.message === "string"
+              ? claimsState.message
+              : "Finish the claims step to unlock verification."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!similarState || similarState.status === "loading") {
+    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="similarPapers" countdown={countdown} />;
+  }
+
+  if (similarState.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-red-700">Similar papers required</p>
+          <p className="text-sm text-red-600">Resolve the similar papers tab so we can cross-reference claims.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!groupsState || groupsState.status === "loading") {
+    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="researchGroups" countdown={countdown} />;
+  }
+
+  if (groupsState.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-red-700">Research groups required</p>
+          <p className="text-sm text-red-600">Fix the research groups tab to give the verifier team context.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!patentsState || patentsState.status === "loading") {
+    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="patents" countdown={countdown} />;
+  }
+
+  if (patentsState.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-red-700">Patent scan required</p>
+          <p className="text-sm text-red-600">Re-run the patent tab before verifying claims.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (isMock) {
     if (state?.status === "success") {
       const mockClaims = (state.structured?.claims ?? []) as VerifiedClaimEntry[];
@@ -3278,13 +3689,76 @@ function VerifiedClaimsPanel({
     );
   }
 
-  if (!state || state.status === "loading") {
+  if (!claimsState || claimsState.status === "loading") {
+    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="claims" />;
+  }
+
+  if (claimsState.status === "error") {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center p-6">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
-        <p className="text-sm text-slate-600">Synthesising verified claims…</p>
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-red-700">Claims analysis required</p>
+          <p className="text-sm text-red-600">
+            {"message" in claimsState && typeof claimsState.message === "string"
+              ? claimsState.message
+              : "Finish the claims step to unlock verification."}
+          </p>
+        </div>
       </div>
     );
+  }
+
+  if (!similarState || similarState.status === "loading") {
+    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="similarPapers" />;
+  }
+
+  if (similarState.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-red-700">Similar papers required</p>
+          <p className="text-sm text-red-600">Resolve the similar papers tab so we can cross-reference claims.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!groupsState || groupsState.status === "loading") {
+    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="researchGroups" />;
+  }
+
+  if (groupsState.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-red-700">Research groups required</p>
+          <p className="text-sm text-red-600">Fix the research groups tab to give the verifier team context.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!patentsState || patentsState.status === "loading") {
+    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="patents" />;
+  }
+
+  if (patentsState.status === "error") {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
+        <div className="space-y-2">
+          <p className="text-base font-semibold text-red-700">Patent scan required</p>
+          <p className="text-sm text-red-600">Re-run the patent tab before verifying claims.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!state || state.status === "loading") {
+    return <PipelineStagePlaceholder stageId="verifiedClaims" countdown={countdown} />;
   }
 
   if (state.status === "error") {
@@ -3577,6 +4051,49 @@ export default function LandingPage() {
   const [researchThesesStates, setResearchThesesStates] = useState<Record<string, ResearcherThesesState>>(
     defaultActivePaperId ? { [defaultActivePaperId]: initialResearchThesesState } : {}
   );
+
+  const extractionStatesRef = useRef(extractionStates);
+  const claimsStatesRef = useRef(claimsStates);
+  const similarPapersStatesRef = useRef(similarPapersStates);
+  const patentsStatesRef = useRef(patentsStates);
+  const verifiedClaimsStatesRef = useRef(verifiedClaimsStates);
+  const researchGroupsStatesRef = useRef(researchGroupsStates);
+  const researchContactsStatesRef = useRef(researchContactsStates);
+  const researchThesesStatesRef = useRef(researchThesesStates);
+
+  useEffect(() => {
+    extractionStatesRef.current = extractionStates;
+  }, [extractionStates]);
+
+  useEffect(() => {
+    claimsStatesRef.current = claimsStates;
+  }, [claimsStates]);
+
+  useEffect(() => {
+    similarPapersStatesRef.current = similarPapersStates;
+  }, [similarPapersStates]);
+
+  useEffect(() => {
+    patentsStatesRef.current = patentsStates;
+  }, [patentsStates]);
+
+  useEffect(() => {
+    verifiedClaimsStatesRef.current = verifiedClaimsStates;
+  }, [verifiedClaimsStates]);
+
+  useEffect(() => {
+    researchGroupsStatesRef.current = researchGroupsStates;
+  }, [researchGroupsStates]);
+
+  useEffect(() => {
+    researchContactsStatesRef.current = researchContactsStates;
+  }, [researchContactsStates]);
+
+  useEffect(() => {
+    researchThesesStatesRef.current = researchThesesStates;
+  }, [researchThesesStates]);
+
+  const pipelineRunsRef = useRef<Map<string, Promise<void>>>(new Map());
   const activePaper = activePaperId
     ? uploadedPapers.find((item) => item.id === activePaperId) ?? null
     : null;
@@ -3596,6 +4113,102 @@ export default function LandingPage() {
     : isFetchingLibrary
       ? "Loading your library…"
       : undefined;
+
+  const pipelineStages = useMemo<PipelineStageView[] | null>(() => {
+    if (!activePaper || isMockPaper(activePaper)) {
+      return null;
+    }
+
+    const paperId = activePaper.id;
+
+    const deriveStatus = (state: any): { status: StageStatus; errorMessage?: string } => {
+      if (!state) {
+        return { status: "idle" };
+      }
+      if (state.status === "loading") {
+        return { status: "loading" };
+      }
+      if (state.status === "error") {
+        return { status: "error", errorMessage: state.message ?? state.hint };
+      }
+      return { status: "success" };
+    };
+
+    return PIPELINE_STAGE_ORDER.map((stageId, index) => {
+      const meta = PIPELINE_STAGE_METADATA[stageId];
+      let status: StageStatus = "idle";
+      let errorMessage: string | undefined;
+
+      switch (stageId) {
+        case "extraction": {
+          const extractionState = extractionStates[paperId];
+          ({ status, errorMessage } = deriveStatus(extractionState));
+          if (extractionState?.status === "error" && extractionState.hint && !errorMessage) {
+            errorMessage = extractionState.hint;
+          }
+          break;
+        }
+        case "claims": {
+          const claimsState = claimsStates[paperId];
+          ({ status, errorMessage } = deriveStatus(claimsState));
+          break;
+        }
+        case "similarPapers": {
+          const similarState = similarPapersStates[paperId];
+          ({ status, errorMessage } = deriveStatus(similarState));
+          break;
+        }
+        case "researchGroups": {
+          const groupsState = researchGroupsStates[paperId];
+          ({ status, errorMessage } = deriveStatus(groupsState));
+          const contactsState = researchContactsStates[paperId];
+          if (contactsState?.status === "loading" && status === "success") {
+            status = "loading";
+            errorMessage = undefined;
+          }
+          if (contactsState?.status === "error") {
+            status = "error";
+            errorMessage = contactsState.message;
+          }
+          break;
+        }
+        case "theses": {
+          const thesesState = researchThesesStates[paperId];
+          ({ status, errorMessage } = deriveStatus(thesesState));
+          break;
+        }
+        case "patents": {
+          const patentsState = patentsStates[paperId];
+          ({ status, errorMessage } = deriveStatus(patentsState));
+          break;
+        }
+        case "verifiedClaims": {
+          const verifiedState = verifiedClaimsStates[paperId];
+          ({ status, errorMessage } = deriveStatus(verifiedState));
+          break;
+        }
+      }
+
+      return {
+        id: stageId,
+        index,
+        label: meta.label,
+        helper: meta.helper,
+        status,
+        errorMessage
+      } satisfies PipelineStageView;
+    });
+  }, [
+    activePaper,
+    claimsStates,
+    extractionStates,
+    patentsStates,
+    researchContactsStates,
+    researchGroupsStates,
+    researchThesesStates,
+    similarPapersStates,
+    verifiedClaimsStates
+  ]);
 
   useEffect(() => {
     if (!activePaper || !isMockPaper(activePaper)) {
@@ -4225,24 +4838,26 @@ export default function LandingPage() {
   ]);
 
   const runExtraction = useCallback(
-    async (paper: UploadedPaper, options?: { file?: File }) => {
+    async (paper: UploadedPaper, options?: { file?: File }): Promise<ExtractedText | null> => {
       if (!paper) {
-        return;
+        return null;
       }
 
       if (isMockPaper(paper)) {
+        const mockData: ExtractedText = {
+          pages: null,
+          info: null,
+          text: "Static Evidentia sample paper"
+        };
+
         setExtractionStates((prev) => ({
           ...prev,
           [paper.id]: {
             status: "success",
-            data: {
-              pages: null,
-              info: null,
-              text: "Static Evidentia sample paper"
-            }
+            data: mockData
           }
         }));
-        return;
+        return mockData;
       }
 
       setExtractionStates((prev) => ({
@@ -4395,7 +5010,7 @@ export default function LandingPage() {
               hint
             }
           }));
-          return;
+          return null;
         }
 
         const payload = (await response.json()) as ExtractedText;
@@ -4411,6 +5026,7 @@ export default function LandingPage() {
             data: payload
           }
         }));
+        return payload;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to extract text from PDF.";
         console.error("Extraction error", error);
@@ -4421,15 +5037,20 @@ export default function LandingPage() {
             message
           }
         }));
+        return null;
       }
     },
     []
   );
 
   const runSimilarPapers = useCallback(
-    async (paper: UploadedPaper, extraction: ExtractedText, claims: ClaimsAnalysisState) => {
+    async (
+      paper: UploadedPaper,
+      extraction: ExtractedText,
+      claims: ClaimsAnalysisState
+    ): Promise<SimilarPapersResult | null> => {
       if (!paper || isMockPaper(paper) || !extraction || typeof extraction.text !== "string" || extraction.text.trim().length === 0) {
-        return;
+        return null;
       }
 
       // REQUIRE claims to be successful
@@ -4445,7 +5066,7 @@ export default function LandingPage() {
             message: "Claims analysis is required. Please wait for claims to complete or try uploading again."
           }
         }));
-        return;
+        return null;
       }
 
       console.log("[similar-papers] starting fetch with claims", {
@@ -4573,14 +5194,19 @@ export default function LandingPage() {
           });
         }
 
+        const result: SimilarPapersResult = {
+          text: outputText,
+          ...(structuredData ? { structured: structuredData } : {})
+        };
+
         setSimilarPapersStates((prev) => ({
           ...prev,
           [paper.id]: {
             status: "success",
-            text: outputText,
-            structured: structuredData
+            ...result
           }
         }));
+        return result;
       } catch (error) {
         const isAbort = error instanceof DOMException && error.name === "AbortError";
         const message =
@@ -4605,15 +5231,20 @@ export default function LandingPage() {
             message
           }
         }));
+        return null;
       }
     },
     [supabase, user]
   );
 
   const runPatents = useCallback(
-    async (paper: UploadedPaper, extraction: ExtractedText, claims: ClaimsAnalysisState) => {
+    async (
+      paper: UploadedPaper,
+      extraction: ExtractedText,
+      claims: ClaimsAnalysisState
+    ): Promise<PatentsResult | null> => {
       if (!paper || isMockPaper(paper) || !extraction || typeof extraction.text !== "string" || extraction.text.trim().length === 0) {
-        return;
+        return null;
       }
 
       if (!claims || claims.status !== "success") {
@@ -4628,7 +5259,7 @@ export default function LandingPage() {
             message: "Claims analysis is required before running patent search. Please wait for claims to finish."
           }
         }));
-        return;
+        return null;
       }
 
       console.log("[patents] starting fetch", {
@@ -4739,14 +5370,19 @@ export default function LandingPage() {
           });
         }
 
+        const result: PatentsResult = {
+          ...(text ? { text } : {}),
+          ...(structuredData ? { structured: structuredData } : {})
+        };
+
         setPatentsStates((prev) => ({
           ...prev,
           [paper.id]: {
             status: "success",
-            ...(text ? { text } : {}),
-            ...(structuredData ? { structured: structuredData } : {})
+            ...result
           }
         }));
+        return result;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to fetch patent data.";
         console.error("[patents] fetch error", {
@@ -4761,6 +5397,7 @@ export default function LandingPage() {
             message
           }
         }));
+        return null;
       }
     },
     [supabase, user]
@@ -4774,9 +5411,9 @@ export default function LandingPage() {
       groups: ResearchGroupsState,
       patents: PatentsState,
       theses: ResearcherThesesState | undefined
-    ) => {
+    ): Promise<VerifiedClaimsResult | null> => {
       if (!paper || isMockPaper(paper)) {
-        return;
+        return null;
       }
 
       if (!claims || claims.status !== "success") {
@@ -4791,7 +5428,7 @@ export default function LandingPage() {
             message: "Claims analysis is required before running verification."
           }
         }));
-        return;
+        return null;
       }
 
       if (!similar || similar.status !== "success") {
@@ -4799,7 +5436,7 @@ export default function LandingPage() {
           paperId: paper.id,
           similarStatus: similar?.status
         });
-        return;
+        return null;
       }
 
       if (!groups || groups.status !== "success") {
@@ -4807,7 +5444,7 @@ export default function LandingPage() {
           paperId: paper.id,
           groupsStatus: groups?.status
         });
-        return;
+        return null;
       }
 
       if (!patents || patents.status !== "success") {
@@ -4815,7 +5452,7 @@ export default function LandingPage() {
           paperId: paper.id,
           patentsStatus: patents?.status
         });
-        return;
+        return null;
       }
 
       console.log("[verified-claims] starting fetch", {
@@ -4938,14 +5575,19 @@ export default function LandingPage() {
           });
         }
 
+        const result: VerifiedClaimsResult = {
+          ...(text ? { text } : {}),
+          ...(structuredData ? { structured: structuredData } : {})
+        };
+
         setVerifiedClaimsStates((prev) => ({
           ...prev,
           [paper.id]: {
             status: "success",
-            ...(text ? { text } : {}),
-            ...(structuredData ? { structured: structuredData } : {})
+            ...result
           }
         }));
+        return result;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to verify claims.";
         console.error("[verified-claims] fetch error", {
@@ -4960,20 +5602,21 @@ export default function LandingPage() {
             message
           }
         }));
+        return null;
       }
     },
     [supabase, user]
   );
 
   const runClaimsGeneration = useCallback(
-    async (paper: UploadedPaper, extraction: ExtractedText) => {
+    async (paper: UploadedPaper, extraction: ExtractedText): Promise<ClaimsGenerationResult | null> => {
       if (!paper || isMockPaper(paper) || !extraction || typeof extraction.text !== "string" || extraction.text.trim().length === 0) {
-        return;
+        return null;
       }
 
       if (!user) {
         console.warn("[claims-generation] User session missing; skip generation");
-        return;
+        return null;
       }
 
       const canPersistClaims = Boolean(supabase);
@@ -5060,6 +5703,11 @@ export default function LandingPage() {
           hasStructured: Boolean(structured)
         });
 
+        const result: ClaimsGenerationResult = {
+          ...(outputText ? { text: outputText } : {}),
+          ...(structured ? { structured } : {})
+        };
+
         // Save claims to Supabase storage
         if (paper.storagePath && canPersistClaims && supabase) {
           try {
@@ -5068,7 +5716,7 @@ export default function LandingPage() {
               userId: user.id,
               paperId: paper.id,
               storagePath: paper.storagePath,
-              claimsData: { text: outputText, structured }
+              claimsData: result
             });
             console.log("[claims-generation] saved to storage", { paperId: paper.id });
           } catch (storageError) {
@@ -5081,10 +5729,10 @@ export default function LandingPage() {
           ...prev,
           [paper.id]: {
             status: "success",
-            text: outputText,
-            structured
+            ...result
           }
         }));
+        return result;
       } catch (error) {
         const message =
           error instanceof Error && error.message ? error.message : "Failed to generate claims.";
@@ -5101,6 +5749,7 @@ export default function LandingPage() {
             message
           }
         }));
+        return null;
       }
     },
     [supabase, user]
@@ -5110,9 +5759,9 @@ export default function LandingPage() {
     async (
       paper: UploadedPaper,
       researchGroupsStructured: ResearchGroupPaperEntry[] | undefined
-    ) => {
+    ): Promise<ResearcherThesesResult | null> => {
       if (!paper || isMockPaper(paper)) {
-        return;
+        return null;
       }
 
       if (!researchGroupsStructured || researchGroupsStructured.length === 0) {
@@ -5125,7 +5774,7 @@ export default function LandingPage() {
               prev[paper.id]?.status === "success" ? prev[paper.id].deepDives : undefined
           }
         }));
-        return;
+        return null;
       }
 
       console.log("[researcher-theses] starting fetch", {
@@ -5232,16 +5881,25 @@ export default function LandingPage() {
           });
         }
 
+        const nextDeepDives =
+          researchThesesStatesRef.current[paper.id]?.status === "success"
+            ? researchThesesStatesRef.current[paper.id].deepDives
+            : undefined;
+
+        const result: ResearcherThesesResult = {
+          researchers,
+          ...(text.length > 0 ? { text } : {}),
+          ...(nextDeepDives ? { deepDives: nextDeepDives } : {})
+        };
+
         setResearchThesesStates((prev) => ({
           ...prev,
           [paper.id]: {
             status: "success",
-            researchers,
-            ...(text.length > 0 ? { text } : {}),
-            deepDives:
-              prev[paper.id]?.status === "success" ? prev[paper.id].deepDives : undefined
+            ...result
           }
         }));
+        return result;
       } catch (error) {
         const message =
           error instanceof Error && error.message
@@ -5264,6 +5922,7 @@ export default function LandingPage() {
                 : prev[paper.id]?.deepDives
           }
         }));
+        return null;
       }
     },
     [supabase, user]
@@ -5274,14 +5933,19 @@ export default function LandingPage() {
       paper: UploadedPaper,
       researchText: string,
       researchGroupsStructured: ResearchGroupPaperEntry[] | undefined
-    ) => {
-      if (!paper || isMockPaper(paper) || researchText.trim().length === 0) {
-        return;
+    ): Promise<ResearchContactsResult | null> => {
+      if (!paper || isMockPaper(paper)) {
+        return null;
+      }
+
+      const trimmed = researchText.trim();
+      if (!trimmed) {
+        return null;
       }
 
       console.log("[research-group-contacts] starting fetch", {
         paperId: paper.id,
-        textLength: researchText.length
+        textLength: trimmed.length
       });
 
       setResearchContactsStates((prev) => ({
@@ -5308,7 +5972,7 @@ export default function LandingPage() {
               "Content-Type": "application/json"
             },
             body: JSON.stringify({
-              text: researchText
+              text: trimmed
             }),
             signal: controller.signal
           });
@@ -5361,17 +6025,17 @@ export default function LandingPage() {
           });
         }
 
+        const result: ResearchContactsResult = { contacts };
+
         setResearchContactsStates((prev) => ({
           ...prev,
           [paper.id]: {
             status: "success",
-            contacts
+            ...result
           }
         }));
 
-        if (contacts.length > 0) {
-          void runResearcherTheses(paper, researchGroupsStructured);
-        }
+        return result;
     } catch (error) {
       const message =
         error instanceof Error && error.message
@@ -5398,13 +6062,20 @@ export default function LandingPage() {
           message: "Contact lookup failed, so thesis details are unavailable."
         }
       }));
+      return null;
     }
-  }, [runResearcherTheses, supabase, user]);
+  }, [supabase, user]);
 
-  const runResearchGroups = useCallback(async (paper: UploadedPaper, extraction: ExtractedText, claims: ClaimsAnalysisState, similarPapers: SimilarPapersState) => {
-    if (!paper || isMockPaper(paper) || !extraction?.text) {
-      return;
-    }
+  const runResearchGroups = useCallback(
+    async (
+      paper: UploadedPaper,
+      extraction: ExtractedText,
+      claims: ClaimsAnalysisState,
+      similarPapers: SimilarPapersState
+    ): Promise<ResearchGroupsResult | null> => {
+      if (!paper || isMockPaper(paper) || !extraction?.text) {
+        return null;
+      }
 
     // REQUIRE claims to be successful
     if (!claims || claims.status !== "success") {
@@ -5412,7 +6083,7 @@ export default function LandingPage() {
         paperId: paper.id,
         claimsStatus: claims?.status
       });
-      return;
+      return null;
     }
 
     // REQUIRE similar papers to be successful
@@ -5421,7 +6092,7 @@ export default function LandingPage() {
         paperId: paper.id,
         similarPapersStatus: similarPapers?.status
       });
-      return;
+      return null;
     }
 
     console.log("[research-groups] starting fetch", {
@@ -5540,16 +6211,20 @@ export default function LandingPage() {
         });
       }
 
+      const result: ResearchGroupsResult = {
+        text: outputText,
+        ...(structuredData ? { structured: structuredData } : {})
+      };
+
       setResearchGroupsStates((prev) => ({
         ...prev,
         [paper.id]: {
           status: "success",
-          text: outputText,
-          structured: structuredData
+          ...result
         }
       }));
 
-      void runResearchGroupContacts(paper, outputText, structuredData);
+      return result;
     } catch (error) {
       const message =
         error instanceof Error && error.message
@@ -5568,8 +6243,181 @@ export default function LandingPage() {
           message
         }
       }));
+      return null;
     }
-  }, [runResearchGroupContacts, supabase, user]);
+  }, [supabase, user]);
+
+  const startPipeline = useCallback(
+    (paper: UploadedPaper | null, options?: { file?: File; resetFrom?: PipelineStageId }) => {
+      if (!paper || isMockPaper(paper)) {
+        return Promise.resolve();
+      }
+
+      const existingRun = pipelineRunsRef.current.get(paper.id);
+      if (existingRun) {
+        return existingRun;
+      }
+
+      const runPromise = (async () => {
+        const forcedStageIndex =
+          options?.resetFrom !== undefined ? PIPELINE_STAGE_INDEX[options.resetFrom] : null;
+
+        try {
+          let extractionData =
+            extractionStatesRef.current[paper.id]?.status === "success"
+              ? extractionStatesRef.current[paper.id]!.data
+              : null;
+
+          if (!extractionData || (forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.extraction)) {
+            extractionData = await runExtraction(paper, options);
+            if (!extractionData) {
+              return;
+            }
+          }
+
+          let claimsState = claimsStatesRef.current[paper.id];
+          const forceClaims = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.claims;
+          if (!claimsState || claimsState.status !== "success" || forceClaims) {
+            if (paper.storagePath && supabase) {
+              try {
+                const storedClaims = await loadClaimsFromStorage({
+                  client: supabase,
+                  storagePath: paper.storagePath
+                });
+
+                if (storedClaims) {
+                  setClaimsStates((prev) => ({
+                    ...prev,
+                    [paper.id]: {
+                      status: "success",
+                      text: storedClaims.text,
+                      structured: storedClaims.structured
+                    }
+                  }));
+                  claimsState = {
+                    status: "success",
+                    ...(storedClaims.text ? { text: storedClaims.text } : {}),
+                    ...(storedClaims.structured ? { structured: storedClaims.structured } : {})
+                  } as ClaimsAnalysisState;
+                }
+              } catch (error) {
+                console.error("[pipeline] failed to load claims from storage", {
+                  paperId: paper.id,
+                  error
+                });
+              }
+            }
+
+            if (!claimsState || claimsState.status !== "success") {
+              const generated = await runClaimsGeneration(paper, extractionData);
+              if (!generated) {
+                return;
+              }
+              claimsState = { status: "success", ...generated } as ClaimsAnalysisState;
+            }
+          }
+
+          if (!claimsState || claimsState.status !== "success") {
+            return;
+          }
+
+          let similarState = similarPapersStatesRef.current[paper.id];
+          const forceSimilar = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.similarPapers;
+          if (!similarState || similarState.status !== "success" || forceSimilar) {
+            const similarResult = await runSimilarPapers(paper, extractionData, claimsState);
+            if (!similarResult) {
+              return;
+            }
+            similarState = { status: "success", ...similarResult } as SimilarPapersState;
+          }
+
+          if (!similarState || similarState.status !== "success") {
+            return;
+          }
+
+          let groupsState = researchGroupsStatesRef.current[paper.id];
+          const forceGroups = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.researchGroups;
+          if (!groupsState || groupsState.status !== "success" || forceGroups) {
+            const groupsResult = await runResearchGroups(paper, extractionData, claimsState, similarState);
+            if (!groupsResult) {
+              return;
+            }
+            groupsState = { status: "success", ...groupsResult } as ResearchGroupsState;
+          }
+
+          if (!groupsState || groupsState.status !== "success") {
+            return;
+          }
+
+          const contactsState = researchContactsStatesRef.current[paper.id];
+          const forceContacts = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.researchGroups;
+          if (!contactsState || contactsState.status !== "success" || forceContacts) {
+            await runResearchGroupContacts(paper, groupsState.text, groupsState.structured);
+          }
+
+          let thesesState = researchThesesStatesRef.current[paper.id];
+          const hasStructuredGroups = Array.isArray(groupsState.structured) && groupsState.structured.length > 0;
+          const forceTheses = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.theses;
+          if (hasStructuredGroups && (!thesesState || thesesState.status !== "success" || forceTheses)) {
+            const thesesResult = await runResearcherTheses(paper, groupsState.structured);
+            if (thesesResult) {
+              thesesState = { status: "success", ...thesesResult } as ResearcherThesesState;
+            } else {
+              thesesState = researchThesesStatesRef.current[paper.id];
+            }
+          }
+
+          let patentsState = patentsStatesRef.current[paper.id];
+          const forcePatents = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.patents;
+          if (!patentsState || patentsState.status !== "success" || forcePatents) {
+            const patentsResult = await runPatents(paper, extractionData, claimsState);
+            if (!patentsResult) {
+              return;
+            }
+            patentsState = { status: "success", ...patentsResult } as PatentsState;
+          }
+
+          if (!patentsState || patentsState.status !== "success") {
+            return;
+          }
+
+          let verifiedState = verifiedClaimsStatesRef.current[paper.id];
+          const forceVerified = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.verifiedClaims;
+          if (!verifiedState || verifiedState.status !== "success" || forceVerified) {
+            const thesesForVerified =
+              thesesState && thesesState.status === "success" ? thesesState : undefined;
+            const verifiedResult = await runVerifiedClaims(
+              paper,
+              claimsState,
+              similarState,
+              groupsState,
+              patentsState,
+              thesesForVerified
+            );
+            if (!verifiedResult) {
+              return;
+            }
+          }
+        } finally {
+          pipelineRunsRef.current.delete(paper.id);
+        }
+      })();
+
+      pipelineRunsRef.current.set(paper.id, runPromise);
+      return runPromise;
+    },
+    [
+      runExtraction,
+      runClaimsGeneration,
+      runSimilarPapers,
+      runResearchGroups,
+      runResearchGroupContacts,
+      runResearcherTheses,
+      runPatents,
+      runVerifiedClaims,
+      supabase
+    ]
+  );
 
   // Open sidebar when user logs in
   useEffect(() => {
@@ -5578,6 +6426,14 @@ export default function LandingPage() {
     }
     prevUserRef.current = user;
   }, [user]);
+
+  useEffect(() => {
+    if (!activePaper || isMockPaper(activePaper)) {
+      return;
+    }
+
+    void startPipeline(activePaper);
+  }, [activePaper, startPipeline]);
 
   useEffect(() => {
     return () => {
@@ -5714,368 +6570,6 @@ export default function LandingPage() {
     };
   }, [clearObjectUrls, supabase, user]);
 
-  useEffect(() => {
-    if (!activePaper || isMockPaper(activePaper)) {
-      return;
-    }
-
-    const state = extractionStates[activePaper.id];
-
-    if (!state) {
-      void runExtraction(activePaper);
-    }
-  }, [activePaper, extractionStates, runExtraction]);
-
-  useEffect(() => {
-    console.log("[similar-papers-effect] useEffect triggered", {
-      paperId: activePaper?.id,
-      extractionStatus: activeExtraction?.status,
-      claimsStatus: activeClaimsState?.status,
-      similarStatus: activeSimilarPapersState?.status,
-      hasInRef: activePaper ? similarPapersGenerationRef.current.has(activePaper.id) : false
-    });
-
-    if (!activePaper) {
-      console.log("[similar-papers-effect] Early return: no active paper");
-      return;
-    }
-
-    if (!activeExtraction || activeExtraction.status !== "success") {
-      console.log("[similar-papers-effect] Early return: extraction not ready");
-      return;
-    }
-
-    // WAIT for claims to be successful before running similar papers
-    if (!activeClaimsState || activeClaimsState.status !== "success") {
-      console.log("[similar-papers-effect] Early return: claims not ready");
-      return;
-    }
-
-    // Skip if already successful or errored
-    if (activeSimilarPapersState?.status === "success" || activeSimilarPapersState?.status === "error") {
-      console.log("[similar-papers-effect] Early return: already completed", {
-        status: activeSimilarPapersState?.status
-      });
-      return;
-    }
-
-    if (
-      activePaper.storagePath &&
-      !similarStorageResolvedRef.current.has(activePaper.id)
-    ) {
-      console.log("[similar-papers-effect] Waiting for Supabase resolution", {
-        paperId: activePaper.id
-      });
-      return;
-    }
-
-    if (
-      similarStorageFetchesRef.current.has(activePaper.id) &&
-      !similarPapersGenerationRef.current.has(activePaper.id)
-    ) {
-      console.log("[similar-papers-effect] Waiting for Supabase load (state not ready yet)", {
-        paperId: activePaper.id
-      });
-      return;
-    }
-
-    if (
-      activeSimilarPapersState?.status === "loading" &&
-      !similarPapersGenerationRef.current.has(activePaper.id) &&
-      similarStorageFetchesRef.current.has(activePaper.id)
-    ) {
-      console.log("[similar-papers-effect] Waiting for Supabase load to resolve before generating", {
-        paperId: activePaper.id
-      });
-      return;
-    }
-
-    // Skip if we've already started API generation for this paper (prevents infinite loop)
-    if (similarPapersGenerationRef.current.has(activePaper.id)) {
-      console.log("[similar-papers-effect] Early return: already in ref (duplicate call prevented)");
-      return;
-    }
-
-    // Mark as started and run generation
-    console.log("[similar-papers-effect] Starting generation for paper", {
-      paperId: activePaper.id
-    });
-    similarPapersGenerationRef.current.add(activePaper.id);
-    void runSimilarPapers(activePaper, activeExtraction.data, activeClaimsState);
-  }, [activePaper, activeExtraction, activeClaimsState, activeSimilarPapersState, runSimilarPapers]);
-
-  useEffect(() => {
-    if (!activePaper || isMockPaper(activePaper)) {
-      return;
-    }
-
-    if (!activeExtraction || activeExtraction.status !== "success") {
-      return;
-    }
-
-    if (!activeClaimsState || activeClaimsState.status !== "success") {
-      return;
-    }
-
-    if (activeVerifiedClaimsState?.status === "success" || activeVerifiedClaimsState?.status === "error") {
-      return;
-    }
-
-    if (!activeSimilarPapersState || activeSimilarPapersState.status !== "success") {
-      return;
-    }
-
-    if (!activeResearchGroupState || activeResearchGroupState.status !== "success") {
-      return;
-    }
-
-    if (activePatentsState?.status === "success" || activePatentsState?.status === "error") {
-      return;
-    }
-
-    if (activePaper.storagePath && !patentsStorageResolvedRef.current.has(activePaper.id)) {
-      console.log("[patents-effect] Waiting for Supabase resolution", {
-        paperId: activePaper.id
-      });
-      return;
-    }
-
-    if (
-      patentsStorageFetchesRef.current.has(activePaper.id) &&
-      !patentsGenerationRef.current.has(activePaper.id)
-    ) {
-      console.log("[patents-effect] Waiting for Supabase load (state not ready yet)", {
-        paperId: activePaper.id
-      });
-      return;
-    }
-
-    if (
-      activePatentsState?.status === "loading" &&
-      !patentsGenerationRef.current.has(activePaper.id) &&
-      patentsStorageFetchesRef.current.has(activePaper.id)
-    ) {
-      console.log("[patents-effect] Waiting for Supabase load to resolve before generating", {
-        paperId: activePaper.id
-      });
-      return;
-    }
-
-    if (patentsGenerationRef.current.has(activePaper.id)) {
-      return;
-    }
-
-    patentsGenerationRef.current.add(activePaper.id);
-    void runPatents(activePaper, activeExtraction.data, activeClaimsState);
-  }, [activePaper, activeExtraction, activeClaimsState, activeSimilarPapersState, activeResearchGroupState, activePatentsState, runPatents]);
-
-  useEffect(() => {
-    if (!activePaper) {
-      return;
-    }
-
-    if (isMockPaper(activePaper)) {
-      return;
-    }
-
-    if (!activeExtraction || activeExtraction.status !== "success") {
-      return;
-    }
-
-    if (!activeClaimsState || activeClaimsState.status !== "success") {
-      return;
-    }
-
-    if (activeVerifiedClaimsState?.status === "success" || activeVerifiedClaimsState?.status === "error") {
-      return;
-    }
-
-    if (!activeSimilarPapersState || activeSimilarPapersState.status !== "success") {
-      return;
-    }
-
-    if (!activeResearchGroupState || activeResearchGroupState.status !== "success") {
-      return;
-    }
-
-    if (!activePatentsState || activePatentsState.status !== "success") {
-      return;
-    }
-
-    if (activePaper.storagePath && !verifiedClaimsStorageResolvedRef.current.has(activePaper.id)) {
-      console.log("[verified-claims-effect] Waiting for Supabase resolution", {
-        paperId: activePaper.id
-      });
-      return;
-    }
-
-    if (
-      verifiedClaimsStorageFetchesRef.current.has(activePaper.id) &&
-      !verifiedClaimsGenerationRef.current.has(activePaper.id)
-    ) {
-      console.log("[verified-claims-effect] Waiting for Supabase load (state not ready yet)", {
-        paperId: activePaper.id
-      });
-      return;
-    }
-
-    if (
-      activeVerifiedClaimsState?.status === "loading" &&
-      !verifiedClaimsGenerationRef.current.has(activePaper.id) &&
-      verifiedClaimsStorageFetchesRef.current.has(activePaper.id)
-    ) {
-      console.log("[verified-claims-effect] Waiting for Supabase load to resolve before generating", {
-        paperId: activePaper.id
-      });
-      return;
-    }
-
-    if (verifiedClaimsGenerationRef.current.has(activePaper.id)) {
-      return;
-    }
-
-    verifiedClaimsGenerationRef.current.add(activePaper.id);
-    void runVerifiedClaims(
-      activePaper,
-      activeClaimsState,
-      activeSimilarPapersState,
-      activeResearchGroupState,
-      activePatentsState,
-      activeResearchThesesState && activeResearchThesesState.status === "success"
-        ? activeResearchThesesState
-        : undefined
-    );
-  }, [
-    activePaper,
-    activeClaimsState,
-    activeSimilarPapersState,
-    activeResearchGroupState,
-    activePatentsState,
-    activeResearchThesesState,
-    activeVerifiedClaimsState,
-    runVerifiedClaims
-  ]);
-
-  useEffect(() => {
-    if (!activePaper) {
-      return;
-    }
-
-    if (!activeExtraction || activeExtraction.status !== "success") {
-      return;
-    }
-
-    if (activeClaimsState) {
-      return;
-    }
-
-    // Try to load from storage first
-    if (activePaper.storagePath && supabase) {
-      loadClaimsFromStorage({
-        client: supabase,
-        storagePath: activePaper.storagePath
-      })
-        .then((claimsData) => {
-          if (claimsData) {
-            console.log("[claims-generation] loaded from storage", { paperId: activePaper.id });
-            setClaimsStates((prev) => ({
-              ...prev,
-              [activePaper.id]: {
-                status: "success",
-                text: claimsData.text,
-                structured: claimsData.structured
-              }
-            }));
-          } else {
-            // No claims in storage, generate them
-            void runClaimsGeneration(activePaper, activeExtraction.data);
-          }
-        })
-        .catch((error) => {
-          console.error("[claims-generation] failed to load from storage", error);
-          // Fall back to generating claims
-          void runClaimsGeneration(activePaper, activeExtraction.data);
-        });
-    } else {
-      // No storage path, generate claims directly
-      void runClaimsGeneration(activePaper, activeExtraction.data);
-    }
-  }, [activePaper, activeExtraction, activeClaimsState, runClaimsGeneration, supabase]);
-
-  useEffect(() => {
-    if (!activePaper) {
-      return;
-    }
-
-    if (!activeExtraction || activeExtraction.status !== "success") {
-      return;
-    }
-
-    // WAIT for claims to be successful before running research groups
-    if (!activeClaimsState || activeClaimsState.status !== "success") {
-      return;
-    }
-
-    // WAIT for similar papers to be successful before running research groups
-    if (!activeSimilarPapersState || activeSimilarPapersState.status !== "success") {
-      return;
-    }
-
-    // Skip if already successful or errored
-    if (activeResearchGroupState?.status === "success" || activeResearchGroupState?.status === "error") {
-      return;
-    }
-
-    if (
-      activeResearchGroupState?.status === "loading" &&
-      !researchGroupsGenerationRef.current.has(activePaper.id) &&
-      researchGroupsStorageFetchesRef.current.has(activePaper.id)
-    ) {
-      console.log("[research-groups-effect] Waiting for Supabase load to resolve before generating", {
-        paperId: activePaper.id
-      });
-      return;
-    }
-
-    // Skip if we've already started API generation for this paper (prevents infinite loop)
-    if (researchGroupsGenerationRef.current.has(activePaper.id)) {
-      return;
-    }
-
-    // Mark as started and run generation
-    researchGroupsGenerationRef.current.add(activePaper.id);
-    void runResearchGroups(activePaper, activeExtraction.data, activeClaimsState, activeSimilarPapersState);
-  }, [activePaper, activeExtraction, activeClaimsState, activeSimilarPapersState, activeResearchGroupState, runResearchGroups]);
-
-  useEffect(() => {
-    if (activeTab !== "theses") {
-      return;
-    }
-
-    if (!activePaper || isMockPaper(activePaper)) {
-      return;
-    }
-
-    if (activeResearchThesesState) {
-      return;
-    }
-
-    if (!activeResearchGroupState || activeResearchGroupState.status !== "success") {
-      return;
-    }
-
-    if (!activeResearchGroupState.structured || activeResearchGroupState.structured.length === 0) {
-      return;
-    }
-
-    void runResearcherTheses(activePaper, activeResearchGroupState.structured);
-  }, [
-    activeTab,
-    activePaper,
-    activeResearchGroupState,
-    activeResearchThesesState,
-    runResearcherTheses
-  ]);
 
   const handlePaperUpload = useCallback(
     async (file: File) => {
@@ -6146,7 +6640,7 @@ export default function LandingPage() {
           ]);
           setActivePaperId(nextPaper.id);
           setActiveTab("paper");
-          void runExtraction(nextPaper, { file });
+          void startPipeline(nextPaper, { file });
           setUploadStatusMessage(
             doi
               ? `Saved and linked DOI ${doi}`
@@ -6174,7 +6668,7 @@ export default function LandingPage() {
           ]);
           setActivePaperId(id);
           setActiveTab("paper");
-          void runExtraction(nextPaper, { file });
+          void startPipeline(nextPaper, { file });
         }
       } catch (error) {
         console.error("Failed to process upload", error);
@@ -6184,7 +6678,7 @@ export default function LandingPage() {
         setIsSavingPaper(false);
       }
     },
-    [isSavingPaper, open, runExtraction, setActiveTab, supabase, user]
+    [isSavingPaper, open, setActiveTab, startPipeline, supabase, user]
   );
 
   const handleSelectPaper = useCallback(
@@ -6209,102 +6703,41 @@ export default function LandingPage() {
       return;
     }
 
-    if (!activeExtraction || activeExtraction.status !== "success") {
-      return;
-    }
-
-    if (!activeClaimsState || activeClaimsState.status !== "success") {
-      return;
-    }
-
     // Clear the generation tracking so retry can proceed
     similarPapersGenerationRef.current.delete(activePaper.id);
-    void runSimilarPapers(activePaper, activeExtraction.data, activeClaimsState);
-  }, [activePaper, activeExtraction, activeClaimsState, runSimilarPapers]);
+    void startPipeline(activePaper, { resetFrom: "similarPapers" });
+  }, [activePaper, startPipeline]);
 
   const handleRetryResearchGroups = useCallback(() => {
     if (!activePaper) {
       return;
     }
 
-    if (!activeExtraction || activeExtraction.status !== "success") {
-      return;
-    }
-
-    if (!activeClaimsState || activeClaimsState.status !== "success") {
-      return;
-    }
-
-    if (!activeSimilarPapersState || activeSimilarPapersState.status !== "success") {
-      return;
-    }
-
     // Clear the generation tracking so retry can proceed
     researchGroupsGenerationRef.current.delete(activePaper.id);
-    void runResearchGroups(activePaper, activeExtraction.data, activeClaimsState, activeSimilarPapersState);
-  }, [activePaper, activeExtraction, activeClaimsState, activeSimilarPapersState, runResearchGroups]);
+    void startPipeline(activePaper, { resetFrom: "researchGroups" });
+  }, [activePaper, startPipeline]);
 
   const handleRetryPatents = useCallback(() => {
     if (!activePaper) {
       return;
     }
 
-    if (!activeExtraction || activeExtraction.status !== "success") {
-      return;
-    }
-
-    if (!activeClaimsState || activeClaimsState.status !== "success") {
-      return;
-    }
-
     patentsGenerationRef.current.delete(activePaper.id);
-    void runPatents(activePaper, activeExtraction.data, activeClaimsState);
-  }, [activePaper, activeExtraction, activeClaimsState, runPatents]);
+    void startPipeline(activePaper, { resetFrom: "patents" });
+  }, [activePaper, startPipeline]);
 
   const handleRetryVerifiedClaims = useCallback(() => {
     if (!activePaper) {
       return;
     }
 
-    if (!activeClaimsState || activeClaimsState.status !== "success") {
-      return;
-    }
-
-    if (!activeSimilarPapersState || activeSimilarPapersState.status !== "success") {
-      return;
-    }
-
-    if (!activeResearchGroupState || activeResearchGroupState.status !== "success") {
-      return;
-    }
-
-    if (!activePatentsState || activePatentsState.status !== "success") {
-      return;
-    }
-
     verifiedClaimsGenerationRef.current.delete(activePaper.id);
-    void runVerifiedClaims(
-      activePaper,
-      activeClaimsState,
-      activeSimilarPapersState,
-      activeResearchGroupState,
-      activePatentsState,
-      activeResearchThesesState && activeResearchThesesState.status === "success"
-        ? activeResearchThesesState
-        : undefined
-    );
-  }, [
-    activePaper,
-    activeClaimsState,
-    activeSimilarPapersState,
-    activeResearchGroupState,
-    activePatentsState,
-    activeResearchThesesState,
-    runVerifiedClaims
-  ]);
+    void startPipeline(activePaper, { resetFrom: "verifiedClaims" });
+  }, [activePaper, startPipeline]);
 
   const handleRetryClaims = useCallback(() => {
-    if (!activePaper || !activeExtraction || activeExtraction.status !== "success") {
+    if (!activePaper) {
       return;
     }
 
@@ -6315,15 +6748,11 @@ export default function LandingPage() {
       return next;
     });
 
-    // The useEffect will automatically re-run claims generation
-  }, [activePaper, activeExtraction]);
+    void startPipeline(activePaper, { resetFrom: "claims" });
+  }, [activePaper, setClaimsStates, startPipeline]);
 
   const handleRetryTheses = useCallback(() => {
-    if (!activePaper || !activeResearchGroupState || activeResearchGroupState.status !== "success") {
-      return;
-    }
-
-    if (!activeResearchGroupState.structured || activeResearchGroupState.structured.length === 0) {
+    if (!activePaper) {
       return;
     }
 
@@ -6334,8 +6763,8 @@ export default function LandingPage() {
       return next;
     });
 
-    // The useEffect will automatically re-run theses generation
-  }, [activePaper, activeResearchGroupState]);
+    void startPipeline(activePaper, { resetFrom: "theses" });
+  }, [activePaper, setResearchThesesStates, startPipeline]);
 
   const handleDeletePaper = useCallback(
     async (paperId: string) => {
@@ -6455,6 +6884,31 @@ export default function LandingPage() {
   const countdownKey = activePaper && currentLoadingStep ? `${activePaper.id}-${currentLoadingStep}` : "";
   const pipelineCountdown = useCountdown(PIPELINE_TIMEOUT_MS, Boolean(currentLoadingStep), countdownKey);
 
+  const activePipelineStageId: PipelineStageId | null = pipelineStages?.find((stage) => stage.status === "loading")?.id
+    ?? pipelineStages?.find((stage) => stage.status === "error")?.id
+    ?? null;
+
+  const pipelineCountdownDisplay =
+    activePipelineStageId && pipelineStages?.some((stage) => stage.id === activePipelineStageId && stage.status === "loading")
+      ? pipelineCountdown
+      : undefined;
+
+  const handleStageSelect = useCallback(
+    (stageId: PipelineStageId) => {
+      const targetTab = PIPELINE_STAGE_TO_TAB[stageId];
+      if (!targetTab) {
+        return;
+      }
+      setActiveTab(targetTab);
+    },
+    [setActiveTab]
+  );
+
+  const isStageInteractive = useCallback(
+    (stageId: PipelineStageId) => Boolean(PIPELINE_STAGE_TO_TAB[stageId]),
+    []
+  );
+
   const renderActiveTab = () => {
     if (activeTab === "paper") {
       return (
@@ -6500,6 +6954,9 @@ export default function LandingPage() {
           extraction={activeExtraction}
           state={activeResearchGroupState}
           contacts={activeResearchContactsState}
+          claimsState={activeClaimsState}
+          similarState={activeSimilarPapersState}
+          countdown={pipelineCountdown}
           onRetry={handleRetryResearchGroups}
         />
       );
@@ -6525,6 +6982,7 @@ export default function LandingPage() {
                 ? activeResearchThesesState.deepDives
                 : undefined
           }
+          countdown={pipelineCountdown}
           onRetry={handleRetryTheses}
         />
       );
@@ -6541,6 +6999,8 @@ export default function LandingPage() {
           state={activePatentsState}
           paper={activePaper}
           isMock={Boolean(isActivePaperMock)}
+          claimsState={activeClaimsState}
+          countdown={pipelineCountdown}
           onRetry={handleRetryPatents}
         />
       );
@@ -6551,6 +7011,11 @@ export default function LandingPage() {
         <VerifiedClaimsPanel
           state={activeVerifiedClaimsState}
           isMock={Boolean(isActivePaperMock)}
+          claimsState={activeClaimsState}
+          similarState={activeSimilarPapersState}
+          groupsState={activeResearchGroupState}
+          patentsState={activePatentsState}
+          countdown={pipelineCountdown}
           onRetry={handleRetryVerifiedClaims}
         />
       );
@@ -6602,6 +7067,15 @@ export default function LandingPage() {
               />
             </div>
           </header>
+          {pipelineStages && activePaper && !isMockPaper(activePaper) && (
+            <PipelineStageTracker
+              stages={pipelineStages}
+              activeStageId={activePipelineStageId}
+              countdown={pipelineCountdownDisplay}
+              onStageSelect={handleStageSelect}
+              isStageInteractive={isStageInteractive}
+            />
+          )}
           {statusTone && resolvedStatusText && !isStatusDismissed && (
             <div
               className={`relative flex items-center justify-between gap-4 px-4 py-2 text-sm sm:px-6 lg:px-10 ${
