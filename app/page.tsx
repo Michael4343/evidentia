@@ -3463,7 +3463,7 @@ function VerifiedClaimsPanel({
         const headingCandidate = !bulletPattern.test(lines[0]) ? lines[0] : undefined;
         const rest = headingCandidate ? lines.slice(1) : lines;
         const normalizedTitle = headingCandidate
-          ? headingCandidate.replace(/\s*[:：]\s*$/u, "").trim()
+          ? headingCandidate.replace(/\s*[:：]\s*$/, "").trim()
           : undefined;
 
         if (rest.length > 0 && rest.every((line) => bulletPattern.test(line))) {
