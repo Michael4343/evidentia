@@ -3642,58 +3642,6 @@ function VerifiedClaimsPanel({
     );
   }
 
-  if (!similarState) {
-    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="similarPapers" />;
-  }
-
-  if (similarState.status === "loading") {
-    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="similarPapers" />;
-  }
-
-  if (similarState.status === "error") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
-        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
-        <div className="space-y-2">
-          <p className="text-base font-semibold text-red-700">Similar papers required</p>
-          <p className="text-sm text-red-600">Resolve the similar papers tab so we can cross-reference claims.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!groupsState || groupsState.status === "loading") {
-    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="researchGroups" />;
-  }
-
-  if (groupsState.status === "error") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
-        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
-        <div className="space-y-2">
-          <p className="text-base font-semibold text-red-700">Research groups required</p>
-          <p className="text-sm text-red-600">Fix the research groups tab to give the verifier team context.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!patentsState || patentsState.status === "loading") {
-    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="patents" />;
-  }
-
-  if (patentsState.status === "error") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
-        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
-        <div className="space-y-2">
-          <p className="text-base font-semibold text-red-700">Patent scan required</p>
-          <p className="text-sm text-red-600">Re-run the patent tab before verifying claims.</p>
-        </div>
-      </div>
-    );
-  }
-
   if (!state || state.status === "loading") {
     return <PipelineStagePlaceholder stageId="verifiedClaims" countdown={countdown} />;
   }
