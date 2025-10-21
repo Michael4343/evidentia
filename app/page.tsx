@@ -6494,7 +6494,7 @@ export default function LandingPage() {
           }
 
           const hasGroupsSuccess = groupsState?.status === "success";
-          if (hasGroupsSuccess) {
+          if (groupsState?.status === "success") {
             const contactsState = researchContactsStatesRef.current[paper.id];
             if (!contactsState || contactsState.status !== "success") {
               await runResearchGroupContacts(paper, groupsState.text, groupsState.structured);
