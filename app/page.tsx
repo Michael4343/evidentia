@@ -420,19 +420,20 @@ function normalizeVerifiedClaimsStructured(raw: unknown): VerifiedClaimsStructur
   const claimsArray = Array.isArray(rawObject.claims) ? rawObject.claims : [];
 
   const claims = claimsArray
-    .map((entry) => {
+    .map((entry, index) => {
       if (!entry || typeof entry !== "object") {
         return null;
       }
 
-      const claimId = typeof (entry as any).claimId === "string" && (entry as any).claimId.trim().length > 0
+      const claimIdRaw = typeof (entry as any).claimId === "string" && (entry as any).claimId.trim().length > 0
         ? (entry as any).claimId.trim()
         : null;
+      const fallbackClaimId = `C${index + 1}`;
       const originalClaim = typeof (entry as any).originalClaim === "string" && (entry as any).originalClaim.trim().length > 0
         ? (entry as any).originalClaim.trim()
         : null;
 
-      if (!claimId || !originalClaim) {
+      if (!originalClaim) {
         return null;
       }
 
@@ -467,7 +468,7 @@ function normalizeVerifiedClaimsStructured(raw: unknown): VerifiedClaimsStructur
         : null;
 
       return {
-        claimId,
+        claimId: claimIdRaw ?? fallbackClaimId,
         originalClaim,
         verificationStatus,
         supportingEvidence: supportingEvidence as VerifiedClaimEvidence[],
@@ -478,10 +479,6 @@ function normalizeVerifiedClaimsStructured(raw: unknown): VerifiedClaimsStructur
     })
     .filter((entry): entry is VerifiedClaimEntry => Boolean(entry));
 
-  if (claims.length === 0) {
-    return undefined;
-  }
-
   const overallAssessment = typeof rawObject.overallAssessment === "string" && rawObject.overallAssessment.trim().length > 0
     ? rawObject.overallAssessment.trim()
     : undefined;
@@ -489,8 +486,12 @@ function normalizeVerifiedClaimsStructured(raw: unknown): VerifiedClaimsStructur
     ? rawObject.promptNotes.trim()
     : undefined;
 
+  if (claims.length === 0 && !overallAssessment && !promptNotes) {
+    return undefined;
+  }
+
   return {
-    claims,
+    ...(claims.length > 0 ? { claims } : {}),
     ...(overallAssessment ? { overallAssessment } : {}),
     ...(promptNotes ? { promptNotes } : {})
   };
@@ -3517,18 +3518,66 @@ function VerifiedClaimsPanel({
     }
   };
 
+  const renderAnalystSectionCard = (
+    section: AnalystNoteSection,
+    index: number,
+    keyPrefix: string
+  ) => (
+    <article
+      key={`${keyPrefix}-${index}`}
+      className="space-y-3 rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm"
+    >
+      {section.title && (
+        <h3 className="text-sm font-semibold text-slate-900">{section.title}</h3>
+      )}
+      {section.paragraphs?.map((paragraph, paragraphIndex) => (
+        <p key={`${keyPrefix}-${index}-p-${paragraphIndex}`} className="text-sm leading-relaxed text-slate-700">
+          {paragraph}
+        </p>
+      ))}
+      {section.bullets && section.bullets.length > 0 && (
+        <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-slate-700">
+          {section.bullets.map((item, bulletIndex) => (
+            <li key={`${keyPrefix}-${index}-b-${bulletIndex}`}>{item}</li>
+          ))}
+        </ul>
+      )}
+    </article>
+  );
+
   const renderClaimsView = (
     claims: VerifiedClaimEntry[],
-    overallAssessment?: string | null
-  ) => (
-    <div className="flex flex-1 flex-col overflow-auto">
-      <div className="flex-1 overflow-auto bg-slate-50">
-        <section className="w-full space-y-6 px-6 py-8">
-          <header className="flex items-start justify-between gap-3">
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold text-slate-900">Verified Claims</h2>
-              <p className="text-sm leading-relaxed text-slate-600">
-                Claims cross-referenced against similar papers, research groups, PhD theses, and patents.
+    overallAssessment?: string | null,
+    promptNotes?: string | null
+  ) => {
+    const trimmedPrompt = promptNotes?.trim() ?? "";
+    const parsedPromptSections = trimmedPrompt ? parseAnalystNotes(trimmedPrompt) : [];
+    const normalizedPromptSections: AnalystNoteSection[] = (() => {
+      if (!trimmedPrompt) {
+        return [];
+      }
+      if (parsedPromptSections.length === 0) {
+        return [{ title: "Analyst Notes", paragraphs: [trimmedPrompt] }];
+      }
+      return parsedPromptSections.map((section, index) => {
+        if (section.title) {
+          return section;
+        }
+        return index === 0
+          ? { ...section, title: "Analyst Notes" }
+          : section;
+      });
+    })();
+
+    return (
+      <div className="flex flex-1 flex-col overflow-auto">
+        <div className="flex-1 overflow-auto bg-slate-50">
+          <section className="w-full space-y-6 px-6 py-8">
+            <header className="flex items-start justify-between gap-3">
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold text-slate-900">Verified Claims</h2>
+                <p className="text-sm leading-relaxed text-slate-600">
+                  Claims cross-referenced against similar papers, research groups, PhD theses, and patents.
               </p>
             </div>
             {onRetry && (
@@ -3546,96 +3595,103 @@ function VerifiedClaimsPanel({
 
           {warningsNode && <div className="flex justify-center">{warningsNode}</div>}
 
-          {overallAssessment && (
-            <article className="rounded-lg border border-slate-300 bg-white px-5 py-4 shadow-sm">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400 mb-3">
-                Overall Assessment
-              </h3>
-              <p className="text-sm leading-relaxed text-slate-700">{overallAssessment}</p>
-            </article>
-          )}
-
-          <div className="space-y-4">
-            {claims.map((claim, index) => (
-              <article key={claim.claimId ?? index} className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {claim.claimId ?? `Claim ${index + 1}`}
-                      </span>
-                      <span
-                        className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusBadgeClasses(claim.verificationStatus)}`}
-                      >
-                        {claim.verificationStatus}
-                      </span>
-                    </div>
-                    <span
-                      className={`rounded-full px-3 py-1 text-xs font-semibold ${getConfidenceBadgeClasses(claim.confidenceLevel)}`}
-                    >
-                      Confidence: {claim.confidenceLevel}
-                    </span>
-                  </div>
-
-                  <div>
-                    <p className="text-sm font-semibold text-slate-600 mb-1">Original Claim:</p>
-                    <p className="text-sm leading-relaxed text-slate-700">{claim.originalClaim}</p>
-                  </div>
-
-                  {claim.supportingEvidence.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-green-700">✓ Supporting Evidence</p>
-                      <ul className="space-y-2 pl-4">
-                        {claim.supportingEvidence.map((evidence, evIndex) => (
-                          <li key={evIndex} className="text-sm leading-relaxed text-slate-700">
-                            <span className="inline-block rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 mr-2">
-                              {evidence.source}
-                            </span>
-                            <span className="font-medium">{evidence.title}</span>
-                            {evidence.relevance && (
-                              <p className="mt-1 text-sm text-slate-600 ml-0">{evidence.relevance}</p>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {claim.contradictingEvidence.length > 0 && (
-                    <div className="space-y-2">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">✗ Contradicting Evidence</p>
-                      <ul className="space-y-2 pl-4">
-                        {claim.contradictingEvidence.map((evidence, evIndex) => (
-                          <li key={evIndex} className="text-sm leading-relaxed text-slate-700">
-                            <span className="inline-block rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 mr-2">
-                              {evidence.source}
-                            </span>
-                            <span className="font-medium">{evidence.title}</span>
-                            {evidence.relevance && (
-                              <p className="mt-1 text-sm text-slate-600 ml-0">{evidence.relevance}</p>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {claim.verificationSummary && (
-                    <div className="rounded border border-blue-200 bg-blue-50/60 px-4 py-3">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700 mb-1.5">
-                        Verification Summary
-                      </p>
-                      <p className="text-sm leading-relaxed text-blue-800">{claim.verificationSummary}</p>
-                    </div>
-                  )}
-                </div>
+            {overallAssessment && (
+              <article className="rounded-lg border border-slate-300 bg-white px-5 py-4 shadow-sm">
+                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400 mb-3">
+                  Overall Assessment
+                </h3>
+                <p className="text-sm leading-relaxed text-slate-700">{overallAssessment}</p>
               </article>
-            ))}
-          </div>
-        </section>
+            )}
+
+            {normalizedPromptSections.map((section, index) =>
+              renderAnalystSectionCard(section, index, "prompt")
+            )}
+
+            {claims.length > 0 && (
+              <div className="space-y-4">
+                {claims.map((claim, index) => (
+                  <article key={claim.claimId ?? index} className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
+                    <div className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                            {claim.claimId ?? `Claim ${index + 1}`}
+                          </span>
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs font-semibold ${getStatusBadgeClasses(claim.verificationStatus)}`}
+                          >
+                            {claim.verificationStatus}
+                          </span>
+                        </div>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-semibold ${getConfidenceBadgeClasses(claim.confidenceLevel)}`}
+                        >
+                          Confidence: {claim.confidenceLevel}
+                        </span>
+                      </div>
+
+                      <div>
+                        <p className="text-sm font-semibold text-slate-600 mb-1">Original Claim:</p>
+                        <p className="text-sm leading-relaxed text-slate-700">{claim.originalClaim}</p>
+                      </div>
+
+                      {claim.supportingEvidence.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-green-700">✓ Supporting Evidence</p>
+                          <ul className="space-y-2 pl-4">
+                            {claim.supportingEvidence.map((evidence, evIndex) => (
+                              <li key={evIndex} className="text-sm leading-relaxed text-slate-700">
+                                <span className="inline-block rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 mr-2">
+                                  {evidence.source}
+                                </span>
+                                <span className="font-medium">{evidence.title}</span>
+                                {evidence.relevance && (
+                                  <p className="mt-1 text-sm text-slate-600 ml-0">{evidence.relevance}</p>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {claim.contradictingEvidence.length > 0 && (
+                        <div className="space-y-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">✗ Contradicting Evidence</p>
+                          <ul className="space-y-2 pl-4">
+                            {claim.contradictingEvidence.map((evidence, evIndex) => (
+                              <li key={evIndex} className="text-sm leading-relaxed text-slate-700">
+                                <span className="inline-block rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 mr-2">
+                                  {evidence.source}
+                                </span>
+                                <span className="font-medium">{evidence.title}</span>
+                                {evidence.relevance && (
+                                  <p className="mt-1 text-sm text-slate-600 ml-0">{evidence.relevance}</p>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {claim.verificationSummary && (
+                        <div className="rounded border border-blue-200 bg-blue-50/60 px-4 py-3">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700 mb-1.5">
+                            Verification Summary
+                          </p>
+                          <p className="text-sm leading-relaxed text-blue-800">{claim.verificationSummary}</p>
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   if (!claimsState || claimsState.status === "loading") {
     return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="claims" countdown={countdown} />;
@@ -3661,8 +3717,9 @@ function VerifiedClaimsPanel({
     if (state?.status === "success") {
       const mockClaims = (state.structured?.claims ?? []) as VerifiedClaimEntry[];
       const mockOverall = state.structured?.overallAssessment ?? null;
-      if (mockClaims.length > 0 || mockOverall) {
-        return renderClaimsView(mockClaims, mockOverall);
+      const mockNotes = state.structured?.promptNotes ?? null;
+      if (mockClaims.length > 0 || mockOverall || (mockNotes && mockNotes.trim().length > 0)) {
+        return renderClaimsView(mockClaims, mockOverall, mockNotes);
       }
     }
 
@@ -3689,11 +3746,14 @@ function VerifiedClaimsPanel({
 
     if (
       (MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA?.claims?.length ?? 0) > 0 ||
-      (MOCK_VERIFIED_CLAIMS_OVERALL && MOCK_VERIFIED_CLAIMS_OVERALL.trim().length > 0)
+      (MOCK_VERIFIED_CLAIMS_OVERALL && MOCK_VERIFIED_CLAIMS_OVERALL.trim().length > 0) ||
+      (MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA?.promptNotes &&
+        MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA.promptNotes.trim().length > 0)
     ) {
       return renderClaimsView(
         (MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA?.claims ?? []) as VerifiedClaimEntry[],
-        MOCK_VERIFIED_CLAIMS_OVERALL
+        MOCK_VERIFIED_CLAIMS_OVERALL,
+        MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA?.promptNotes ?? null
       );
     }
 
@@ -3736,7 +3796,9 @@ function VerifiedClaimsPanel({
   const claims = state.structured?.claims ?? [];
   const overallAssessment = state.structured?.overallAssessment;
 
-  if ((claims.length === 0 && !overallAssessment) && state.text) {
+  const promptNotes = state.structured?.promptNotes;
+
+  if (claims.length === 0 && !overallAssessment && !promptNotes && state.text) {
     const sections = analystSections.length > 0 ? analystSections : [{ paragraphs: [state.text.trim()] }];
 
     return (
@@ -3766,28 +3828,7 @@ function VerifiedClaimsPanel({
             {warningsNode && <div className="flex justify-center">{warningsNode}</div>}
 
             <div className="space-y-4">
-              {sections.map((section, index) => (
-                <article
-                  key={index}
-                  className="space-y-3 rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm"
-                >
-                  {section.title && (
-                    <h3 className="text-sm font-semibold text-slate-900">{section.title}</h3>
-                  )}
-                  {section.paragraphs?.map((paragraph, paragraphIndex) => (
-                    <p key={paragraphIndex} className="text-sm leading-relaxed text-slate-700">
-                      {paragraph}
-                    </p>
-                  ))}
-                  {section.bullets && section.bullets.length > 0 && (
-                    <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-slate-700">
-                      {section.bullets.map((item, bulletIndex) => (
-                        <li key={bulletIndex}>{item}</li>
-                      ))}
-                    </ul>
-                  )}
-                </article>
-              ))}
+              {sections.map((section, index) => renderAnalystSectionCard(section, index, "summary"))}
             </div>
 
             {onRetry && (
@@ -3805,7 +3846,7 @@ function VerifiedClaimsPanel({
     );
   }
 
-  if (claims.length === 0 && !overallAssessment) {
+  if (claims.length === 0 && !overallAssessment && !(promptNotes && promptNotes.trim().length > 0)) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center p-6">
         {warningsNode && <div className="w-full flex justify-center">{warningsNode}</div>}
@@ -3826,7 +3867,7 @@ function VerifiedClaimsPanel({
     );
   }
 
-  return renderClaimsView(claims, overallAssessment);
+  return renderClaimsView(claims, overallAssessment, promptNotes ?? null);
 }
 
 function ExpertNetworkPanel({ paper, isMock }: { paper: UploadedPaper | null; isMock: boolean }) {
