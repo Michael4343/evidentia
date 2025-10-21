@@ -1433,7 +1433,7 @@ function ClaimsPanel({
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
         <p className="text-base font-medium text-slate-700">Upload a PDF to inspect its claims and evidence.</p>
-        <p className="text-sm text-slate-500">We'll surface the structured claims summary once the analysis runs.</p>
+        <p className="text-sm text-slate-500">We&apos;ll surface the structured claims summary once the analysis runs.</p>
       </div>
     );
   }
@@ -1661,7 +1661,7 @@ function SimilarPapersPanel({
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
         <p className="text-base font-medium text-slate-700">Upload a PDF to find related methods.</p>
-        <p className="text-sm text-slate-500">We'll compare the paper against recent work once it's processed.</p>
+        <p className="text-sm text-slate-500">We&apos;ll compare the paper against recent work once it&apos;s processed.</p>
       </div>
     );
   }
@@ -2889,7 +2889,7 @@ function PatentsPanel({
               <div className="space-y-2">
                 <h2 className="text-xl font-semibold text-slate-900">Related Patents</h2>
                 <p className="text-sm leading-relaxed text-slate-600">
-                  Patents covering similar methods, compositions, or systems described in the paper's claims.
+                  Patents covering similar methods, compositions, or systems described in the paper&apos;s claims.
                 </p>
               </div>
               {onRetry && (

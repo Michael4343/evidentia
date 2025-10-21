@@ -1,7 +1,14 @@
 CODEX
 fix build
 fix timers and UI of pipleine
+──────────────────────────────────────────────────────────
+> tthats good but all the pages show the loading icon it   
+  shold be like the loading icon and timer work on one     
+  page at a time ti updates along the pipleine take your   
+  time to understand this and focus on fixing just this    
+  with a simple and clean solution. 
 
+  
 CLAUDE
 
 
