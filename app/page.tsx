@@ -3513,7 +3513,7 @@ export default function LandingPage() {
       : [MOCK_UPLOADED_PAPER];
   const defaultActivePaperId = initialMockPapers[0]?.id ?? null;
   const defaultSummary = defaultActivePaperId ? MOCK_SUMMARIES_BY_ID.get(defaultActivePaperId) : undefined;
-  const initialExtractionState = defaultSummary
+  const initialExtractionState: ExtractionState = defaultSummary
     ? createExtractionStateFromSummary(defaultSummary)
     : {
         status: "success",
@@ -3534,7 +3534,7 @@ export default function LandingPage() {
   const initialVerifiedClaimsState = defaultSummary
     ? createVerifiedClaimsStateFromRaw(defaultSummary.raw)
     : MOCK_VERIFIED_CLAIMS_INITIAL_STATE;
-  const initialResearchGroupsState = defaultSummary
+  const initialResearchGroupsState: ResearchGroupsState = defaultSummary
     ? createResearchGroupsStateFromRaw(defaultSummary.raw)
     : {
         status: "success",
@@ -4915,7 +4915,7 @@ export default function LandingPage() {
         console.log("[verified-claims] fetch success", {
           paperId: paper.id,
           hasText: Boolean(text),
-          claimsCount: structuredData?.claims.length ?? 0
+          claimsCount: structuredData?.claims?.length ?? 0
         });
 
         writeCachedState(paper.id, "verifiedClaims", {
