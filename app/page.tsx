@@ -122,14 +122,14 @@ const DEFAULT_MOCK_SUMMARY = MOCK_SUMMARIES_BY_ID.get(MOCK_SAMPLE_PAPER_ID) ?? M
 const DEFAULT_ENTRY_RAW: RawMockLibraryEntry = DEFAULT_MOCK_SUMMARY?.raw ?? {};
 
 const MOCK_RESEARCH_GROUPS_TEXT =
-  typeof DEFAULT_ENTRY_RAW?.researchGroups?.text === "string"
-    ? DEFAULT_ENTRY_RAW.researchGroups.text
+  typeof (DEFAULT_ENTRY_RAW?.researchGroups as any)?.text === "string"
+    ? (DEFAULT_ENTRY_RAW.researchGroups as any).text
     : "";
 
 const MOCK_RESEARCH_GROUPS_STRUCTURED: ResearchGroupPaperEntry[] | undefined = Array.isArray(
-  DEFAULT_ENTRY_RAW?.researchGroups?.structured?.papers
+  (DEFAULT_ENTRY_RAW?.researchGroups as any)?.structured?.papers
 )
-  ? (DEFAULT_ENTRY_RAW.researchGroups.structured.papers as ResearchGroupPaperEntry[])
+  ? ((DEFAULT_ENTRY_RAW.researchGroups as any).structured.papers as ResearchGroupPaperEntry[])
   : undefined;
 
 const PIPELINE_TIMEOUT_MS = 300_000;
@@ -880,21 +880,21 @@ function createResearchThesesStateFromRaw(raw: RawMockLibraryEntry): ResearcherT
 }
 
 const MOCK_RESEARCH_THESES_TEXT =
-  typeof DEFAULT_ENTRY_RAW?.researcherTheses?.text === "string"
-    ? DEFAULT_ENTRY_RAW.researcherTheses.text
+  typeof (DEFAULT_ENTRY_RAW?.researcherTheses as any)?.text === "string"
+    ? (DEFAULT_ENTRY_RAW.researcherTheses as any).text
     : "";
 
 const MOCK_RESEARCH_THESES_STRUCTURED: ResearcherThesisRecord[] = Array.isArray(
-  DEFAULT_ENTRY_RAW?.researcherTheses?.structured?.researchers
+  (DEFAULT_ENTRY_RAW?.researcherTheses as any)?.structured?.researchers
 )
-  ? (DEFAULT_ENTRY_RAW.researcherTheses.structured
+  ? ((DEFAULT_ENTRY_RAW.researcherTheses as any).structured
       .researchers as ResearcherThesisRecord[])
   : [];
 
 const MOCK_RESEARCH_THESES_DEEP_DIVES: ResearcherThesisDeepDive[] = Array.isArray(
-  DEFAULT_ENTRY_RAW?.researcherTheses?.deepDives?.entries
+  (DEFAULT_ENTRY_RAW?.researcherTheses as any)?.deepDives?.entries
 )
-  ? (DEFAULT_ENTRY_RAW.researcherTheses.deepDives.entries as ResearcherThesisDeepDive[])
+  ? ((DEFAULT_ENTRY_RAW.researcherTheses as any).deepDives.entries as ResearcherThesisDeepDive[])
   : [];
 
 const MOCK_RESEARCH_THESES_INITIAL_STATE: ResearcherThesesState =
@@ -914,7 +914,7 @@ const MOCK_RESEARCH_THESES_INITIAL_STATE: ResearcherThesesState =
 
 const MOCK_CLAIMS_ANALYSIS =
   typeof DEFAULT_ENTRY_RAW?.claimsAnalysis === "object"
-    ? DEFAULT_ENTRY_RAW.claimsAnalysis
+    ? (DEFAULT_ENTRY_RAW.claimsAnalysis as any)
     : null;
 
 const MOCK_CLAIMS_TEXT =
@@ -940,7 +940,7 @@ const MOCK_CLAIMS_INITIAL_STATE: ClaimsAnalysisState =
 
 const MOCK_PATENTS =
   typeof DEFAULT_ENTRY_RAW?.patents === "object"
-    ? DEFAULT_ENTRY_RAW.patents
+    ? (DEFAULT_ENTRY_RAW.patents as any)
     : null;
 
 const MOCK_PATENTS_TEXT = typeof MOCK_PATENTS?.text === "string" ? MOCK_PATENTS.text : "";
@@ -958,7 +958,7 @@ const MOCK_PATENTS_INITIAL_STATE: PatentsState =
 
 const MOCK_VERIFIED_CLAIMS =
   typeof DEFAULT_ENTRY_RAW?.verifiedClaims === "object"
-    ? DEFAULT_ENTRY_RAW.verifiedClaims
+    ? (DEFAULT_ENTRY_RAW.verifiedClaims as any)
     : null;
 
 const MOCK_VERIFIED_CLAIMS_LIST = Array.isArray(MOCK_VERIFIED_CLAIMS?.structured?.claims)
