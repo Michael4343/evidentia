@@ -3491,7 +3491,8 @@ function VerifiedClaimsPanel({
       .filter((section): section is AnalystNoteSection => Boolean(section));
   };
 
-  const analystSections = state?.text ? parseAnalystNotes(state.text) : [];
+  const analystSections =
+    state?.status === "success" && state.text ? parseAnalystNotes(state.text) : [];
   const getStatusBadgeClasses = (status: string) => {
     switch (status) {
       case "Verified":
