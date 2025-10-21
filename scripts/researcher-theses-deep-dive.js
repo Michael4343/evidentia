@@ -9,9 +9,6 @@
 
 const fs = require("fs");
 const path = require("path");
-const readline = require("readline");
-const clipboardModule = require("clipboardy");
-const clipboardy = clipboardModule?.default ?? clipboardModule;
 const { cleanUrlStrict } = require("../lib/clean-url-strict.js");
 const {
   readLibrary,
@@ -21,6 +18,13 @@ const {
   promptForEntrySelection,
   MAX_ENTRIES
 } = require("./mock-library-utils");
+const {
+  createInterface,
+  closeInterface,
+  ask,
+  copyPromptToClipboard,
+  collectJsonInput
+} = require("./mock-cli-utils");
 
 let CURRENT_LIBRARY = null;
 let CURRENT_ENTRY_ID = null;
@@ -69,44 +73,6 @@ function cleanPlainText(input) {
     .join("\n");
 
   return value.trim();
-}
-
-function createInterface() {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-}
-
-function ask(rl, question) {
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      resolve(answer);
-    });
-  });
-}
-
-async function collectJsonInput(rl) {
-  console.log("\nPaste the cleanup JSON response now. Press ENTER on an empty line when done.");
-  console.log("Press ENTER immediately to skip if you have nothing to paste.\n");
-
-  const lines = [];
-  while (true) {
-    const line = await ask(rl, "> ");
-    const trimmed = line.trim();
-    if (lines.length === 0 && !trimmed) {
-      return "";
-    }
-    if (!trimmed) {
-      break;
-    }
-    if (trimmed.toUpperCase() === "END") {
-      break;
-    }
-    lines.push(line);
-  }
-
-  return lines.join("\n").trim();
 }
 
 function getResearchGroupPapers(library) {
@@ -464,9 +430,12 @@ async function selectFromList(rl, items, formatter) {
   }
 }
 
-async function run() {
+async function runResearcherThesesDeepDive(options = {}) {
   const rl = createInterface();
   const workingDir = process.cwd();
+  const {
+    entryId: presetEntryId = null
+  } = options;
 
   try {
     console.log("\n=== Researcher Thesis Deep Dive Helper ===\n");
@@ -478,12 +447,16 @@ async function run() {
       return;
     }
 
-    const { entryId } = await promptForEntrySelection({
-      ask: (question) => ask(rl, question),
-      library,
-      allowCreate: false,
-      header: "Select the mock entry for thesis deep-dive"
-    });
+    let entryId = presetEntryId;
+    if (!entryId) {
+      const selection = await promptForEntrySelection({
+        ask: (question) => ask(rl, question),
+        library,
+        allowCreate: false,
+        header: "Select the mock entry for thesis deep-dive"
+      });
+      entryId = selection.entryId;
+    }
 
     CURRENT_LIBRARY = library;
     CURRENT_ENTRY_ID = entryId;
@@ -491,14 +464,14 @@ async function run() {
     let existingLibrary = getEntry(library, entryId);
     if (!existingLibrary) {
       console.error(`\n❌ Entry "${entryId}" not found.`);
-      return;
+      return { entryId, status: "skipped" };
     }
     existingLibrary = JSON.parse(JSON.stringify(existingLibrary));
 
     const papers = getResearchGroupPapers(existingLibrary);
     if (!papers.length) {
       console.error("\n❌ No research group data found. Run the research groups helper before deep diving.");
-      return;
+      return { entryId: CURRENT_ENTRY_ID, status: "skipped" };
     }
 
     console.log("Available papers:\n");
@@ -513,7 +486,7 @@ async function run() {
 
     if (!selectedPaper) {
       console.log("No paper selected. Exiting.");
-      return;
+      return { entryId: CURRENT_ENTRY_ID, status: "skipped" };
     }
 
     console.log(`\nSelected paper: ${selectedPaper.title}\n`);
@@ -529,7 +502,7 @@ async function run() {
 
     if (!selectedGroup) {
       console.log("No group selected. Exiting.");
-      return;
+      return { entryId: CURRENT_ENTRY_ID, status: "skipped" };
     }
 
     console.log(`\nSelected group: ${selectedGroup.name}`);
@@ -541,11 +514,17 @@ async function run() {
       existingRecords
     });
 
-    await clipboardy.write(discoveryPrompt);
+    try {
+      await copyPromptToClipboard(discoveryPrompt, {
+        label: "Discovery prompt",
+        previewLength: 320
+      });
+    } catch (error) {
+      console.warn("Failed to copy discovery prompt. Printing below:\n");
+      console.log(discoveryPrompt);
+    }
 
-    console.log("\nDiscovery prompt copied to your clipboard. Paste it into the deep research agent.\n");
-    console.log("Preview:");
-    console.log(`${discoveryPrompt.slice(0, 320)}${discoveryPrompt.length > 320 ? "…" : ""}`);
+    console.log("\nPaste it into the deep research agent.\n");
 
     console.log(
       "\nNext steps:\n  1. Run the discovery prompt and gather detailed notes.\n  2. Return here for the cleanup prompt once the raw findings are ready.\n"
@@ -554,11 +533,19 @@ async function run() {
     await ask(rl, "Press ENTER when you're ready for the cleanup prompt: ");
 
     const cleanupPrompt = buildCleanupPrompt({ paper: selectedPaper, group: selectedGroup });
-    await clipboardy.write(cleanupPrompt);
+    try {
+      await copyPromptToClipboard(cleanupPrompt, {
+        label: "Cleanup prompt",
+        previewLength: 320
+      });
+    } catch (error) {
+      console.warn("Failed to copy cleanup prompt. Printing below:\n");
+      console.log(cleanupPrompt);
+    }
 
-    console.log("\nCleanup prompt copied to your clipboard. Paste it alongside the discovery notes to obtain structured JSON.\n");
-    console.log("Preview:");
-    console.log(`${cleanupPrompt.slice(0, 320)}${cleanupPrompt.length > 320 ? "…" : ""}`);
+    console.log(
+      "\nCleanup prompt ready. Paste it alongside the discovery notes to obtain structured JSON.\n"
+    );
     console.log(
       "\nNext steps:\n  1. Run the cleanup prompt with the discovery transcript.\n  2. Paste the returned JSON below (press ENTER on an empty line when finished).\n"
     );
@@ -567,7 +554,7 @@ async function run() {
 
     if (!jsonInput) {
       console.log("No JSON provided. Deep dive results were not saved.");
-      return;
+      return { entryId: CURRENT_ENTRY_ID, status: "skipped" };
     }
 
     let payload;
@@ -625,19 +612,32 @@ async function run() {
     }
 
     console.log(`\nDeep dive saved for entry "${CURRENT_ENTRY_ID}".`);
-  
+
     if (structured.theses.length === 0) {
       console.log("No theses were captured in this run, but follow-up notes were stored for reference.");
     } else {
       console.log(`Captured ${structured.theses.length} thesis record${structured.theses.length > 1 ? "s" : ""}.`);
     }
+
+    return { entryId: CURRENT_ENTRY_ID, status: "completed" };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`\n❌ ${message}`);
-    process.exitCode = 1;
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(message);
   } finally {
-    rl.close();
+    closeInterface(rl);
   }
 }
 
-run();
+module.exports = {
+  runResearcherThesesDeepDive
+};
+
+if (require.main === module) {
+  runResearcherThesesDeepDive().catch(() => {
+    process.exitCode = 1;
+  });
+}

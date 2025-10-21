@@ -1,11 +1,13 @@
 CODEX
-clean up test script into single pipleine
+Improve data loadin on pdf pipeline
 Optimisei LLM prompts
 
 
 Add LLM evals and tracking
 
 CLAUDE
+remove refreesh button and add links to mock template UI
+reset state wehen logging in and out to add paper page
 FIX BUILD
 
 Annotation tools for paper

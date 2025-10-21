@@ -9,9 +9,6 @@
 
 const fs = require("fs");
 const path = require("path");
-const readline = require("readline");
-const clipboardModule = require("clipboardy");
-const clipboardy = clipboardModule?.default ?? clipboardModule;
 const { cleanUrlStrict } = require("../lib/clean-url-strict.js");
 const {
   readLibrary,
@@ -21,6 +18,13 @@ const {
   promptForEntrySelection,
   MAX_ENTRIES
 } = require("./mock-library-utils");
+const {
+  createInterface,
+  closeInterface,
+  ask,
+  copyPromptToClipboard,
+  collectJsonInput
+} = require("./mock-cli-utils");
 
 const MAX_GROUPS_PER_PAPER = 6;
 const MAX_CONTACTS_PER_GROUP = 4;
@@ -93,42 +97,8 @@ function cleanPlainText(input) {
 }
 
 
-function createInterface() {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-}
-
-function ask(rl, question) {
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      resolve(answer);
-    });
-  });
-}
-
 async function collectCleanedJson(rl) {
-  console.log("\nPaste the cleaned JSON now. Press ENTER on an empty line when you're done.");
-  console.log("Press ENTER immediately to skip when you don't have output yet.\n");
-
-  const lines = [];
-  while (true) {
-    const line = await ask(rl, "> ");
-    const trimmed = line.trim();
-    if (lines.length === 0 && !trimmed) {
-      return "";
-    }
-    if (!trimmed) {
-      break;
-    }
-    if (trimmed.toUpperCase() === "END") {
-      break;
-    }
-    lines.push(line);
-  }
-
-  return lines.join("\n").trim();
+  return collectJsonInput(rl, { promptLabel: "cleaned JSON" });
 }
 
 function normaliseDoi(input) {
@@ -524,9 +494,12 @@ function formatResearcherTheses(researchers) {
     .join("\n\n");
 }
 
-async function run() {
+async function runResearcherTheses(options = {}) {
   const rl = createInterface();
   const workingDir = process.cwd();
+  const {
+    entryId: presetEntryId = null
+  } = options;
 
   try {
     console.log("\n=== Researcher Thesis Prompt Helper ===\n");
@@ -535,15 +508,19 @@ async function run() {
     const library = readLibrary();
     if (!library.entries.length) {
       console.error("\n❌ No existing mock library found. Run the Similar Papers generator first.");
-      return;
+      return { entryId: null, status: "skipped" };
     }
 
-    const { entryId } = await promptForEntrySelection({
-      ask: (question) => ask(rl, question),
-      library,
-      allowCreate: false,
-      header: "Select the mock entry for researcher thesis generation"
-    });
+    let entryId = presetEntryId;
+    if (!entryId) {
+      const selection = await promptForEntrySelection({
+        ask: (question) => ask(rl, question),
+        library,
+        allowCreate: false,
+        header: "Select the mock entry for researcher thesis generation"
+      });
+      entryId = selection.entryId;
+    }
 
     CURRENT_LIBRARY = library;
     CURRENT_ENTRY_ID = entryId;
@@ -551,7 +528,7 @@ async function run() {
     let existingLibrary = getEntry(library, entryId);
     if (!existingLibrary) {
       console.error(`\n❌ Entry "${entryId}" not found.`);
-      return;
+      return { entryId, status: "skipped" };
     }
     existingLibrary = JSON.parse(JSON.stringify(existingLibrary));
 
@@ -559,15 +536,20 @@ async function run() {
       console.error(
         `\n❌ Research groups data missing for entry "${entryId}". Run the research groups generator before extracting thesis prompts.`
       );
-      return;
+      return { entryId, status: "skipped" };
     }
 
     const discoveryPrompt = buildThesisDiscoveryPrompt(existingLibrary);
-    await clipboardy.write(discoveryPrompt);
+    try {
+      await copyPromptToClipboard(discoveryPrompt, {
+        label: "Discovery prompt"
+      });
+    } catch (error) {
+      console.warn("Failed to copy discovery prompt. Printing below:\n");
+      console.log(discoveryPrompt);
+    }
 
-    console.log("\nDiscovery prompt copied to your clipboard. Paste it into the deep research agent to gather thesis notes.\n");
-    console.log("Preview:");
-    console.log(`${discoveryPrompt.slice(0, 240)}${discoveryPrompt.length > 240 ? "…" : ""}`);
+    console.log("\nPaste it into the deep research agent to gather thesis notes.\n");
     console.log(
       "\nNext steps:\n  1. Paste the prompt into your research agent and let it complete.\n  2. Collect the per-researcher notes using the provided template.\n  3. Press ENTER here when you're ready for the cleanup prompt.\n"
     );
@@ -575,11 +557,18 @@ async function run() {
     await ask(rl, "\nPress ENTER once the notes are ready to receive the cleanup prompt: ");
 
     const cleanupPrompt = buildCleanupPrompt();
-    await clipboardy.write(cleanupPrompt);
+    try {
+      await copyPromptToClipboard(cleanupPrompt, {
+        label: "Cleanup prompt"
+      });
+    } catch (error) {
+      console.warn("Failed to copy cleanup prompt. Printing below:\n");
+      console.log(cleanupPrompt);
+    }
 
-    console.log("\nCleanup prompt copied to your clipboard. Paste it into the cleanup agent, add the notes beneath the divider, and request JSON.\n");
-    console.log("Preview:");
-    console.log(`${cleanupPrompt.slice(0, 240)}${cleanupPrompt.length > 240 ? "…" : ""}`);
+    console.log(
+      "\nCleanup prompt ready. Paste it into the cleanup agent, add the notes beneath the divider, and request JSON.\n"
+    );
     console.log(
       "\nNext steps:\n  1. Paste the cleanup prompt into your LLM.\n  2. Add the discovery notes beneath the placeholder line, then run the cleanup.\n  3. Paste the cleaned JSON back here (press ENTER on an empty line when finished).\n"
     );
@@ -588,7 +577,7 @@ async function run() {
 
     if (!cleanedJsonRaw) {
       console.log("No cleaned JSON provided. Mock library left unchanged.");
-      return;
+      return { entryId: CURRENT_ENTRY_ID, status: "skipped" };
     }
 
     let cleanedPayload;
@@ -626,13 +615,25 @@ async function run() {
     }
 
     console.log(`\nMock library updated with researcher theses for entry "${CURRENT_ENTRY_ID}".`);
+    return { entryId: CURRENT_ENTRY_ID, status: "completed" };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`\n❌ ${message}`);
-    process.exitCode = 1;
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(message);
   } finally {
-    rl.close();
+    closeInterface(rl);
   }
 }
 
-run();
+module.exports = {
+  runResearcherTheses
+};
+
+if (require.main === module) {
+  runResearcherTheses().catch(() => {
+    process.exitCode = 1;
+  });
+}

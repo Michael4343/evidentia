@@ -9,9 +9,6 @@
 
 const fs = require("fs");
 const path = require("path");
-const readline = require("readline");
-const clipboardModule = require("clipboardy");
-const clipboardy = clipboardModule?.default ?? clipboardModule;
 const pdfParse = require("pdf-parse");
 const {
   readLibrary,
@@ -22,6 +19,13 @@ const {
   promptForEntrySelection,
   MAX_ENTRIES
 } = require("./mock-library-utils");
+const {
+  createInterface,
+  closeInterface,
+  ask,
+  copyPromptToClipboard,
+  collectJsonInput
+} = require("./mock-cli-utils");
 const MAX_SCAN_DEPTH = 3;
 const MAX_LISTED_PDFS = 40;
 const IGNORED_DIRS = new Set(["node_modules", ".git", ".next", "out", "dist", "build", "tmp", "temp", "public"]);
@@ -163,21 +167,6 @@ function cleanPlainText(input) {
     .join("\n");
 
   return value.trim();
-}
-
-function createInterface() {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-}
-
-function ask(rl, question) {
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      resolve(answer);
-    });
-  });
 }
 
 function collectPdfFiles(root, depth = 0, results = []) {
@@ -416,78 +405,96 @@ function normaliseClaimsPayload(raw) {
   };
 }
 
-async function collectCleanedJson(rl) {
-  console.log("\nPaste the cleaned JSON (or press ENTER to skip). Type END on a new line when finished.\n");
-  const lines = [];
-  while (true) {
-    const line = await ask(rl, "> ");
-    if (line.trim().toUpperCase() === "END") {
-      break;
-    }
-    if (line.trim().length === 0) {
-      if (lines.length === 0) {
-        return "";
-      }
-      break;
-    }
-    lines.push(line);
-  }
-  return lines.join("\n").trim();
-}
-
 const REPO_ROOT = path.join(__dirname, "..");
 
-async function main() {
+async function runClaimsAnalysis(options = {}) {
   const rl = createInterface();
+  const {
+    entryId: presetEntryId = null,
+    pdfPath: presetPdfPath = null
+  } = options;
 
   try {
-    const pdfFiles = collectPdfFiles(process.cwd());
-    const selected = await selectPdf(rl, pdfFiles);
-    if (!selected) {
-      console.log("\nNo PDF selected.\n");
-      return;
+    let pdfPath = null;
+    if (presetPdfPath) {
+      const resolvedPreset = path.resolve(presetPdfPath);
+      if (fs.existsSync(resolvedPreset)) {
+        pdfPath = resolvedPreset;
+      } else {
+        console.warn(`Preset PDF path not found: ${presetPdfPath}`);
+      }
+    }
+
+    if (!pdfPath) {
+      const pdfFiles = collectPdfFiles(process.cwd());
+      const selected = await selectPdf(rl, pdfFiles);
+      if (!selected) {
+        console.log("\nNo PDF selected.\n");
+        return { entryId: null, pdfPath: null, status: "skipped" };
+      }
+      pdfPath = selected;
     }
 
     const library = readLibrary();
-    const suggestedSlug = path.basename(selected, path.extname(selected));
-    const { entryId, isNew } = await promptForEntrySelection({
-      ask: (question) => ask(rl, question),
-      library,
-      allowCreate: true,
-      suggestedId: suggestedSlug,
-      header: "Choose which mock entry to update"
-    });
 
-    const existingEntry = getEntry(library, entryId);
-    const entry = existingEntry ? JSON.parse(JSON.stringify(existingEntry)) : { id: entryId };
+    let entryId = presetEntryId;
+    let isNew = false;
+    let entry;
 
-    const relativePdfPath = path.relative(REPO_ROOT, selected);
-    const publicPdfPath = copyPdfToPublic(selected, entryId);
+    if (entryId) {
+      const existingEntry = getEntry(library, entryId);
+      if (existingEntry) {
+        entry = JSON.parse(JSON.stringify(existingEntry));
+      } else {
+        isNew = true;
+        entry = { id: entryId };
+      }
+    } else {
+      const suggestedSlug = path.basename(pdfPath, path.extname(pdfPath));
+      const selection = await promptForEntrySelection({
+        ask: (question) => ask(rl, question),
+        library,
+        allowCreate: true,
+        suggestedId: suggestedSlug,
+        header: "Choose which mock entry to update"
+      });
+
+      entryId = selection.entryId;
+      isNew = selection.isNew;
+      const existingEntry = getEntry(library, entryId);
+      entry = existingEntry ? JSON.parse(JSON.stringify(existingEntry)) : { id: entryId };
+    }
+
+    const relativePdfPath = path.relative(REPO_ROOT, pdfPath);
+    const publicPdfPath = copyPdfToPublic(pdfPath, entryId);
 
     entry.sourcePdf = {
       ...(entry.sourcePdf ?? {}),
       path: relativePdfPath,
       publicPath: publicPdfPath,
-      title: entry.sourcePdf?.title ?? suggestedSlug,
-      originalFileName: path.basename(selected)
+      title: entry.sourcePdf?.title ?? path.basename(pdfPath, path.extname(pdfPath)),
+      originalFileName: path.basename(pdfPath)
     };
 
     if (!entry.label) {
       entry.label = entry.sourcePaper?.title ?? entry.sourcePdf?.title ?? entryId;
     }
 
-    console.log(`\nExtracting text from: ${path.relative(process.cwd(), selected)}`);
-    const extractedText = await extractPdfText(selected);
+    console.log(`\nExtracting text from: ${path.relative(process.cwd(), pdfPath)}`);
+    const extractedText = await extractPdfText(pdfPath);
     if (!extractedText) {
       console.error("No text extracted from PDF. Aborting.");
-      return;
+      return { entryId, pdfPath, status: "skipped" };
     }
 
     const prompt = buildClaimsPrompt(extractedText);
 
     try {
-      await clipboardy.write(prompt);
-      console.log("\nClaims prompt copied to clipboard. Paste it into your LLM of choice.\n");
+      await copyPromptToClipboard(prompt, {
+        label: "Claims prompt",
+        previewLength: 320
+      });
+      console.log("\nPaste it into your LLM of choice.\n");
     } catch (error) {
       console.warn("Failed to copy prompt to clipboard. Printing below:\n");
       console.log(prompt);
@@ -499,18 +506,20 @@ async function main() {
       console.log(`${CLEANUP_PROMPT_HEADER}`);
     } else {
       try {
-        await clipboardy.write(CLEANUP_PROMPT_HEADER);
-        console.log("\nCleanup prompt copied to clipboard. Paste it after the LLM returns the textual summary.\n");
+        await copyPromptToClipboard(CLEANUP_PROMPT_HEADER, {
+          label: "Cleanup prompt"
+        });
+        console.log("\nPaste it after the LLM returns the textual summary.\n");
       } catch (error) {
         console.warn("Failed to copy cleanup prompt. Printing below:\n");
         console.log(`${CLEANUP_PROMPT_HEADER}`);
       }
     }
 
-    const rawJson = await collectCleanedJson(rl);
+    const rawJson = await collectJsonInput(rl, { promptLabel: "cleanup JSON" });
     if (!rawJson) {
       console.log("\nNo JSON provided. Exiting without changes.\n");
-      return;
+      return { entryId, pdfPath, status: "skipped" };
     }
 
     let parsed;
@@ -518,7 +527,7 @@ async function main() {
       parsed = JSON.parse(rawJson);
     } catch (error) {
       console.error("\nFailed to parse JSON:", error.message);
-      return;
+      return { entryId, pdfPath, status: "skipped" };
     }
 
     let claimsPayload;
@@ -526,7 +535,7 @@ async function main() {
       claimsPayload = normaliseClaimsPayload(parsed);
     } catch (error) {
       console.error("\nInvalid claims payload:", error.message);
-      return;
+      return { entryId, pdfPath, status: "skipped" };
     }
 
     entry.generatedAt = new Date().toISOString();
@@ -542,12 +551,19 @@ async function main() {
     }
 
     console.log(`\nSaved claims analysis to entry "${entryId}". PDF available at ${entry.sourcePdf.publicPath}.\n`);
+    return { entryId, pdfPath, status: "completed" };
   } finally {
-    rl.close();
+    closeInterface(rl);
   }
 }
 
-main().catch((error) => {
-  console.error("\nUnexpected error:", error);
-  process.exit(1);
-});
+module.exports = {
+  runClaimsAnalysis
+};
+
+if (require.main === module) {
+  runClaimsAnalysis().catch((error) => {
+    console.error("\nUnexpected error:", error);
+    process.exit(1);
+  });
+}

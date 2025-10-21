@@ -3127,32 +3127,11 @@ function ResearcherThesesPanel({
                 <div className="space-y-1.5">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
-                      {patent.url ? (
-                        <a
-                          href={patent.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400 transition hover:text-primary"
-                        >
-                          {patent.patentNumber ?? "View patent"}
-                        </a>
-                      ) : (
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                          {patent.patentNumber ?? "Patent"}
-                        </p>
-                      )}
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        {patent.patentNumber ?? "Patent"}
+                      </p>
                       <h3 className="text-base font-semibold text-slate-900">{patent.title ?? "Untitled patent"}</h3>
                     </div>
-                    {patent.url && (
-                      <a
-                        href={patent.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center rounded-full border border-primary px-3 py-1 text-xs font-semibold text-primary transition hover:bg-primary/5"
-                      >
-                        View patent
-                      </a>
-                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
@@ -3180,6 +3159,19 @@ function ResearcherThesesPanel({
                     </div>
                   </div>
                 ) : null}
+
+                {patent.url && (
+                  <div className="pt-3">
+                    <a
+                      href={patent.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex w-full items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
+                    >
+                      See Patent
+                    </a>
+                  </div>
+                )}
               </div>
             </article>
           );
@@ -3206,11 +3198,7 @@ function PatentsPanel({
   onRetry?: () => void;
 }) {
 
-  function renderPatentsView(
-    patents: PatentEntry[],
-    promptNotes?: string | null,
-    analystNotes?: string
-  ) {
+  function renderPatentsView(patents: PatentEntry[]) {
     return (
       <div className="flex flex-1 flex-col overflow-auto">
         <div className="flex-1 overflow-auto bg-slate-50">
@@ -3235,19 +3223,6 @@ function PatentsPanel({
               )}
             </header>
 
-            {promptNotes && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                {promptNotes}
-              </div>
-            )}
-
-            {analystNotes && (
-              <details className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-                <summary className="cursor-pointer font-medium text-slate-900">Analyst notes</summary>
-                <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{analystNotes}</pre>
-              </details>
-            )}
-
             {patents.length > 0 ? (
               renderPatentCards(patents)
             ) : (
@@ -3264,11 +3239,8 @@ function PatentsPanel({
   if (isMock) {
     if (state?.status === "success") {
       const mockPatents = state.structured?.patents ?? [];
-      const mockPromptNotes = state.structured?.promptNotes ?? null;
-      const mockAnalystNotes = state.text && state.text.trim().length > 0 ? state.text.trim() : undefined;
-
-      if (mockPatents.length > 0 || mockPromptNotes || mockAnalystNotes) {
-        return renderPatentsView(mockPatents as PatentEntry[], mockPromptNotes, mockAnalystNotes);
+      if (mockPatents.length > 0) {
+        return renderPatentsView(mockPatents as PatentEntry[]);
       }
     }
 
@@ -3293,16 +3265,8 @@ function PatentsPanel({
       );
     }
 
-    if (
-      MOCK_PATENTS_LIST.length > 0 ||
-      (MOCK_PATENTS_STRUCTURED?.promptNotes && MOCK_PATENTS_STRUCTURED.promptNotes.length > 0) ||
-      (MOCK_PATENTS_TEXT && MOCK_PATENTS_TEXT.trim().length > 0)
-    ) {
-      return renderPatentsView(
-        MOCK_PATENTS_LIST,
-        MOCK_PATENTS_STRUCTURED?.promptNotes ?? null,
-        MOCK_PATENTS_TEXT && MOCK_PATENTS_TEXT.trim().length > 0 ? MOCK_PATENTS_TEXT : undefined
-      );
+    if (MOCK_PATENTS_LIST.length > 0) {
+      return renderPatentsView(MOCK_PATENTS_LIST);
     }
 
     return (
@@ -3365,10 +3329,8 @@ function PatentsPanel({
   }
 
   const patents = state.structured?.patents ?? [];
-  const promptNotes = state.structured?.promptNotes ?? null;
-  const analystNotes = state.text && state.text.trim().length > 0 ? state.text.trim() : undefined;
 
-  if (patents.length === 0 && !promptNotes && !analystNotes) {
+  if (patents.length === 0) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center p-6">
         <p className="text-base font-medium text-slate-700">No patents found yet</p>
@@ -3388,7 +3350,7 @@ function PatentsPanel({
     );
   }
 
-  return renderPatentsView(patents, promptNotes, analystNotes);
+  return renderPatentsView(patents);
 }
 
 function VerifiedClaimsPanel({
@@ -3438,9 +3400,7 @@ function VerifiedClaimsPanel({
 
   const renderClaimsView = (
     claims: VerifiedClaimEntry[],
-    overallAssessment?: string | null,
-    promptNotes?: string | null,
-    analystNotes?: string
+    overallAssessment?: string | null
   ) => (
     <div className="flex flex-1 flex-col overflow-auto">
       <div className="flex-1 overflow-auto bg-slate-50">
@@ -3464,19 +3424,6 @@ function VerifiedClaimsPanel({
               </button>
             )}
           </header>
-
-          {promptNotes && (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-              {promptNotes}
-            </div>
-          )}
-
-          {analystNotes && (
-            <details className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
-              <summary className="cursor-pointer font-medium text-slate-900">Analyst notes</summary>
-              <pre className="mt-2 whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{analystNotes}</pre>
-            </details>
-          )}
 
           {overallAssessment && (
             <article className="rounded-lg border border-slate-300 bg-white px-5 py-4 shadow-sm">
@@ -3641,11 +3588,8 @@ function VerifiedClaimsPanel({
     if (state?.status === "success") {
       const mockClaims = (state.structured?.claims ?? []) as VerifiedClaimEntry[];
       const mockOverall = state.structured?.overallAssessment ?? null;
-      const mockPromptNotes = state.structured?.promptNotes ?? null;
-      const mockAnalystNotes = state.text && state.text.trim().length > 0 ? state.text.trim() : undefined;
-
-      if (mockClaims.length > 0 || mockOverall || mockPromptNotes || mockAnalystNotes) {
-        return renderClaimsView(mockClaims, mockOverall, mockPromptNotes, mockAnalystNotes);
+      if (mockClaims.length > 0 || mockOverall) {
+        return renderClaimsView(mockClaims, mockOverall);
       }
     }
 
@@ -3672,17 +3616,11 @@ function VerifiedClaimsPanel({
 
     if (
       (MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA?.claims?.length ?? 0) > 0 ||
-      MOCK_VERIFIED_CLAIMS_OVERALL ||
-      (MOCK_VERIFIED_CLAIMS_PROMPT_NOTES && MOCK_VERIFIED_CLAIMS_PROMPT_NOTES.length > 0) ||
-      (MOCK_VERIFIED_CLAIMS_TEXT && MOCK_VERIFIED_CLAIMS_TEXT.trim().length > 0)
+      (MOCK_VERIFIED_CLAIMS_OVERALL && MOCK_VERIFIED_CLAIMS_OVERALL.trim().length > 0)
     ) {
       return renderClaimsView(
         (MOCK_VERIFIED_CLAIMS_STRUCTURED_DATA?.claims ?? []) as VerifiedClaimEntry[],
-        MOCK_VERIFIED_CLAIMS_OVERALL,
-        MOCK_VERIFIED_CLAIMS_PROMPT_NOTES,
-        MOCK_VERIFIED_CLAIMS_TEXT && MOCK_VERIFIED_CLAIMS_TEXT.trim().length > 0
-          ? MOCK_VERIFIED_CLAIMS_TEXT
-          : undefined
+        MOCK_VERIFIED_CLAIMS_OVERALL
       );
     }
 
@@ -3771,10 +3709,7 @@ function VerifiedClaimsPanel({
 
   const claims = state.structured?.claims ?? [];
   const overallAssessment = state.structured?.overallAssessment;
-  const promptNotes = state.structured?.promptNotes ?? null;
-  const analystNotes = state.text && state.text.trim().length > 0 ? state.text.trim() : undefined;
-
-  if (claims.length === 0 && !overallAssessment && !promptNotes && !analystNotes) {
+  if (claims.length === 0 && !overallAssessment) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center p-6">
         <p className="text-base font-medium text-slate-700">No verified claims yet</p>
@@ -3794,7 +3729,7 @@ function VerifiedClaimsPanel({
     );
   }
 
-  return renderClaimsView(claims, overallAssessment, promptNotes ?? undefined, analystNotes);
+  return renderClaimsView(claims, overallAssessment);
 }
 
 function ExpertNetworkPanel({ paper, isMock }: { paper: UploadedPaper | null; isMock: boolean }) {

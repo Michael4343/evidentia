@@ -15,9 +15,6 @@
 
 const fs = require("fs");
 const path = require("path");
-const readline = require("readline");
-const clipboardModule = require("clipboardy");
-const clipboardy = clipboardModule?.default ?? clipboardModule;
 const pdfParse = require("pdf-parse");
 const {
   readLibrary,
@@ -28,6 +25,13 @@ const {
   promptForEntrySelection,
   MAX_ENTRIES
 } = require("./mock-library-utils");
+const {
+  createInterface,
+  closeInterface,
+  ask,
+  copyPromptToClipboard,
+  collectJsonInput
+} = require("./mock-cli-utils");
 
 const MAX_LISTED_PDFS = 40;
 const MAX_SCAN_DEPTH = 3;
@@ -848,21 +852,6 @@ function findPdfFiles(rootDir, maxDepth = MAX_SCAN_DEPTH, limit = MAX_LISTED_PDF
   return results;
 }
 
-function createInterface() {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-}
-
-function ask(rl, question) {
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      resolve(answer);
-    });
-  });
-}
-
 async function promptForPdfPath(rl, rootDir) {
   const pdfFiles = findPdfFiles(rootDir);
 
@@ -911,26 +900,7 @@ async function promptForPdfPath(rl, rootDir) {
 }
 
 async function collectAgentJson(rl) {
-  console.log("\nPaste the cleaned JSON now. Press ENTER on an empty line when you're done.");
-  console.log("Press ENTER immediately to skip when you don't have output yet.\n");
-
-  const lines = [];
-  while (true) {
-    const line = await ask(rl, "> ");
-    const trimmed = line.trim();
-    if (lines.length === 0 && !trimmed) {
-      return "";
-    }
-    if (!trimmed) {
-      break;
-    }
-    if (trimmed.toUpperCase() === "END") {
-      break;
-    }
-    lines.push(line);
-  }
-
-  return lines.join("\n").trim();
+  return collectJsonInput(rl, { promptLabel: "cleaned JSON" });
 }
 
 function derivePaperMetadata(info, fallbackTitle, detectedDoi) {
@@ -982,29 +952,66 @@ async function buildPromptFromPdf(pdfPath, options = {}) {
   };
 }
 
-async function run() {
+async function runSimilarPapers(options = {}) {
   const rl = createInterface();
   const workingDir = process.cwd();
+  const {
+    entryId: presetEntryId = null,
+    pdfPath: presetPdfPath = null
+  } = options;
 
   try {
     console.log("\n=== Similar Papers Prototype Helper ===\n");
     console.log(`Working directory: ${workingDir}`);
 
-    const pdfPath = await promptForPdfPath(rl, workingDir);
+    let pdfPath = null;
+    if (presetPdfPath) {
+      const resolvedPreset = path.resolve(presetPdfPath);
+      if (fs.existsSync(resolvedPreset)) {
+        pdfPath = resolvedPreset;
+      } else {
+        console.warn(`Preset PDF path not found: ${presetPdfPath}`);
+      }
+    }
+
+    if (!pdfPath) {
+      pdfPath = await promptForPdfPath(rl, workingDir);
+      if (!pdfPath) {
+        console.log("\nNo PDF selected.\n");
+        return { entryId: null, pdfPath: null, status: "skipped" };
+      }
+    }
+
     console.log(`\nUsing PDF: ${pdfPath}`);
 
     const library = readLibrary();
-    const suggestedSlug = path.basename(pdfPath, path.extname(pdfPath));
-    const { entryId, isNew } = await promptForEntrySelection({
-      ask: (question) => ask(rl, question),
-      library,
-      allowCreate: true,
-      suggestedId: suggestedSlug,
-      header: "Select the mock entry to update"
-    });
 
-    const existingEntry = getEntry(library, entryId);
-    const entry = existingEntry ? JSON.parse(JSON.stringify(existingEntry)) : { id: entryId };
+    let entryId = presetEntryId;
+    let isNew = false;
+    let entry;
+
+    if (entryId) {
+      const existingEntry = getEntry(library, entryId);
+      if (!existingEntry) {
+        console.error(`\n❌ Entry "${entryId}" not found.`);
+        return { entryId, pdfPath, status: "skipped" };
+      }
+      entry = JSON.parse(JSON.stringify(existingEntry));
+    } else {
+      const suggestedSlug = path.basename(pdfPath, path.extname(pdfPath));
+      const selection = await promptForEntrySelection({
+        ask: (question) => ask(rl, question),
+        library,
+        allowCreate: true,
+        suggestedId: suggestedSlug,
+        header: "Select the mock entry to update"
+      });
+
+      entryId = selection.entryId;
+      isNew = selection.isNew;
+      const existingEntry = getEntry(library, entryId);
+      entry = existingEntry ? JSON.parse(JSON.stringify(existingEntry)) : { id: entryId };
+    }
 
     const claimsSummaryText =
       entry && typeof entry.claimsAnalysis?.text === "string"
@@ -1020,14 +1027,14 @@ async function run() {
       console.error(
         `\nNo claims analysis summary found for entry "${entryId}". Run \`node scripts/generate-claims-analysis.js\` first.`
       );
-      return;
+      return { entryId, pdfPath, status: "skipped" };
     }
 
     if (!claimsStructured) {
       console.error(
         `\nStructured claims data missing for entry "${entryId}". Re-run the claims analysis cleanup to populate it.`
       );
-      return;
+      return { entryId, pdfPath, status: "skipped" };
     }
 
     const { prompt: similarPrompt, context } = await buildPromptFromPdf(pdfPath, {
@@ -1035,13 +1042,18 @@ async function run() {
       claimsStructured
     });
 
-    await clipboardy.write(similarPrompt);
+    try {
+      await copyPromptToClipboard(similarPrompt, {
+        label: "Discovery prompt"
+      });
+    } catch (error) {
+      console.warn("Failed to copy discovery prompt. Printing below:\n");
+      console.log(similarPrompt);
+    }
 
-    console.log("\nDiscovery prompt copied to your clipboard. Paste it into the deep research agent to gather Similar Papers notes.\n");
+    console.log("\nPaste it into the deep research agent to gather Similar Papers notes.\n");
     console.log(`Using claims analysis summary from entry "${entryId}".`);
     console.log(`Claims summary length: ${context.summaryChars.toLocaleString()} characters.`);
-    console.log("Preview:");
-    console.log(`${similarPrompt.slice(0, 240)}${similarPrompt.length > 240 ? "…" : ""}`);
     console.log(
       "\nNext steps:\n  1. Paste the prompt into your deep research agent.\n  2. Wait for the structured notes to finish.\n  3. Press ENTER here when you're ready for the cleanup prompt.\n"
     );
@@ -1049,11 +1061,18 @@ async function run() {
     await ask(rl, "\nPress ENTER once you've captured the notes to grab the cleanup prompt: ");
 
     const cleanupPrompt = buildCleanupPrompt();
-    await clipboardy.write(cleanupPrompt);
+    try {
+      await copyPromptToClipboard(cleanupPrompt, {
+        label: "Cleanup prompt"
+      });
+    } catch (error) {
+      console.warn("Failed to copy cleanup prompt. Printing below:\n");
+      console.log(cleanupPrompt);
+    }
 
-    console.log("\nCleanup prompt copied to your clipboard. Paste it into the cleanup agent, add the notes below the divider, and convert to JSON.\n");
-    console.log("Preview:");
-    console.log(`${cleanupPrompt.slice(0, 240)}${cleanupPrompt.length > 240 ? "…" : ""}`);
+    console.log(
+      "\nCleanup prompt ready. Paste it into the cleanup agent, add the notes below the divider, and convert to JSON.\n"
+    );
     console.log(
       "\nNext steps:\n  1. Paste the cleanup prompt into your LLM.\n  2. Add the discovery notes beneath the placeholder line, then run the cleanup.\n  3. Paste the cleaned JSON back here (press ENTER on an empty line when finished).\n"
     );
@@ -1061,7 +1080,7 @@ async function run() {
     const agentRaw = await collectAgentJson(rl);
     if (!agentRaw) {
       console.log("No cleaned JSON provided. Landing page mock left unchanged.");
-      return;
+      return { entryId, pdfPath, status: "skipped" };
     }
 
     let agentPayload;
@@ -1127,12 +1146,21 @@ async function run() {
     }
 
     console.log(`\nMock library updated for entry "${entryId}". PDF copied to ${publicPdfPath}.`);
+    return { entryId, pdfPath, status: "completed" };
   } catch (error) {
     console.error(`\n❌ ${error.message}`);
-    process.exitCode = 1;
+    throw error;
   } finally {
-    rl.close();
+    closeInterface(rl);
   }
 }
 
-run();
+module.exports = {
+  runSimilarPapers
+};
+
+if (require.main === module) {
+  runSimilarPapers().catch(() => {
+    process.exitCode = 1;
+  });
+}

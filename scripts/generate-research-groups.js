@@ -9,9 +9,6 @@
 
 const fs = require("fs");
 const path = require("path");
-const readline = require("readline");
-const clipboardModule = require("clipboardy");
-const clipboardy = clipboardModule?.default ?? clipboardModule;
 const { cleanUrlStrict } = require("../lib/clean-url-strict.js");
 const {
   readLibrary,
@@ -22,6 +19,13 @@ const {
   promptForEntrySelection,
   MAX_ENTRIES
 } = require("./mock-library-utils");
+const {
+  createInterface,
+  closeInterface,
+  ask,
+  copyPromptToClipboard,
+  collectJsonInput
+} = require("./mock-cli-utils");
 
 const MAX_LISTED_PDFS = 40;
 const MAX_SCAN_DEPTH = 3;
@@ -46,6 +50,24 @@ function writeMockLibrary(entryData) {
   writeLibrary(path.basename(__filename), CURRENT_LIBRARY);
 
   return previousIds.filter((id) => !CURRENT_LIBRARY.entries.some((item) => item.id === id));
+}
+
+async function promptYesNo(rl, question, { defaultValue = true } = {}) {
+  const suffix = defaultValue ? "[Y/n]" : "[y/N]";
+  while (true) {
+    const answer = await ask(rl, `${question} ${suffix} `);
+    const trimmed = answer.trim().toLowerCase();
+    if (!trimmed) {
+      return defaultValue;
+    }
+    if (trimmed === "y" || trimmed === "yes") {
+      return true;
+    }
+    if (trimmed === "n" || trimmed === "no") {
+      return false;
+    }
+    console.log("Please answer with 'y' or 'n'.");
+  }
 }
 
 const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's Research Groups UI.
@@ -176,21 +198,6 @@ function findPdfFiles(rootDir, maxDepth = MAX_SCAN_DEPTH, limit = MAX_LISTED_PDF
 
   walk(rootDir, 0);
   return results;
-}
-
-function createInterface() {
-  return readline.createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-}
-
-function ask(rl, question) {
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      resolve(answer);
-    });
-  });
 }
 
 async function promptForPdfPath(rl, rootDir) {
@@ -356,26 +363,7 @@ function buildCleanupPrompt() {
 }
 
 async function collectCleanedJson(rl) {
-  console.log("\nPaste the cleaned JSON now. Press ENTER on an empty line when you're done.");
-  console.log("Press ENTER immediately to skip when you don't have output yet.\n");
-
-  const lines = [];
-  while (true) {
-    const line = await ask(rl, "> ");
-    const trimmed = line.trim();
-    if (lines.length === 0 && !trimmed) {
-      return "";
-    }
-    if (!trimmed) {
-      break;
-    }
-    if (trimmed.toUpperCase() === "END") {
-      break;
-    }
-    lines.push(line);
-  }
-
-  return lines.join("\n").trim();
+  return collectJsonInput(rl, { promptLabel: "cleaned JSON" });
 }
 
 function normaliseResearcher(entry) {
@@ -498,9 +486,13 @@ function formatResearchGroups(papers) {
     .join("\n\n");
 }
 
-async function run() {
+async function runResearchGroups(options = {}) {
   const rl = createInterface();
   const workingDir = process.cwd();
+  const {
+    entryId: presetEntryId = null,
+    pdfPath: presetPdfPath = null
+  } = options;
 
   try {
     console.log("\n=== Research Groups Prototype Helper ===\n");
@@ -509,15 +501,19 @@ async function run() {
     const library = readLibrary();
     if (!library.entries.length) {
       console.error("\n❌ No existing mock library found. Run the Similar Papers generator first.");
-      return;
+      return { entryId: null, pdfPath: null, status: "skipped" };
     }
 
-    const { entryId } = await promptForEntrySelection({
-      ask: (question) => ask(rl, question),
-      library,
-      allowCreate: false,
-      header: "Select the mock entry for research group generation"
-    });
+    let entryId = presetEntryId;
+    if (!entryId) {
+      const selection = await promptForEntrySelection({
+        ask: (question) => ask(rl, question),
+        library,
+        allowCreate: false,
+        header: "Select the mock entry for research group generation"
+      });
+      entryId = selection.entryId;
+    }
 
     CURRENT_LIBRARY = library;
     CURRENT_ENTRY_ID = entryId;
@@ -525,19 +521,57 @@ async function run() {
     let existingLibrary = getEntry(library, entryId);
     if (!existingLibrary) {
       console.error(`\n❌ Entry "${entryId}" not found.`);
-      return;
+      return { entryId, pdfPath: null, status: "skipped" };
     }
     existingLibrary = JSON.parse(JSON.stringify(existingLibrary));
 
-    const pdfPath = await promptForPdfPath(rl, workingDir);
+    let pdfPath = null;
+    if (presetPdfPath) {
+      const resolvedPreset = path.resolve(presetPdfPath);
+      if (fs.existsSync(resolvedPreset)) {
+        pdfPath = resolvedPreset;
+      } else {
+        console.warn(`Preset PDF path not found: ${presetPdfPath}`);
+      }
+    }
+
+    if (!pdfPath) {
+      const storedPath = existingLibrary?.sourcePdf?.path;
+      if (typeof storedPath === "string" && storedPath.trim().length > 0) {
+        const candidate = path.resolve(REPO_ROOT, storedPath);
+        if (fs.existsSync(candidate)) {
+          const relativeCandidate = path.relative(process.cwd(), candidate);
+          const useStored = await promptYesNo(rl, `Use the PDF saved with this mock (${relativeCandidate})?`, {
+            defaultValue: true
+          });
+          if (useStored) {
+            pdfPath = candidate;
+          }
+        }
+      }
+    }
+
+    if (!pdfPath) {
+      pdfPath = await promptForPdfPath(rl, workingDir);
+      if (!pdfPath) {
+        console.log("\nNo PDF selected.\n");
+        return { entryId, pdfPath: null, status: "skipped" };
+      }
+    }
+
     console.log(`\nUsing PDF: ${pdfPath}`);
 
     const discoveryPrompt = buildDiscoveryPrompt(existingLibrary);
-    await clipboardy.write(discoveryPrompt);
+    try {
+      await copyPromptToClipboard(discoveryPrompt, {
+        label: "Discovery prompt"
+      });
+    } catch (error) {
+      console.warn("Failed to copy discovery prompt. Printing below:\n");
+      console.log(discoveryPrompt);
+    }
 
-    console.log("\nDiscovery prompt copied to your clipboard. Paste it into the deep research agent to gather group notes.\n");
-    console.log("Preview:");
-    console.log(`${discoveryPrompt.slice(0, 240)}${discoveryPrompt.length > 240 ? "…" : ""}`);
+    console.log("\nPaste it into the deep research agent to gather group notes.\n");
     console.log(
       "\nNext steps:\n  1. Paste the prompt into your deep research agent.\n  2. Wait for the notes to finish compiling.\n  3. Press ENTER here when you're ready for the cleanup prompt.\n"
     );
@@ -545,11 +579,18 @@ async function run() {
     await ask(rl, "\nPress ENTER once the notes are ready to receive the cleanup prompt: ");
 
     const cleanupPrompt = buildCleanupPrompt();
-    await clipboardy.write(cleanupPrompt);
+    try {
+      await copyPromptToClipboard(cleanupPrompt, {
+        label: "Cleanup prompt"
+      });
+    } catch (error) {
+      console.warn("Failed to copy cleanup prompt. Printing below:\n");
+      console.log(cleanupPrompt);
+    }
 
-    console.log("\nCleanup prompt copied to your clipboard. Paste it into the cleanup agent, add the notes beneath the divider, and request JSON.\n");
-    console.log("Preview:");
-    console.log(`${cleanupPrompt.slice(0, 240)}${cleanupPrompt.length > 240 ? "…" : ""}`);
+    console.log(
+      "\nCleanup prompt ready. Paste it into the cleanup agent, add the notes beneath the divider, and request JSON.\n"
+    );
     console.log(
       "\nNext steps:\n  1. Paste the cleanup prompt into your LLM.\n  2. Add the discovery notes beneath the placeholder line, then run the cleanup.\n  3. Paste the cleaned JSON back here (press ENTER on an empty line when finished).\n"
     );
@@ -558,7 +599,7 @@ async function run() {
 
     if (!cleanedJsonRaw) {
       console.log("No cleaned JSON provided. Mock library left unchanged.");
-      return;
+      return { entryId: CURRENT_ENTRY_ID, pdfPath, status: "skipped" };
     }
 
     let cleanedPayload;
@@ -604,13 +645,25 @@ async function run() {
     }
 
     console.log(`\nMock library updated with research groups for entry "${CURRENT_ENTRY_ID}".`);
+    return { entryId: CURRENT_ENTRY_ID, pdfPath, status: "completed" };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`\n❌ ${message}`);
-    process.exitCode = 1;
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error(message);
   } finally {
-    rl.close();
+    closeInterface(rl);
   }
 }
 
-run();
+module.exports = {
+  runResearchGroups
+};
+
+if (require.main === module) {
+  runResearchGroups().catch(() => {
+    process.exitCode = 1;
+  });
+}
