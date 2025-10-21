@@ -5601,9 +5601,9 @@ export default function LandingPage() {
       console.log("[verified-claims] starting fetch", {
         paperId: paper.id,
         hasClaimsText: Boolean(claims.text),
-        hasSimilarText: Boolean(similar?.text),
-        hasGroupsText: Boolean(groups?.text),
-        hasPatentsText: Boolean(patents?.text)
+        hasSimilarText: Boolean(similar && similar.status === "success" && similar.text),
+        hasGroupsText: Boolean(groups && groups.status === "success" && groups.text),
+        hasPatentsText: Boolean(patents && patents.status === "success" && patents.text)
       });
 
       setVerifiedClaimsStates((prev) => ({
