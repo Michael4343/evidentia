@@ -148,7 +148,14 @@ function removeMockState<T>(state: Record<string, T>): Record<string, T> {
   return Object.fromEntries(entries) as Record<string, T>;
 }
 
-type CacheStage = "similarPapers" | "groups" | "contacts" | "theses" | "patents" | "verifiedClaims";
+type CacheStage =
+  | "claims"
+  | "similarPapers"
+  | "groups"
+  | "contacts"
+  | "theses"
+  | "patents"
+  | "verifiedClaims";
 
 function getCacheKey(paperId: string, stage: CacheStage) {
   return `paper-cache:${RESEARCH_CACHE_VERSION}:${paperId}:${stage}`;
@@ -807,7 +814,6 @@ type PipelineStageId =
   | "claims"
   | "similarPapers"
   | "researchGroups"
-  | "contacts"
   | "theses"
   | "patents"
   | "verifiedClaims";
@@ -817,7 +823,6 @@ const PIPELINE_STAGE_ORDER: readonly PipelineStageId[] = [
   "claims",
   "similarPapers",
   "researchGroups",
-  "contacts",
   "theses",
   "patents",
   "verifiedClaims"
@@ -828,10 +833,9 @@ const PIPELINE_STAGE_INDEX: Record<PipelineStageId, number> = {
   claims: 1,
   similarPapers: 2,
   researchGroups: 3,
-  contacts: 4,
-  theses: 5,
-  patents: 6,
-  verifiedClaims: 7
+  theses: 4,
+  patents: 5,
+  verifiedClaims: 6
 };
 
 const PIPELINE_STAGE_METADATA: Record<PipelineStageId, { label: string; helper: string }> = {
@@ -850,10 +854,6 @@ const PIPELINE_STAGE_METADATA: Record<PipelineStageId, { label: string; helper: 
   researchGroups: {
     label: "Research Groups",
     helper: "Mapping active teams"
-  },
-  contacts: {
-    label: "Contacts",
-    helper: "Finding researcher contacts"
   },
   theses: {
     label: "PhD Theses",
@@ -874,7 +874,6 @@ const PIPELINE_STAGE_EMOJI: Record<PipelineStageId, string> = {
   claims: "🗂️",
   similarPapers: "🔍",
   researchGroups: "🧪",
-  contacts: "👥",
   theses: "🎓",
   patents: "🛠️",
   verifiedClaims: "✅"
@@ -1472,7 +1471,30 @@ function ExtractionDebugPanel({
     );
   }
 
-  if (!state || state.status === "loading") {
+  if (!state) {
+    if (paper?.source === "remote") {
+      return (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+          <div className="rounded-full bg-slate-100 p-3 text-slate-500">📄</div>
+          <div className="space-y-1">
+            <p className="text-base font-medium text-slate-700">Loaded saved analysis</p>
+            <p className="text-sm text-slate-500">Re-run extraction if you need a fresh text snapshot.</p>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
+        <div className="space-y-1">
+          <p className="text-base font-medium text-slate-700">Preparing extraction…</p>
+          {countdown && <p className="text-xs text-slate-500">{countdown} remaining</p>}
+        </div>
+      </div>
+    );
+  }
+
+  if (state.status === "loading") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <div className="h-10 w-10 animate-spin rounded-full border-2 border-slate-300 border-t-primary" />
@@ -1740,6 +1762,7 @@ function ClaimsPanel({
   onRetry?: () => void;
   countdown?: string;
 }) {
+  const isRemotePaper = paper?.source === "remote";
 
   if (!paper) {
     return (
@@ -1750,11 +1773,13 @@ function ClaimsPanel({
     );
   }
 
-  if (!extraction || extraction.status === "loading") {
+  const hasClaimsData = state && state.status === "success";
+
+  if ((!extraction || extraction.status === "loading") && !(isRemotePaper && hasClaimsData)) {
     return <PipelineStagePlaceholder stageId="claims" waitingForStageId="extraction" />;
   }
 
-  if (extraction.status === "error") {
+  if (extraction && extraction.status === "error") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
@@ -1989,8 +2014,12 @@ function SimilarPapersPanel({
     );
   }
 
-  if (!extraction || extraction.status === "loading") {
-    if (isMockPaper(paper)) {
+  const isRemotePaper = paper.source === "remote";
+  const isMock = isMockPaper(paper);
+  const hasSimilarData = state?.status === "success";
+
+  if ((!extraction || extraction.status === "loading") && !(isRemotePaper && hasSimilarData)) {
+    if (isMock) {
       return (
         <div className="flex-1 overflow-auto">
           <MockSimilarPapersShowcase paperId={paper.id} />
@@ -2000,7 +2029,7 @@ function SimilarPapersPanel({
     return <PipelineStagePlaceholder stageId="similarPapers" waitingForStageId="extraction" />;
   }
 
-  if (extraction.status === "error") {
+  if (extraction && extraction.status === "error") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
@@ -2017,7 +2046,7 @@ function SimilarPapersPanel({
   const claimsStatus = claimsState?.status;
 
   if (!claimsState || claimsStatus === "loading") {
-    if (isMockPaper(paper) && (!state || state.status === "loading")) {
+    if (isMock && (!state || state.status === "loading")) {
       return (
         <div className="flex-1 overflow-auto">
           <MockSimilarPapersShowcase paperId={paper.id} />
@@ -2048,7 +2077,7 @@ function SimilarPapersPanel({
   }
 
   if (!state || state.status === "loading") {
-    if (isMockPaper(paper)) {
+    if (isMock) {
       return (
         <div className="flex-1 overflow-auto">
           <MockSimilarPapersShowcase paperId={paper.id} />
@@ -2136,11 +2165,13 @@ function ResearchGroupsPanel({
     );
   }
 
+  const isRemotePaper = paper.source === "remote";
   const hasMockContent = Boolean(
     state &&
       state.status === "success" &&
       ((state.text && state.text.trim().length > 0) || (state.structured && state.structured.length > 0))
   );
+  const hasGroupsData = state?.status === "success";
 
   if (isMockPaper(paper) && !hasMockContent) {
     return (
@@ -2153,11 +2184,11 @@ function ResearchGroupsPanel({
     );
   }
 
-  if (!extraction || extraction.status === "loading") {
+  if ((!extraction || extraction.status === "loading") && !(isRemotePaper && hasGroupsData)) {
     return <PipelineStagePlaceholder stageId="researchGroups" waitingForStageId="extraction" />;
   }
 
-  if (extraction.status === "error") {
+  if (extraction && extraction.status === "error") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
         <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
@@ -3376,6 +3407,90 @@ function VerifiedClaimsPanel({
   patentsState: PatentsState | undefined;
   countdown?: string;
 }) {
+  const missingSignals: string[] = [];
+  if (!similarState || similarState.status !== "success") {
+    missingSignals.push("similar papers");
+  }
+  if (!groupsState || groupsState.status !== "success") {
+    missingSignals.push("research groups");
+  }
+  if (!patentsState || patentsState.status !== "success") {
+    missingSignals.push("patents");
+  }
+
+  const renderWarnings = () => {
+    if (missingSignals.length === 0) {
+      return null;
+    }
+    return (
+      <div className="w-full max-w-3xl rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-left text-slate-700">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Partial context</p>
+        <p className="mt-1 text-sm text-amber-900">
+          Verification ran without {missingSignals.join(", ")} data, so findings may be incomplete.
+        </p>
+      </div>
+    );
+  };
+
+  const warningsNode = renderWarnings();
+
+  interface AnalystNoteSection {
+    title?: string;
+    bullets?: string[];
+    paragraphs?: string[];
+  }
+
+  const parseAnalystNotes = (notes: string): AnalystNoteSection[] => {
+    const bulletPattern = /^[-•*]\s+/;
+    const stripBullet = (line: string) => line.replace(bulletPattern, "").trim();
+
+    return notes
+      .split(/\n\s*\n/)
+      .map((block) => block.trim())
+      .filter(Boolean)
+      .map<AnalystNoteSection | null>((block) => {
+        const lines = block.split(/\n+/).map((line) => line.trim()).filter(Boolean);
+        if (lines.length === 0) {
+          return null;
+        }
+
+        if (lines.every((line) => bulletPattern.test(line))) {
+          const bullets = lines.map(stripBullet).filter(Boolean);
+          return bullets.length > 0 ? { bullets } : null;
+        }
+
+        const headingCandidate = !bulletPattern.test(lines[0]) ? lines[0] : undefined;
+        const rest = headingCandidate ? lines.slice(1) : lines;
+        const normalizedTitle = headingCandidate
+          ? headingCandidate.replace(/\s*[:：]\s*$/u, "").trim()
+          : undefined;
+
+        if (rest.length > 0 && rest.every((line) => bulletPattern.test(line))) {
+          const bullets = rest.map(stripBullet).filter(Boolean);
+          return {
+            ...(normalizedTitle ? { title: normalizedTitle } : {}),
+            ...(bullets.length > 0 ? { bullets } : {})
+          };
+        }
+
+        const bodyLines = (headingCandidate ? rest : lines).map((line) =>
+          bulletPattern.test(line) ? stripBullet(line) : line
+        );
+        const paragraphs = bodyLines.filter(Boolean);
+
+        if (!normalizedTitle && paragraphs.length === 0) {
+          return null;
+        }
+
+        return {
+          ...(normalizedTitle ? { title: normalizedTitle } : {}),
+          ...(paragraphs.length > 0 ? { paragraphs } : {})
+        };
+      })
+      .filter((section): section is AnalystNoteSection => Boolean(section));
+  };
+
+  const analystSections = state?.text ? parseAnalystNotes(state.text) : [];
   const getStatusBadgeClasses = (status: string) => {
     switch (status) {
       case "Verified":
@@ -3428,6 +3543,8 @@ function VerifiedClaimsPanel({
               </button>
             )}
           </header>
+
+          {warningsNode && <div className="flex justify-center">{warningsNode}</div>}
 
           {overallAssessment && (
             <article className="rounded-lg border border-slate-300 bg-white px-5 py-4 shadow-sm">
@@ -3540,58 +3657,6 @@ function VerifiedClaimsPanel({
     );
   }
 
-  if (!similarState) {
-    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="similarPapers" countdown={countdown} />;
-  }
-
-  if (similarState.status === "loading") {
-    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="similarPapers" countdown={countdown} />;
-  }
-
-  if (similarState.status === "error") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
-        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
-        <div className="space-y-2">
-          <p className="text-base font-semibold text-red-700">Similar papers required</p>
-          <p className="text-sm text-red-600">Resolve the similar papers tab so we can cross-reference claims.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!groupsState || groupsState.status === "loading") {
-    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="researchGroups" countdown={countdown} />;
-  }
-
-  if (groupsState.status === "error") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
-        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
-        <div className="space-y-2">
-          <p className="text-base font-semibold text-red-700">Research groups required</p>
-          <p className="text-sm text-red-600">Fix the research groups tab to give the verifier team context.</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!patentsState || patentsState.status === "loading") {
-    return <PipelineStagePlaceholder stageId="verifiedClaims" waitingForStageId="patents" countdown={countdown} />;
-  }
-
-  if (patentsState.status === "error") {
-    return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
-        <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
-        <div className="space-y-2">
-          <p className="text-base font-semibold text-red-700">Patent scan required</p>
-          <p className="text-sm text-red-600">Re-run the patent tab before verifying claims.</p>
-        </div>
-      </div>
-    );
-  }
-
   if (isMock) {
     if (state?.status === "success") {
       const mockClaims = (state.structured?.claims ?? []) as VerifiedClaimEntry[];
@@ -3649,6 +3714,7 @@ function VerifiedClaimsPanel({
   if (state.status === "error") {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center p-6">
+        {warningsNode && <div className="w-full flex justify-center">{warningsNode}</div>}
         <div className="rounded-full bg-red-50 p-3 text-red-600">⚠️</div>
         <div className="space-y-2">
           <p className="text-base font-semibold text-red-700">Verified claims failed</p>
@@ -3669,9 +3735,80 @@ function VerifiedClaimsPanel({
 
   const claims = state.structured?.claims ?? [];
   const overallAssessment = state.structured?.overallAssessment;
+
+  if ((claims.length === 0 && !overallAssessment) && state.text) {
+    const sections = analystSections.length > 0 ? analystSections : [{ paragraphs: [state.text.trim()] }];
+
+    return (
+      <div className="flex flex-1 flex-col overflow-auto">
+        <div className="flex-1 overflow-auto bg-slate-50">
+          <section className="w-full space-y-6 px-6 py-8">
+            <header className="flex items-start justify-between gap-3">
+              <div className="space-y-2">
+                <h2 className="text-xl font-semibold text-slate-900">Verified Claims</h2>
+                <p className="text-sm leading-relaxed text-slate-600">
+                  Claims cross-referenced against similar papers, research groups, PhD theses, and patents.
+                </p>
+              </div>
+              {onRetry && (
+                <button
+                  onClick={onRetry}
+                  className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  title="Re-run verified claims analysis"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                </button>
+              )}
+            </header>
+
+            {warningsNode && <div className="flex justify-center">{warningsNode}</div>}
+
+            <div className="space-y-4">
+              {sections.map((section, index) => (
+                <article
+                  key={index}
+                  className="space-y-3 rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm"
+                >
+                  {section.title && (
+                    <h3 className="text-sm font-semibold text-slate-900">{section.title}</h3>
+                  )}
+                  {section.paragraphs?.map((paragraph, paragraphIndex) => (
+                    <p key={paragraphIndex} className="text-sm leading-relaxed text-slate-700">
+                      {paragraph}
+                    </p>
+                  ))}
+                  {section.bullets && section.bullets.length > 0 && (
+                    <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-slate-700">
+                      {section.bullets.map((item, bulletIndex) => (
+                        <li key={bulletIndex}>{item}</li>
+                      ))}
+                    </ul>
+                  )}
+                </article>
+              ))}
+            </div>
+
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
+              >
+                Re-run verification
+              </button>
+            )}
+          </section>
+        </div>
+      </div>
+    );
+  }
+
   if (claims.length === 0 && !overallAssessment) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center p-6">
+        {warningsNode && <div className="w-full flex justify-center">{warningsNode}</div>}
         <p className="text-base font-medium text-slate-700">No verified claims yet</p>
         <p className="text-sm text-slate-500">
           We could not synthesise verified claims. You can retry after confirming the upstream tabs look good.
@@ -3848,6 +3985,8 @@ export default function LandingPage() {
   const { user, open } = useAuthModal();
   const prevUserRef = useRef(user);
   const objectUrlsRef = useRef<string[]>([]);
+  const claimsStorageFetchesRef = useRef<Set<string>>(new Set<string>());
+  const claimsStorageResolvedRef = useRef<Set<string>>(new Set<string>());
   const similarStorageFetchesRef = useRef<Set<string>>(new Set<string>());
   const similarStorageResolvedRef = useRef<Set<string>>(new Set<string>());
   const similarPapersGenerationRef = useRef<Set<string>>(new Set<string>());
@@ -3858,10 +3997,12 @@ export default function LandingPage() {
   const verifiedClaimsStorageResolvedRef = useRef<Set<string>>(new Set<string>());
   const verifiedClaimsGenerationRef = useRef<Set<string>>(new Set<string>());
   const researchGroupsStorageFetchesRef = useRef<Set<string>>(new Set<string>());
+  const researchGroupsStorageResolvedRef = useRef<Set<string>>(new Set<string>());
   const researchGroupsGenerationRef = useRef<Set<string>>(new Set<string>());
   const contactsStorageFetchesRef = useRef<Set<string>>(new Set<string>());
   const thesesStorageFetchesRef = useRef<Set<string>>(new Set<string>());
   const thesesStorageResolvedRef = useRef<Set<string>>(new Set<string>());
+  const remoteAutoRunAttemptedRef = useRef<Set<string>>(new Set<string>());
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const initialMockPapers =
     MOCK_UPLOADED_PAPERS_FROM_SUMMARIES.length > 0
@@ -4150,6 +4291,99 @@ export default function LandingPage() {
     }
 
     const paperId = activePaper.id;
+    let cancelled = false;
+
+    const cachedClaims = readCachedState<{ text?: string; structured?: any }>(paperId, "claims");
+    if (!activeClaimsState && (cachedClaims?.text || cachedClaims?.structured)) {
+      const cachedPayload = {
+        ...(cachedClaims?.text ? { text: cachedClaims.text } : {}),
+        ...(cachedClaims?.structured ? { structured: cachedClaims.structured } : {})
+      };
+      writeCachedState(paperId, "claims", cachedPayload);
+      setClaimsStates((prev) => ({
+        ...prev,
+        [paperId]: {
+          status: "success",
+          ...cachedPayload
+        }
+      }));
+      claimsStorageResolvedRef.current.add(paperId);
+    }
+
+    const hasAttemptedClaimsLoad = claimsStorageFetchesRef.current.has(paperId);
+    const lacksCachedClaims = !cachedClaims?.text && !cachedClaims?.structured;
+
+    if (
+      !activeClaimsState &&
+      lacksCachedClaims &&
+      activePaper.storagePath &&
+      supabase &&
+      !hasAttemptedClaimsLoad
+    ) {
+      claimsStorageFetchesRef.current.add(paperId);
+      claimsStorageResolvedRef.current.delete(paperId);
+
+      setClaimsStates((prev) => ({
+        ...prev,
+        [paperId]: { status: "loading" }
+      }));
+
+      const claimsPromise = loadClaimsFromStorage({
+        client: supabase,
+        storagePath: activePaper.storagePath
+      })
+        .then((storedData) => {
+          if (cancelled) {
+            return;
+          }
+
+          const payload = storedData && typeof storedData === "object" ? storedData : null;
+          const text = typeof payload?.text === "string" ? payload.text.trim() : "";
+          const structured = payload?.structured;
+
+          if (text || structured) {
+            const resolvedPayload = {
+              ...(text ? { text } : {}),
+              ...(structured ? { structured } : {})
+            };
+            writeCachedState(paperId, "claims", resolvedPayload);
+            setClaimsStates((prev) => ({
+              ...prev,
+              [paperId]: {
+                status: "success",
+                ...resolvedPayload
+              }
+            }));
+            return;
+          }
+
+          setClaimsStates((prev) => {
+            const next = { ...prev };
+            delete next[paperId];
+            return next;
+          });
+        })
+        .catch((error) => {
+          if (cancelled) {
+            return;
+          }
+          console.error("[claims] failed to load from storage", error);
+          setClaimsStates((prev) => {
+            const next = { ...prev };
+            delete next[paperId];
+            return next;
+          });
+        })
+        .finally(() => {
+          claimsStorageFetchesRef.current.delete(paperId);
+          claimsStorageResolvedRef.current.add(paperId);
+        });
+
+      void claimsPromise;
+    } else if (!claimsStorageResolvedRef.current.has(paperId)) {
+      claimsStorageResolvedRef.current.add(paperId);
+    }
+
     const cachedSimilar = readCachedState<{ text: string; structured?: SimilarPapersStructured }>(
       paperId,
       "similarPapers"
@@ -4178,7 +4412,6 @@ export default function LandingPage() {
       similarStorageResolvedRef.current.add(paperId);
     }
 
-    let cancelled = false;
     const hasAttemptedStorageLoad = similarStorageFetchesRef.current.has(paperId);
 
     if (
@@ -4487,6 +4720,7 @@ export default function LandingPage() {
       !hasAttemptedGroupsLoad
     ) {
       researchGroupsStorageFetchesRef.current.add(paperId);
+      researchGroupsStorageResolvedRef.current.delete(paperId);
       setResearchGroupsStates((prev) => ({
         ...prev,
         [paperId]: { status: "loading" }
@@ -4536,9 +4770,12 @@ export default function LandingPage() {
         })
         .finally(() => {
           researchGroupsStorageFetchesRef.current.delete(paperId);
+          researchGroupsStorageResolvedRef.current.add(paperId);
         });
 
       void groupsPromise;
+    } else if (!researchGroupsStorageResolvedRef.current.has(paperId)) {
+      researchGroupsStorageResolvedRef.current.add(paperId);
     }
 
     if (!activeResearchContactsState) {
@@ -4703,16 +4940,22 @@ export default function LandingPage() {
 
     return () => {
       cancelled = true;
+      claimsStorageFetchesRef.current.delete(paperId);
+      claimsStorageResolvedRef.current.delete(paperId);
       similarStorageFetchesRef.current.delete(paperId);
       similarStorageResolvedRef.current.delete(paperId);
       researchGroupsStorageFetchesRef.current.delete(paperId);
+      researchGroupsStorageResolvedRef.current.delete(paperId);
       contactsStorageFetchesRef.current.delete(paperId);
       thesesStorageFetchesRef.current.delete(paperId);
       thesesStorageResolvedRef.current.delete(paperId);
     };
   }, [
     activePaper,
+    activeClaimsState,
     activeSimilarPapersState,
+    activePatentsState,
+    activeVerifiedClaimsState,
     activeResearchGroupState,
     activeResearchContactsState,
     activeResearchThesesState,
@@ -5289,9 +5532,9 @@ export default function LandingPage() {
     async (
       paper: UploadedPaper,
       claims: ClaimsAnalysisState,
-      similar: SimilarPapersState,
-      groups: ResearchGroupsState,
-      patents: PatentsState,
+      similar: SimilarPapersState | null,
+      groups: ResearchGroupsState | null,
+      patents: PatentsState | null,
       theses: ResearcherThesesState | undefined
     ): Promise<VerifiedClaimsResult | null> => {
       if (!paper || isMockPaper(paper)) {
@@ -5313,36 +5556,12 @@ export default function LandingPage() {
         return null;
       }
 
-      if (!similar || similar.status !== "success") {
-        console.error("[verified-claims] Similar papers are required but not available", {
-          paperId: paper.id,
-          similarStatus: similar?.status
-        });
-        return null;
-      }
-
-      if (!groups || groups.status !== "success") {
-        console.error("[verified-claims] Research groups are required but not available", {
-          paperId: paper.id,
-          groupsStatus: groups?.status
-        });
-        return null;
-      }
-
-      if (!patents || patents.status !== "success") {
-        console.error("[verified-claims] Patents are required but not available", {
-          paperId: paper.id,
-          patentsStatus: patents?.status
-        });
-        return null;
-      }
-
       console.log("[verified-claims] starting fetch", {
         paperId: paper.id,
         hasClaimsText: Boolean(claims.text),
-        hasSimilarText: Boolean(similar.text),
-        hasGroupsText: Boolean(groups.text),
-        hasPatentsText: Boolean(patents.text)
+        hasSimilarText: Boolean(similar?.text),
+        hasGroupsText: Boolean(groups?.text),
+        hasPatentsText: Boolean(patents?.text)
       });
 
       setVerifiedClaimsStates((prev) => ({
@@ -5368,35 +5587,35 @@ export default function LandingPage() {
             headers: {
               "Content-Type": "application/json"
             },
-            body: JSON.stringify({
-              paper: {
-                title: paper.name ?? null,
-                doi: paper.doi ?? null
-              },
-              claims: {
-                text: claims.text ?? null,
-                structured: claims.structured ?? null
-              },
-              similarPapers: {
-                text: similar.text ?? null,
-                structured: similar.structured ?? null
-              },
-              researchGroups: {
-                text: groups.text ?? null,
-                structured: groups.structured ?? null
-              },
-              theses:
-                theses && theses.status === "success"
-                  ? {
-                      text: theses.text ?? null,
-                      structured: theses.researchers ?? null
-                    }
-                  : null,
-              patents: {
-                text: patents.text ?? null,
-                structured: patents.structured ?? null
-              }
-            }),
+          body: JSON.stringify({
+            paper: {
+              title: paper.name ?? null,
+              doi: paper.doi ?? null
+            },
+            claims: {
+              text: claims.text ?? null,
+              structured: claims.structured ?? null
+            },
+            similarPapers: {
+              text: similar?.status === "success" ? similar.text ?? null : null,
+              structured: similar?.status === "success" ? similar.structured ?? null : null
+            },
+            researchGroups: {
+              text: groups?.status === "success" ? groups.text ?? null : null,
+              structured: groups?.status === "success" ? groups.structured ?? null : null
+            },
+            theses:
+              theses && theses.status === "success"
+                ? {
+                    text: theses.text ?? null,
+                    structured: theses.researchers ?? null
+                  }
+                : null,
+            patents: {
+              text: patents?.status === "success" ? patents.text ?? null : null,
+              structured: patents?.status === "success" ? patents.structured ?? null : null
+            }
+          }),
             signal: controller.signal
           });
         } catch (fetchError) {
@@ -5589,6 +5808,8 @@ export default function LandingPage() {
           ...(outputText ? { text: outputText } : {}),
           ...(structured ? { structured } : {})
         };
+
+        writeCachedState(paper.id, "claims", result);
 
         // Save claims to Supabase storage
         if (paper.storagePath && canPersistClaims && supabase) {
@@ -6212,32 +6433,37 @@ export default function LandingPage() {
             similarState = { status: "success", ...similarResult } as SimilarPapersState;
           }
 
-          if (!similarState || similarState.status !== "success") {
-            return;
-          }
+          let similarStateForVerified =
+            similarState && similarState.status === "success" ? similarState : null;
 
           let groupsState = researchGroupsStatesRef.current[paper.id];
           const forceGroups = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.researchGroups;
-          if (!groupsState || groupsState.status !== "success" || forceGroups) {
+          const canGenerateGroups = similarState?.status === "success";
+          if (
+            canGenerateGroups &&
+            (!groupsState || groupsState.status !== "success" || forceGroups)
+          ) {
             const groupsResult = await runResearchGroups(paper, extractionData, claimsState, similarState);
             if (!groupsResult) {
-              return;
+              groupsState = researchGroupsStatesRef.current[paper.id];
+            } else {
+              groupsState = { status: "success", ...groupsResult } as ResearchGroupsState;
             }
-            groupsState = { status: "success", ...groupsResult } as ResearchGroupsState;
           }
 
-          if (!groupsState || groupsState.status !== "success") {
-            return;
-          }
-
-          const contactsState = researchContactsStatesRef.current[paper.id];
-          const forceContacts = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.researchGroups;
-          if (!contactsState || contactsState.status !== "success" || forceContacts) {
-            await runResearchGroupContacts(paper, groupsState.text, groupsState.structured);
+          const hasGroupsSuccess = groupsState?.status === "success";
+          if (hasGroupsSuccess) {
+            const contactsState = researchContactsStatesRef.current[paper.id];
+            if (!contactsState || contactsState.status !== "success") {
+              await runResearchGroupContacts(paper, groupsState.text, groupsState.structured);
+            }
           }
 
           let thesesState = researchThesesStatesRef.current[paper.id];
-          const hasStructuredGroups = Array.isArray(groupsState.structured) && groupsState.structured.length > 0;
+          const hasStructuredGroups =
+            groupsState?.status === "success" &&
+            Array.isArray(groupsState.structured) &&
+            groupsState.structured.length > 0;
           const forceTheses = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.theses;
           if (hasStructuredGroups && (!thesesState || thesesState.status !== "success" || forceTheses)) {
             const thesesResult = await runResearcherTheses(paper, groupsState.structured);
@@ -6258,21 +6484,22 @@ export default function LandingPage() {
             patentsState = { status: "success", ...patentsResult } as PatentsState;
           }
 
-          if (!patentsState || patentsState.status !== "success") {
-            return;
-          }
+          const patentsStateForVerified =
+            patentsState && patentsState.status === "success" ? patentsState : null;
+          similarStateForVerified =
+            similarState && similarState.status === "success" ? similarState : similarStateForVerified;
+          const groupsStateForVerified = groupsState && groupsState.status === "success" ? groupsState : null;
+          const thesesForVerified = thesesState && thesesState.status === "success" ? thesesState : undefined;
 
           let verifiedState = verifiedClaimsStatesRef.current[paper.id];
           const forceVerified = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.verifiedClaims;
           if (!verifiedState || verifiedState.status !== "success" || forceVerified) {
-            const thesesForVerified =
-              thesesState && thesesState.status === "success" ? thesesState : undefined;
             const verifiedResult = await runVerifiedClaims(
               paper,
               claimsState,
-              similarState,
-              groupsState,
-              patentsState,
+              similarStateForVerified,
+              groupsStateForVerified,
+              patentsStateForVerified,
               thesesForVerified
             );
             if (!verifiedResult) {
@@ -6300,16 +6527,29 @@ export default function LandingPage() {
     ]
   );
 
-  // Open sidebar when user logs in
+  // Reset the main panel to the upload view whenever auth changes; keep the sidebar open after login.
   useEffect(() => {
-    if (!prevUserRef.current && user) {
+    const previousUserId = prevUserRef.current?.id ?? null;
+    const currentUserId = user?.id ?? null;
+
+    if (previousUserId !== currentUserId) {
+      setActivePaperId(null);
+      setActiveTab("paper");
+    }
+
+    if (!previousUserId && currentUserId) {
       setSidebarCollapsed(false);
     }
+
     prevUserRef.current = user;
   }, [user]);
 
   useEffect(() => {
     if (!activePaper || isMockPaper(activePaper)) {
+      return;
+    }
+
+    if (activePaper.source === "remote") {
       return;
     }
 
@@ -6330,9 +6570,13 @@ export default function LandingPage() {
       clearObjectUrls();
       setUploadedPapers(initialMockPapers);
       setActivePaperId(defaultActivePaperId);
+      claimsStorageFetchesRef.current.clear();
+      claimsStorageResolvedRef.current.clear();
       similarStorageFetchesRef.current.clear();
       similarStorageResolvedRef.current.clear();
       researchGroupsStorageFetchesRef.current.clear();
+      researchGroupsStorageResolvedRef.current.clear();
+      remoteAutoRunAttemptedRef.current.clear();
       setUploadStatusMessage(null);
       setUploadErrorMessage(null);
       setExtractionStates(defaultActivePaperId ? { [defaultActivePaperId]: initialExtractionState } : {});
@@ -6361,11 +6605,15 @@ export default function LandingPage() {
       return prev.filter((paper) => !isMockPaper(paper));
     });
     for (const id of MOCK_LIBRARY_ENTRY_IDS) {
+      claimsStorageFetchesRef.current.delete(id);
+      claimsStorageResolvedRef.current.delete(id);
       similarStorageFetchesRef.current.delete(id);
       similarStorageResolvedRef.current.delete(id);
       similarPapersGenerationRef.current.delete(id);
       researchGroupsStorageFetchesRef.current.delete(id);
+      researchGroupsStorageResolvedRef.current.delete(id);
       researchGroupsGenerationRef.current.delete(id);
+      remoteAutoRunAttemptedRef.current.delete(id);
     }
     setActivePaperId((prev) => (prev && MOCK_LIBRARY_ENTRY_IDS_SET.has(prev) ? null : prev));
     setExtractionStates((prev) => removeMockState(prev));
@@ -6450,6 +6698,36 @@ export default function LandingPage() {
       isMounted = false;
     };
   }, [clearObjectUrls, supabase, user]);
+
+  useEffect(() => {
+    if (!activePaper || isMockPaper(activePaper)) {
+      return;
+    }
+
+    if (activePaper.source !== "remote") {
+      return;
+    }
+
+    const paperId = activePaper.id;
+
+    if (pipelineRunsRef.current.has(paperId)) {
+      return;
+    }
+
+    if (remoteAutoRunAttemptedRef.current.has(paperId)) {
+      return;
+    }
+
+    const hasStorageAccess = Boolean(activePaper.storagePath && supabase);
+    if (hasStorageAccess && !claimsStorageResolvedRef.current.has(paperId)) {
+      return;
+    }
+
+    if (!activeClaimsState || activeClaimsState.status !== "success") {
+      remoteAutoRunAttemptedRef.current.add(paperId);
+      void startPipeline(activePaper);
+    }
+  }, [activeClaimsState, activePaper, startPipeline, supabase]);
 
 
   const handlePaperUpload = useCallback(
@@ -6751,13 +7029,14 @@ export default function LandingPage() {
   // Determine which pipeline step is currently loading for sequential countdown
   const getCurrentLoadingStep = (): string | null => {
     if (!activePaper || isMockPaper(activePaper)) return null;
-    if (!activeExtraction || activeExtraction.status === "loading") return "extraction";
-    if (!activeClaimsState || activeClaimsState.status === "loading") return "claims";
-    if (!activeSimilarPapersState || activeSimilarPapersState.status === "loading") return "similarPapers";
-    if (!activeResearchGroupState || activeResearchGroupState.status === "loading") return "researchGroups";
-    if (!activeResearchThesesState || activeResearchThesesState.status === "loading") return "theses";
-    if (!activePatentsState || activePatentsState.status === "loading") return "patents";
-    if (!activeVerifiedClaimsState || activeVerifiedClaimsState.status === "loading") return "verifiedClaims";
+    if (!activeExtraction) return null;
+    if (activeExtraction.status === "loading") return "extraction";
+    if (activeClaimsState?.status === "loading") return "claims";
+    if (activeSimilarPapersState?.status === "loading") return "similarPapers";
+    if (activeResearchGroupState?.status === "loading") return "researchGroups";
+    if (activeResearchThesesState?.status === "loading") return "theses";
+    if (activePatentsState?.status === "loading") return "patents";
+    if (activeVerifiedClaimsState?.status === "loading") return "verifiedClaims";
     return null;
   };
 
