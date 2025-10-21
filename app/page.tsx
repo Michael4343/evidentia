@@ -6507,7 +6507,11 @@ export default function LandingPage() {
             Array.isArray(groupsState.structured) &&
             groupsState.structured.length > 0;
           const forceTheses = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.theses;
-          if (hasStructuredGroups && (!thesesState || thesesState.status !== "success" || forceTheses)) {
+          if (
+            groupsState?.status === "success" &&
+            hasStructuredGroups &&
+            (!thesesState || thesesState.status !== "success" || forceTheses)
+          ) {
             const thesesResult = await runResearcherTheses(paper, groupsState.structured);
             if (thesesResult) {
               thesesState = { status: "success", ...thesesResult } as ResearcherThesesState;
