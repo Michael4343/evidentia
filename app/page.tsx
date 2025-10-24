@@ -1598,152 +1598,206 @@ function ClaimsStructuredView({
     );
   }
 
+  // Helper to get evidence strength suffix
+  const getStrengthSuffix = (strength?: string) => {
+    if (!strength || strength.trim().toLowerCase() === "unclear") return "";
+    const normalized = strength.trim();
+    return ` (${normalized} confidence)`;
+  };
+
+  // Helper to format key numbers inline
+  const formatKeyNumbers = (numbers: readonly string[] | string[] | undefined) => {
+    if (!numbers || numbers.length === 0) return null;
+    return numbers.join(" · ");
+  };
+
+  // Group gaps by related claim IDs for integration
+  const getGapsForClaim = (claimId: string) => {
+    if (!structured?.gaps) return [];
+    return structured.gaps.filter(gap =>
+      gap.relatedClaimIds && gap.relatedClaimIds.includes(claimId)
+    );
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {hasStructured && (
         <>
-          {Array.isArray(structured?.executiveSummary) && structured?.executiveSummary?.length ? (
-            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Executive Summary</h3>
-              <ul className="mt-3 space-y-2 pl-4 text-sm leading-relaxed text-slate-700 list-disc marker:text-slate-400">
-                {structured.executiveSummary.map((item, index) => (
-                  <li key={`summary-${index}`}>{item}</li>
-                ))}
-              </ul>
+          {/* Executive Summary with elegant accent */}
+          {Array.isArray(structured?.executiveSummary) && structured.executiveSummary.length > 0 && (
+            <section className="bg-gradient-to-r from-blue-50/50 to-slate-50/50 rounded-xl p-6 border border-blue-100/50">
+              <p className="text-base leading-relaxed text-slate-700">
+                <span className="text-blue-700 font-semibold">At a glance:</span>
+                {" "}
+                {structured.executiveSummary.join(" ")}
+              </p>
             </section>
-          ) : null}
+          )}
 
-          {Array.isArray(structured?.claims) && structured.claims.length > 0 ? (
-            <section className="space-y-4">
-              <header>
-                <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Key Claims &amp; Evidence</h3>
-              </header>
-              <div className="space-y-4">
-                {structured.claims.map((claim) => (
-                  <article key={claim.id ?? claim.claim} className="rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                          {claim.id?.replace(/^C(\d+)$/, 'Claim $1') ?? "Claim"}
-                        </p>
-                        <h4 className="mt-1 text-base font-semibold text-slate-900">{claim.claim}</h4>
-                      </div>
+          {/* Claims with integrated limitations */}
+          {Array.isArray(structured?.claims) && structured.claims.length > 0 && (
+            <section className="space-y-6">
+              {structured.claims.map((claim) => {
+                const claimGaps = getGapsForClaim(claim.id ?? "");
+                const keyNumbersText = formatKeyNumbers(claim.keyNumbers ?? []);
+
+                return (
+                  <article
+                    key={claim.id ?? claim.claim}
+                    className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-200 p-8 space-y-5 border border-slate-100"
+                  >
+                    {/* Claim header */}
+                    <div>
+                      <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+                        {claim.id?.replace(/^C(\d+)$/, 'Claim $1') ?? "Claim"}
+                      </p>
+                      <h4 className="mt-2 text-xl font-bold leading-tight tracking-tight text-slate-900">
+                        {claim.claim}
+                      </h4>
                     </div>
-                    {typeof claim.evidenceSummary === "string" && claim.evidenceSummary.trim().length > 0 && (
-                      <p className="mt-3 text-sm leading-relaxed text-slate-700">{claim.evidenceSummary}</p>
-                    )}
-                    <dl className="mt-4 grid gap-3 sm:grid-cols-2">
-                      {Array.isArray(claim.keyNumbers) && claim.keyNumbers.length > 0 && (
-                        <div>
-                          <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Key numbers</dt>
-                          <dd className="mt-1 space-y-1 text-sm text-slate-700">
-                            {claim.keyNumbers.map((entry, index) => (
-                              <p key={`numbers-${claim.id}-${index}`}>{entry}</p>
-                            ))}
-                          </dd>
-                        </div>
-                      )}
-                      {typeof claim.source === "string" && claim.source.trim().length > 0 && (
-                        <div>
-                          <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Source</dt>
-                          <dd className="mt-1 text-sm text-slate-700">{claim.source}</dd>
-                        </div>
-                      )}
-                      {(typeof claim.evidenceType === "string" && claim.evidenceType.trim().length > 0) ||
-                      (typeof claim.strength === "string" && claim.strength.trim().length > 0 && claim.strength.trim().toLowerCase() !== "unclear") ? (
-                        <div>
-                          <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Evidence type</dt>
-                          <dd className="mt-1 text-sm text-slate-700">
-                            {typeof claim.evidenceType === "string" && claim.evidenceType.trim().length > 0 ? claim.evidenceType : "Not specified"}
-                            {typeof claim.strength === "string" && claim.strength.trim().length > 0 && claim.strength.trim().toLowerCase() !== "unclear"
-                              ? ` (${claim.strength.trim()} evidence)`
-                              : ""}
-                          </dd>
-                        </div>
-                      ) : null}
-                      {typeof claim.assumptions === "string" && claim.assumptions.trim().length > 0 && (
-                        <div className="sm:col-span-2">
-                          <dt className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">Assumptions</dt>
-                          <dd className="mt-1 text-sm text-slate-700">{claim.assumptions}</dd>
-                        </div>
-                      )}
-                    </dl>
-                  </article>
-                ))}
-              </div>
-            </section>
-          ) : null}
 
-          {Array.isArray(structured?.gaps) && structured.gaps.length > 0 ? (
-            <section className="rounded-lg border border-amber-100 bg-amber-50/60 p-6">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Gaps &amp; Limitations</h3>
-              <div className="mt-3 space-y-3">
-                {structured.gaps.map((gap, index) => (
-                  <div key={`gap-${index}`} className="rounded-md border border-amber-200 bg-white/80 p-4">
-                    <p className="text-sm font-semibold text-amber-900">{gap.category}</p>
-                    <p className="mt-1 text-sm text-amber-800">{gap.detail}</p>
-                    {Array.isArray(gap.relatedClaimIds) && gap.relatedClaimIds.length > 0 && (
-                      <p className="mt-2 text-xs uppercase tracking-[0.2em] text-amber-600">
-                        Related: {gap.relatedClaimIds.map(id => id.replace(/^C(\d+)$/, 'Claim $1')).join(", ")}
+                    {/* Evidence with blue accent */}
+                    {typeof claim.evidenceSummary === "string" && claim.evidenceSummary.trim().length > 0 && (
+                      <div className="bg-blue-50/30 rounded-lg p-4 border-l-4 border-blue-400">
+                        <p className="text-sm leading-relaxed text-slate-700">
+                          <span className="font-semibold text-slate-900">Evidence:</span>
+                          {" "}
+                          {claim.evidenceSummary}
+                          {claim.strength && claim.strength.trim().toLowerCase() !== "unclear" && (
+                            <span className="text-blue-700 font-medium">
+                              {" "}({claim.strength.trim()} confidence)
+                            </span>
+                          )}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Key numbers with subtle background */}
+                    {keyNumbersText && (
+                      <div className="bg-slate-50 rounded-lg px-4 py-3 border border-slate-200/50">
+                        <p className="text-sm font-mono text-slate-600">{keyNumbersText}</p>
+                      </div>
+                    )}
+
+                    {/* Source */}
+                    {typeof claim.source === "string" && claim.source.trim().length > 0 && (
+                      <p className="text-sm text-slate-600">
+                        <span className="font-medium text-slate-700">Source:</span>
+                        {" "}
+                        {claim.source}
                       </p>
                     )}
+
+                    {/* Assumptions */}
+                    {typeof claim.assumptions === "string" && claim.assumptions.trim().length > 0 && (
+                      <p className="text-sm text-slate-600">
+                        <span className="font-medium text-slate-700">Assumptions:</span>
+                        {" "}
+                        {claim.assumptions}
+                      </p>
+                    )}
+
+                    {/* Integrated limitations with amber accent */}
+                    {claimGaps.length > 0 && (
+                      <div className="bg-amber-50/40 rounded-lg p-4 border-l-4 border-amber-400">
+                        <p className="text-sm font-semibold text-amber-900 mb-2">Limitations:</p>
+                        <ul className="space-y-1.5 pl-4 text-sm text-amber-800 list-disc marker:text-amber-500">
+                          {claimGaps.map((gap, index) => (
+                            <li key={`gap-${claim.id}-${index}`}>
+                              {gap.category && gap.category.trim() ? `${gap.category}: ${gap.detail}` : gap.detail}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </article>
+                );
+              })}
+            </section>
+          )}
+
+          {/* Study Design - Grouped sections */}
+          {Array.isArray(structured?.methodsSnapshot) && structured.methodsSnapshot.length > 0 && (
+            <section className="pt-8 border-t border-slate-200 space-y-4">
+              <h3 className="text-base font-semibold text-slate-800">Study Design</h3>
+              <div className="grid gap-3">
+                {structured.methodsSnapshot.map((item, index) => (
+                  <div
+                    key={`methods-${index}`}
+                    className="bg-slate-50/50 rounded-lg p-4 border border-slate-200/50"
+                  >
+                    <p className="text-sm leading-relaxed text-slate-700">{item}</p>
                   </div>
                 ))}
               </div>
             </section>
-          ) : null}
+          )}
 
-          {Array.isArray(structured?.methodsSnapshot) && structured.methodsSnapshot.length > 0 ? (
-            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Methods Snapshot</h3>
-              <ul className="mt-3 space-y-2 pl-4 text-sm leading-relaxed text-slate-700 list-disc marker:text-slate-400">
-                {structured.methodsSnapshot.map((item, index) => (
-                  <li key={`methods-${index}`}>{item}</li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-
-          {Array.isArray(structured?.riskChecklist) && structured.riskChecklist.length > 0 ? (
-            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Risk of Bias</h3>
-              <ul className="mt-3 space-y-2">
-                {structured.riskChecklist.map((entry, index) => (
-                  <li key={`risk-${index}`} className="flex items-start justify-between gap-4 rounded-md border border-slate-100 bg-slate-50/80 px-4 py-3">
-                    <div>
-                      <p className="text-sm font-medium text-slate-900">{entry.item}</p>
-                      {entry.note && entry.note.trim().length > 0 && (
-                        <p className="mt-1 text-xs text-slate-600">{entry.note}</p>
-                      )}
+          {/* Risk Assessment - Two-column grid */}
+          {Array.isArray(structured?.riskChecklist) && structured.riskChecklist.length > 0 && (
+            <section className="pt-8 border-t border-slate-200 space-y-4">
+              <h3 className="text-base font-semibold text-slate-800">Risk Assessment</h3>
+              <div className="overflow-hidden rounded-lg border border-slate-200">
+                <div className="divide-y divide-slate-200">
+                  {structured.riskChecklist.map((entry, index) => (
+                    <div
+                      key={`risk-${index}`}
+                      className={`grid grid-cols-1 sm:grid-cols-[2fr,3fr] gap-4 p-4 ${
+                        index % 2 === 0 ? 'bg-white' : 'bg-slate-50/30'
+                      }`}
+                    >
+                      <div className="font-medium text-sm text-slate-800">
+                        {entry.item}
+                      </div>
+                      <div className="text-sm text-slate-700 leading-relaxed">
+                        {entry.note || entry.status}
+                      </div>
                     </div>
-                    <span className="text-xs font-semibold uppercase tracking-[0.15em] text-slate-500">{entry.status}</span>
-                  </li>
-                ))}
-              </ul>
+                  ))}
+                </div>
+              </div>
             </section>
-          ) : null}
+          )}
 
-          {Array.isArray(structured?.openQuestions) && structured.openQuestions.length > 0 ? (
-            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Open Questions &amp; Next Steps</h3>
-              <ul className="mt-3 space-y-2 pl-4 text-sm leading-relaxed text-slate-700 list-disc marker:text-slate-400">
+          {/* Next Steps - Checklist style */}
+          {Array.isArray(structured?.openQuestions) && structured.openQuestions.length > 0 && (
+            <section className="pt-8 border-t border-slate-200 space-y-4">
+              <h3 className="text-base font-semibold text-slate-800">Next Steps</h3>
+              <div className="space-y-2">
                 {structured.openQuestions.map((item, index) => (
-                  <li key={`next-${index}`}>{item}</li>
+                  <div
+                    key={`next-${index}`}
+                    className="flex items-start gap-3 p-3 rounded-lg bg-blue-50/20 border border-blue-100/50 hover:bg-blue-50/30 transition-colors"
+                  >
+                    <div className="flex-shrink-0 mt-0.5">
+                      <svg
+                        className="w-5 h-5 text-blue-500"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                      >
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                      </svg>
+                    </div>
+                    <p className="text-sm leading-relaxed text-slate-700 flex-1">{item}</p>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </section>
-          ) : null}
+          )}
 
-          {Array.isArray(structured?.crossPaperComparison) && structured.crossPaperComparison.length > 0 ? (
-            <section className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Cross-Paper Comparison</h3>
-              <ul className="mt-3 space-y-2 pl-4 text-sm leading-relaxed text-slate-700 list-disc marker:text-slate-400">
+          {/* Cross-paper comparison (if present) */}
+          {Array.isArray(structured?.crossPaperComparison) && structured.crossPaperComparison.length > 0 && (
+            <section className="pt-8 border-t border-slate-200 space-y-4">
+              <h3 className="text-base font-semibold text-slate-800">Cross-Paper Comparison</h3>
+              <ul className="space-y-2 pl-5 text-sm leading-relaxed text-slate-700 list-disc marker:text-slate-400">
                 {structured.crossPaperComparison.map((item, index) => (
                   <li key={`cross-${index}`}>{item}</li>
                 ))}
               </ul>
             </section>
-          ) : null}
+          )}
         </>
       )}
     </div>

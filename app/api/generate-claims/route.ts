@@ -10,55 +10,37 @@ interface PaperPayload {
   authors?: string | null;
 }
 
-const CLAIMS_PROMPT_TEMPLATE = `Objective: Produce a rigorous yet concise text-only summary of a scientific paper that clearly states the paper's claims, the supporting evidence for each claim, and the gaps or limitations.
+const CLAIMS_PROMPT_TEMPLATE = `Objective: Generate a rigorous, concise, text-only claims analysis of a single scientific paper, clearly stating its top 3 claims, supporting evidence, and gaps or limitations.
 
-Context: You will receive raw text extracted from one or more scientific publication PDFs. Work strictly from this text (no external sources). If multiple papers are present, analyse each separately and add a brief cross-paper comparison.
+Context: You will receive raw text extracted from one scientific PDF. Work strictly from this text (no external sources). Focus on identifying and evaluating the paper's top 3 claims. Keep behaviour tightly scoped: prioritise producing the answer efficiently, proceed under reasonable assumptions without asking for clarification, and stop once acceptance criteria are met.
 
-Audience and Tone: Research analysts and domain experts. Tone: neutral, precise, evidence-centred, and concise.
+Audience and Tone: Research analysts and domain experts; tone is neutral, precise, evidence-centred, and concise.
 
 Inputs:
 
 Raw PDF text: [PASTE RAW TEXT HERE]
 
-Optional metadata: [PAPER TITLE], [AUTHORS], [VENUE], [YEAR], [DOI/URL], [DISCIPLINE/DOMAIN], [TARGET AUDIENCE]
-
-Optional scope constraints: [SECTIONS TO FOCUS ON], [MAX CLAIMS], [WORD LIMIT], [INCLUSION/EXCLUSION CRITERIA]
-
-Optional rubric or definitions: [EVIDENCE STRENGTH RUBRIC], [CLAIM TYPES], [KEY OUTCOMES]
-
 Constraints:
 
-Text-only output (no JSON in this step).
+Text-only output (no JSON). Use Australian spelling and DD/MM/YYYY dates.
 
-Use Australian spelling and DD/MM/YYYY dates.
-
-Base all findings strictly on the provided text; do not infer beyond it or browse externally.
+Base all findings strictly on the provided text; no external browsing or inference.
 
 Attribute every claim and evidence item to page/section/figure/table references where available.
 
-Quote snippets ≤30 words; otherwise paraphrase faithfully.
+Extract numerical results exactly as written (effect sizes, CIs, p-values, N, timeframes).
 
-Extract numerical results exactly as written (effect sizes, CIs, p-values, N, timeframes); round only if specified [ROUNDING RULES or 2 s.f.].
+Flag OCR artefacts or ambiguities with [UNCLEAR]; state assumptions explicitly.
 
-Flag OCR artefacts or ambiguities with [UNCLEAR] and state assumptions explicitly.
-
-Prioritise concision and clarity; keep the full summary ≤[WORD LIMIT, e.g., 600–900 words].
-
-Tools/Data:
-
-Provided raw PDF text and optional metadata only.
-
-If headings exist, segment by: Abstract, Introduction, Methods, Results, Discussion, Limitations, Conclusion, References.
+Calibrate model behaviour: low verbosity, high reasoning; avoid unnecessary exploration and terminate once all acceptance criteria are satisfied.
 
 Output Format:
 
-Executive Summary (≤10 bullet points or ≤200 words): main claims, headline numbers, and overall evidence strength (High/Moderate/Low).
+Executive Summary: main findings, headline numbers, overall evidence strength (High/Moderate/Low).
 
-Key Claims and Evidence (bulleted list):
+Top 3 Claims and Evidence (C1–C3 only), each with:
 
-Claim ID: C1, C2, …
-
-Claim (one sentence).
+One-sentence claim.
 
 Evidence summary (design, sample, measures, analysis).
 
@@ -66,71 +48,94 @@ Key numbers (effect size, CI, p, N, timeframe).
 
 Source location (page/section/figure/table).
 
-Strength rating (High/Moderate/Low) and key assumptions/conditions.
+Strength rating (High/Moderate/Low/Unclear) and key assumptions/conditions.
 
-Gaps & Limitations (categorised): data gaps, methodological weaknesses, external validity, unresolved confounders, missing comparisons, contradictions—link each to relevant Claim IDs.
+Gaps & Limitations: identify weaknesses and link each to C1–C3.
 
-Methods Snapshot (3–6 bullets): study design, sample, measures, analysis approach, preregistration/ethics [DETAIL NEEDED if absent].
+Methods Snapshot: brief overview of study design and approach.
 
-Risk-of-Bias/Quality Checklist (tick/short notes): sampling, randomisation, blinding, missing data handling, multiplicity, selective reporting.
+Risk-of-Bias/Quality Checklist: brief assessment.
 
-Open Questions & Next Steps (3–6 bullets): specific, testable follow-ups implied by the paper.
-
-Cross-Paper Comparison (only if multiple papers): 3–5 bullets on points of agreement, divergence, and evidence quality.
+Open Questions & Next Steps: specific, testable follow-ups.
 
 Steps or Acceptance Criteria:
 
 Parse and segment the raw text; note missing sections explicitly.
 
-Extract distinct, testable claims; if >[MAX CLAIMS], prioritise the top [MAX CLAIMS] by centrality (presence in abstract/conclusion, frequency, emphasis) and list the remainder briefly.
+Identify all distinct claims; rank by centrality (presence in abstract/conclusion, frequency, emphasis); select the top 3 only.
 
-For each claim, locate and summarise direct supporting evidence with precise source locations and key numbers.
+For C1–C3, summarise direct supporting evidence with precise locations and key numbers; classify evidence type (e.g., RCT, observational, simulation, qualitative, prior work).
 
-Classify evidence type (e.g., RCT, observational, simulation, qualitative, prior work) and rate strength using a transparent rubric:
+Rate strength: High (appropriate design, adequate N, consistent results, clear statistics); Moderate (some limitations); Low (weak support/speculative); Unclear (insufficient detail).
 
-High: appropriate design, adequate N, consistent results, clear statistics.
-
-Moderate: some limitations (e.g., small N, partial controls).
-
-Low: anecdotal/speculative or weakly supported.
-
-Identify gaps/limitations and tie them to affected Claim IDs.
+Identify gaps/limitations tied to C1–C3.
 
 Provide a concise methods snapshot and risk-of-bias checklist based only on stated details.
 
-Ensure concision and coherence: no redundant text; all claims have strength ratings and location references or [DETAIL NEEDED] if absent.
+QA: all sections present; numbers match text exactly; each of C1–C3 has strength ratings and location references or [DETAIL NEEDED]; stop once checks pass.
+`;
 
-Final QA: all required sections present; numbers match the text exactly; all quotes ≤30 words; all claims tie back to the supplied text.`;
+const CLEANUP_PROMPT_HEADER = `Objective: Convert the single-paper claims summary into strict JSON for Evidentia's claims UI (expects up to 3 claims: C1–C3).
 
-const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's claims summary into strict JSON for Evidentia's claims UI.
+Context: Input is the text output from the analysis step. Deterministic ETL process; preserve content exactly, validate schema, avoid extra keys or prose.
 
-Output requirements:
-- Return a single JSON object with keys: text (string), structured (object), promptNotes (optional string).
-- text must reproduce the analyst's formatted summary exactly (including headings and bullet markers). Replace every newline with \\n and escape embedded double quotes with \\" so the string parses in JSON.
-- structured.executiveSummary: array of strings (each one bullet).
-- structured.claims: array of objects with keys { id, claim, evidenceSummary, keyNumbers (array of strings), source, strength, assumptions, evidenceType }.
-  - strength must be one of "High", "Moderate", "Low", "Unclear".
-  - Use empty arrays for missing keyNumbers; use null for unknown scalars.
-- structured.gaps: array of objects { category, detail, relatedClaimIds (array of strings) }.
-- structured.methodsSnapshot: array of strings.
-- structured.riskChecklist: array of objects { item, status, note }. Status must be one of "met", "partial", "missing", "unclear" (lowercase).
-- structured.openQuestions: array of strings.
-- structured.crossPaperComparison: array of strings (omit when not applicable).
-- Output raw JSON only — no markdown fences, comments, trailing prose, or extra keys. Validate the payload with JSON.parse before responding.
-- Preserve factual content; do not invent new claims or numbers. When details are missing, use placeholders like "[DETAIL NEEDED]" exactly as written.`;
+Schema Requirements:
+
+Return a single JSON object with keys: text (string), structured (object), promptNotes (optional string).
+
+text: Reproduce the analyst's formatted summary exactly (including headings and bullet markers). Replace every newline with \\n and escape embedded double quotes with \\".
+
+structured.executiveSummary: array of strings.
+
+structured.claims (max 3 items): array of objects { id, claim, evidenceSummary, keyNumbers (array of strings), source, strength, assumptions, evidenceType }. strength ∈ {"High","Moderate","Low","Unclear"}. Use [] for missing keyNumbers; use null for unknown scalars.
+
+structured.gaps: array of objects { category, detail, relatedClaimIds (array of strings limited to ["C1","C2","C3"]) }.
+
+structured.methodsSnapshot: array of strings.
+
+structured.riskChecklist: array of objects { item, status, note }, where status ∈ {"met","partial","missing","unclear"} (lowercase).
+
+structured.openQuestions: array of strings.
+
+Output raw JSON only — no markdown fences, comments, or trailing prose. Must be valid under JSON.parse.
+
+Preserve factual content; do not invent claims or numbers. Use "[DETAIL NEEDED]" exactly when details are missing.
+
+Keep verbosity low; terminate once validation succeeds.
+
+Validation Steps:
+
+1. Ingest the analyst summary string exactly as provided.
+2. Produce text by escaping embedded double quotes and replacing each newline with \\n, preserving all characters.
+3. Parse the summary into structured fields (executiveSummary, claims [C1–C3 only], gaps, methodsSnapshot, riskChecklist, openQuestions).
+4. For each claim (max 3), populate all fields; use [] for missing arrays and null for unknown scalars.
+5. Populate riskChecklist statuses with only {"met","partial","missing","unclear"}.
+6. Emit a single JSON object with exactly the allowed keys.
+7. Validate with JSON.parse; if invalid, fix escaping/typing and re-validate; stop when valid.
+`;
 
 function buildClaimsPrompt(text: string, paper?: PaperPayload): string {
-  const title = paper?.title && paper.title.trim().length > 0 ? paper.title.trim() : "Unknown title";
-  const doiOrId = paper?.doi && paper.doi.trim() ? paper.doi.trim() : "Not provided";
-  const authors = paper?.authors && paper.authors.trim() ? paper.authors.trim() : "Not provided";
+  let prompt = CLAIMS_PROMPT_TEMPLATE.replace("[PASTE RAW TEXT HERE]", text);
 
-  const metadata = `
-Optional metadata:
-- Paper Title: ${title}
-- Authors: ${authors}
-- DOI: ${doiOrId}`;
+  // Add paper metadata if available
+  if (paper) {
+    const metadata: string[] = [];
+    if (paper.title && paper.title.trim()) {
+      metadata.push(`Title: ${paper.title.trim()}`);
+    }
+    if (paper.authors && paper.authors.trim()) {
+      metadata.push(`Authors: ${paper.authors.trim()}`);
+    }
+    if (paper.doi && paper.doi.trim()) {
+      metadata.push(`DOI: ${paper.doi.trim()}`);
+    }
 
-  return CLAIMS_PROMPT_TEMPLATE.replace("[PASTE RAW TEXT HERE]", text) + "\n" + metadata;
+    if (metadata.length > 0) {
+      prompt += "\n\nPaper metadata:\n" + metadata.join("\n");
+    }
+  }
+
+  return prompt;
 }
 
 function truncateText(text: string, limit: number) {
