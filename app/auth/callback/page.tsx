@@ -40,13 +40,19 @@ export default function AuthCallbackPage() {
         return;
       }
 
-      const { error } = await supabase.auth.getSessionFromUrl({ storeSession: true });
-
-      if (error) {
-        console.error("[auth-callback] Session exchange failed:", error);
-        setStatus("error");
-        setMessage(error.message || "We couldn't complete the sign-in. Please try again.");
-        return;
+      // Exchange the code for a session (modern Supabase auth)
+      const code = params.get("code");
+      if (code) {
+        const { error } = await supabase.auth.exchangeCodeForSession(code);
+        if (error) {
+          console.error("[auth-callback] Session exchange failed:", error);
+          setStatus("error");
+          setMessage(error.message || "We couldn't complete the sign-in. Please try again.");
+          return;
+        }
+      } else {
+        // No code means this might be email confirmation or other flow
+        console.warn("[auth-callback] No code in URL, checking existing session");
       }
 
       setMessage("Signed in successfully. Redirecting you back now…");
