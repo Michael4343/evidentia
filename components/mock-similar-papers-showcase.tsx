@@ -124,7 +124,7 @@ export function MockSimilarPapersShowcase({ paperId }: MockSimilarPapersShowcase
             : derivedAuthors,
         year: (sourceNotes as any)?.year ?? derivedYear,
         venue: (sourceNotes as any)?.venue ?? "Review",
-        clusterLabel: "Source",
+        clusterLabel: undefined,
         whyRelevant:
           typeof sourceNotes?.summary === "string" && sourceNotes.summary.length > 0
             ? sourceNotes.summary
@@ -225,7 +225,7 @@ export function MockSimilarPapersShowcase({ paperId }: MockSimilarPapersShowcase
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Paper #{index + 1}</p>
                     <h4 className="text-base font-semibold text-slate-900">{paper.title ?? "Untitled"}</h4>
                     <p className="text-sm text-slate-600">
-                      {[paper.authors?.join(", ") ?? "Unknown authors", paper.year, paper.venue, paper.clusterLabel]
+                      {[paper.authors?.join(", ") ?? "Unknown authors", paper.year, paper.venue]
                         .filter(Boolean)
                         .join(" · ")}
                     </p>

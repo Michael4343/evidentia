@@ -1915,19 +1915,20 @@ function ClaimsPanel({
   );
 }
 
-function SimilarPapersStructuredView({ structured }: { structured: SimilarPapersStructured }) {
+function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sourceFileName }: { structured: SimilarPapersStructured; sourceTitle?: string; sourceYear?: string | number; sourceFileName?: string }) {
   const methodRows = [
-    { label: "Sample / model", key: "sampleModel" },
-    { label: "Materials", key: "materialsSetup" },
-    { label: "Equipment", key: "equipmentSetup" },
-    { label: "Procedure", key: "procedureSteps" },
-    { label: "Controls", key: "controls" },
-    { label: "Outputs / metrics", key: "outputsMetrics" },
-    { label: "Quality checks", key: "qualityChecks" },
-    { label: "Outcome summary", key: "outcomeSummary" }
+    { label: "Sample", key: "sample" },
+    { label: "Materials", key: "materials" },
+    { label: "Equipment", key: "equipment" },
+    { label: "Procedure", key: "procedure" },
+    { label: "Outcomes", key: "outcomes" }
   ] as const;
 
   const similarPapers = Array.isArray(structured.similarPapers) ? structured.similarPapers : [];
+
+  // Smart fallback: use title, then filename (without .pdf), then "Source"
+  const cleanFileName = sourceFileName?.replace(/\.pdf$/i, "").trim();
+  const displayTitle = sourceTitle || cleanFileName || "Source";
 
   if (similarPapers.length === 0) {
     return (
@@ -1938,7 +1939,7 @@ function SimilarPapersStructuredView({ structured }: { structured: SimilarPapers
   }
 
   const getMatrixValue = (paper: typeof similarPapers[number], key: string) => {
-    const value = paper?.methodMatrix?.[key];
+    const value = paper?.methodComparison?.[key];
     if (!value || !value.trim()) {
       return "Not reported";
     }
@@ -1946,67 +1947,143 @@ function SimilarPapersStructuredView({ structured }: { structured: SimilarPapers
   };
 
   return (
-    <div className="space-y-8">
-      {structured.sourcePaper?.summary && (
-        <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
-          <h3 className="text-sm font-semibold text-slate-700">Source Paper Summary</h3>
-          <p className="mt-2 text-sm leading-relaxed text-slate-600">{structured.sourcePaper.summary}</p>
+    <div className="space-y-6">
+      <section className="space-y-3">
+        <div className="border-b-2 border-slate-300 pb-2">
+          <h3 className="text-xs font-mono font-bold text-blue-700 mb-1">
+            #1{sourceYear ? ` · ${sourceYear}` : ""}
+          </h3>
+          <h2 className="text-lg font-semibold text-slate-900 leading-tight">
+            {displayTitle}
+          </h2>
         </div>
-      )}
 
-      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
-        <table className="min-w-full border-collapse text-sm">
-          <thead>
-            <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
-              <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-slate-500">Method dimension</th>
-              {similarPapers.map((paper, index) => (
-                <th key={paper.identifier ?? index} className="px-4 py-3 text-slate-600">
-                  <div className="space-y-0.5">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                      Paper #{index + 1}
-                    </p>
-                    <p className="text-sm font-semibold text-slate-900 leading-snug">
+        {structured.sourcePaper?.summary && (
+          <div className="text-sm leading-relaxed text-slate-700">
+            <span className="font-semibold text-slate-800">At a glance:</span>{" "}
+            {structured.sourcePaper.summary}
+          </div>
+        )}
+      </section>
+
+      <div className="space-y-4">
+        <div className="border-b-2 border-slate-300 pb-2">
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-600">
+            METHOD SIGNATURE
+          </h3>
+        </div>
+
+        <div className="overflow-x-auto rounded-lg bg-white">
+          <table className="min-w-full border-collapse text-sm">
+            <thead>
+              {/* Paper titles row - BIG and prominent */}
+              <tr className="border-b border-slate-200">
+                <th className="px-6 py-4 text-left text-xs font-medium text-slate-500"></th>
+
+                {/* Source paper title */}
+                <th className="px-6 py-4 text-left border-l-2 border-blue-400 bg-slate-50/50 align-top">
+                  <p className="text-sm font-semibold text-slate-900 leading-snug min-w-[180px] max-w-[280px] break-words">
+                    {displayTitle}
+                  </p>
+                </th>
+
+                {/* Similar paper titles */}
+                {similarPapers.map((paper, index) => (
+                  <th key={paper.identifier ?? index} className="px-6 py-4 text-left align-top">
+                    <p className="text-sm font-medium text-slate-900 leading-snug min-w-[180px] max-w-[280px] break-words">
                       {paper.title ?? "Untitled"}
                     </p>
-                    <p className="text-xs text-slate-500">
-                      {[paper.year, paper.venue].filter(Boolean).join(" · ") || "Metadata pending"}
-                    </p>
-                  </div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {methodRows.map((row) => (
-              <tr key={row.key} className="border-t border-slate-100 align-top">
-                <th className="sticky left-0 z-10 bg-white px-4 py-4 text-left text-sm font-medium text-slate-700">
-                  {row.label}
-                </th>
-                {similarPapers.map((paper, index) => (
-                  <td key={`${paper.identifier ?? index}-${row.key}`} className="px-4 py-4 text-sm leading-relaxed text-slate-700">
-                    {getMatrixValue(paper, row.key)}
-                  </td>
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+
+              {/* Paper numbers and metadata row - smaller */}
+              <tr className="border-b-2 border-slate-300">
+                <th className="px-6 py-3 text-left text-xs font-medium text-slate-500"></th>
+
+                {/* Paper 1 - Source */}
+                <th className="px-6 py-3 text-center border-l-2 border-blue-400 bg-slate-50/50">
+                  <p className="text-xs font-mono font-bold text-blue-700">
+                    #1{sourceYear ? ` · ${sourceYear}` : ""}
+                  </p>
+                </th>
+
+                {/* Similar Papers */}
+                {similarPapers.map((paper, index) => (
+                  <th key={paper.identifier ?? index} className="px-6 py-3 text-center">
+                    <p className="text-xs font-mono text-slate-600">
+                      #{index + 2} · {paper.year || "—"}
+                    </p>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {methodRows.map((row, rowIndex) => (
+                <tr
+                  key={row.key}
+                  className={rowIndex < methodRows.length - 1 ? "border-b border-slate-100" : ""}
+                >
+                  {/* Method label */}
+                  <th className="px-6 py-5 text-left text-sm font-semibold text-slate-700 align-top">
+                    {row.label}
+                  </th>
+
+                  {/* Source paper data */}
+                  <td className="px-6 py-5 text-sm leading-relaxed text-slate-800 border-l-2 border-blue-400 bg-slate-50/30 align-top min-w-[200px] max-w-[320px] break-words">
+                    {structured.sourcePaper?.methodComparison?.[row.key] || "Not reported"}
+                  </td>
+
+                  {/* Similar papers data */}
+                  {similarPapers.map((paper, index) => (
+                    <td
+                      key={`${paper.identifier ?? index}-${row.key}`}
+                      className="px-6 py-5 text-sm leading-relaxed text-slate-700 align-top min-w-[200px] max-w-[320px] break-words"
+                    >
+                      {getMatrixValue(paper, row.key)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <div className="space-y-6">
+        {/* Source Paper Card */}
+        <div className="rounded-lg border-l-4 border-blue-400 bg-slate-50/30 p-6 shadow-sm">
+          <div className="space-y-3">
+            <div>
+              <p className="text-xs font-mono font-bold text-slate-900">
+                #1 · SOURCE
+              </p>
+              <h4 className="mt-1 text-base font-semibold text-slate-900">
+                {displayTitle}
+              </h4>
+            </div>
+            {structured.sourcePaper?.summary && (
+              <div className="text-sm text-slate-700 leading-relaxed break-words">
+                {structured.sourcePaper.summary}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Similar Papers Cards */}
         {similarPapers.map((paper, index) => (
           <div key={paper.identifier ?? index} className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
             <div className="space-y-3">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                  Paper #{index + 1}
+                <p className="text-xs font-mono font-bold text-slate-900">
+                  #{index + 2}
                 </p>
                 <h4 className="mt-1 text-base font-semibold text-slate-900">{paper.title}</h4>
                 {paper.authors && paper.authors.length > 0 && (
-                  <p className="mt-1 text-sm text-slate-600">{paper.authors.join(", ")}</p>
+                  <p className="mt-1 text-sm text-slate-600 leading-relaxed">{paper.authors.join(", ")}</p>
                 )}
                 {(paper.doi || paper.url) && (
-                  <p className="mt-1 text-xs text-slate-500">
+                  <p className="mt-1 text-xs text-slate-500 break-all">
                     {paper.doi ? `DOI: ${paper.doi}` : paper.url}
                   </p>
                 )}
@@ -2015,25 +2092,25 @@ function SimilarPapersStructuredView({ structured }: { structured: SimilarPapers
               {paper.whyRelevant && (
                 <div>
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Why relevant</p>
-                  <p className="mt-1 text-sm leading-relaxed text-slate-700">{paper.whyRelevant}</p>
+                  <p className="mt-1 text-sm leading-relaxed text-slate-700 break-words">{paper.whyRelevant}</p>
                 </div>
               )}
 
-              {paper.overlapHighlights && paper.overlapHighlights.length > 0 && (
+              {paper.methodOverlap && paper.methodOverlap.length > 0 && (
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Overlap highlights</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Method overlap</p>
                   <ul className="mt-2 space-y-1 pl-4 text-sm text-slate-700 list-disc marker:text-slate-400">
-                    {paper.overlapHighlights.map((highlight, idx) => (
-                      <li key={idx}>{highlight}</li>
+                    {paper.methodOverlap.map((overlap, idx) => (
+                      <li key={idx} className="break-words">{overlap}</li>
                     ))}
                   </ul>
                 </div>
               )}
 
-              {paper.gapsOrUncertainties && (
-                <div className="rounded-md border border-amber-200 bg-amber-50/60 p-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Gaps or uncertainties</p>
-                  <p className="mt-1 text-sm text-amber-800">{paper.gapsOrUncertainties}</p>
+              {paper.gaps && (
+                <div className="rounded-md border border-amber-200 bg-amber-50/60 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">Gaps</p>
+                  <p className="mt-2 text-sm leading-relaxed text-amber-800 break-words">{paper.gaps}</p>
                 </div>
               )}
             </div>
@@ -2181,7 +2258,12 @@ function SimilarPapersPanel({
           </button>
         </header>
         {state.structured && state.structured.similarPapers && state.structured.similarPapers.length > 0 ? (
-          <SimilarPapersStructuredView structured={state.structured} />
+          <SimilarPapersStructuredView
+            structured={state.structured}
+            sourceTitle={paper?.title}
+            sourceYear={paper?.year}
+            sourceFileName={paper?.fileName}
+          />
         ) : (
           <article className="space-y-4">
             {renderPlaintextSections(state.text)}

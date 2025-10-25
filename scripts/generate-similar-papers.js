@@ -40,25 +40,95 @@ const IGNORED_DIRS = new Set(["node_modules", ".git", ".next", "out", "dist", "b
 const MAX_PROMPT_NOTES_PREVIEW = 400;
 const REPO_ROOT = path.join(__dirname, "..");
 
-const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's Similar Papers UI.
+const CLEANUP_PROMPT_HEADER = `🚨 CRITICAL: USE ONLY STRAIGHT ASCII QUOTES (") - NEVER SMART QUOTES (" " ' ')
 
-Output requirements:
-- Return a single JSON object with keys: sourcePaper, similarPapers, promptNotes (optional).
-- sourcePaper fields:
-  - summary: string (keep concise, two sentences max)
-  - keyMethodSignals: array of 3-5 short strings (no numbering)
-  - searchQueries: array of 3-5 search phrases
-- similarPapers: array of 3-5 objects. Each object must include:
-  identifier (string), title (string), doi (string|null), url (string|null),
-  authors (array of strings), year (number|null), venue (string|null),
-  clusterLabel ("Sample and model" | "Field deployments" | "Insight primers"),
-  whyRelevant (string), overlapHighlights (array of exactly 3 short strings),
-  methodMatrix (object with keys: sampleModel, materialsSetup, equipmentSetup, procedureSteps, controls, outputsMetrics, qualityChecks, outcomeSummary),
-  gapsOrUncertainties (string|null).
-- Use "Not reported" inside methodMatrix when information is missing. Use null for unknown scalars.
-- No markdown, no commentary, no trailing prose. Ensure valid JSON (double quotes only).
-- Preserve factual content; do not invent new details.
-`;
+Your output MUST be valid JSON that passes JSON.parse. The #1 cause of failure is smart quotes.
+
+BAD (will fail):  "summary": "trained on "cell sentences""
+GOOD (will work): "summary": "trained on \"cell sentences\""
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Objective: Convert similar papers notes (from web search + full-text analysis) into strict, valid JSON.
+
+Context: You are receiving notes from a discovery agent that performed web searches and fully read 3-5 papers. Transform this into clean JSON. This is a deterministic ETL process—preserve content exactly, validate schema, avoid extra keys or prose.
+
+CRITICAL JSON FORMATTING RULES:
+
+1. Use ONLY straight ASCII double quotes (") - NEVER use curly/smart quotes (" " ' ')
+2. Escape any internal quotes in strings with backslash: \"
+3. No trailing commas in arrays or objects
+4. No single quotes - only double quotes for strings
+5. Numbers must be unquoted (year: 2024, not year: "2024")
+6. No markdown code fences (\`\`\`json) or backticks
+7. No comments (// or /* */) anywhere
+8. No trailing prose after the JSON closes
+9. Escape all internal double quotes inside string values with backslash: \"
+
+Example of CORRECT quote handling:
+"summary": "The paper uses \"cell sentences\" to train models"
+
+Example of WRONG (will fail):
+"summary": "The paper uses "cell sentences" to train models"
+
+Schema Requirements:
+
+Return a single JSON object with keys: sourcePaper, similarPapers, promptNotes (optional).
+
+sourcePaper: {
+  summary (string),
+  keyMethodSignals (array of strings),
+  methodComparison: {
+    sample (string - from claims brief),
+    materials (string - from claims brief),
+    equipment (string - from claims brief),
+    procedure (string - from claims brief),
+    outcomes (string - from claims brief)
+  }
+}
+
+similarPapers (array, 3-5 items max): {
+  identifier (string - accept DOI, arXiv ID, PubMed URL, or any stable full-text URL),
+  title (string),
+  authors (array of strings),
+  year (number|null),
+  venue (string|null),
+  whyRelevant (string - extracted from full paper analysis),
+  methodOverlap (array of exactly 3 strings - specific points from full paper),
+  methodComparison: {
+    sample (string - from methods section),
+    materials (string - from methods section),
+    equipment (string - from methods section),
+    procedure (string - from methods section),
+    outcomes (string - from results/methods)
+  },
+  gaps (string|null - uncertainties noted in full paper)
+}
+
+Output Requirements:
+
+- Raw JSON only — start with { and end with }
+- Must be valid under JSON.parse (strict JSON syntax)
+- Use ONLY straight ASCII double quotes (")
+- Escape internal quotes: "text with \"quoted\" words"
+- NO smart quotes, NO curly quotes, NO single quotes for strings
+- Preserve all factual content from the discovery notes exactly
+- Use "Not reported" for any missing method fields
+- Use null for missing scalar values (year, venue, gaps)
+- Keep verbosity low; terminate once validation succeeds
+
+Validation Steps:
+
+1. Ingest analyst notes exactly as provided
+2. Parse into structured fields (sourcePaper, similarPapers)
+3. Ensure 3-5 papers maximum (accept fewer if that's what was found)
+4. For sourcePaper and each similarPaper, populate all 5 methodComparison fields (sample, materials, equipment, procedure, outcomes)
+5. Validate conciseness: methodComparison fields should be 1-3 sentences each; gaps should be 2-3 sentences total; whyRelevant should be 2 sentences max
+6. Ensure methodOverlap has exactly 3 items per similar paper (each should be 5-15 words)
+7. CHECK FOR QUOTE ISSUES: Replace any curly/smart quotes (" " ' ') with straight quotes ("), properly escape internal quotes with \"
+8. Validate with JSON.parse; if it fails with quote errors, fix the quotes and retry
+9. Final QA: Search your output for any " characters inside strings that are not already escaped; replace them with \" before returning.
+10. Stop when valid JSON passes JSON.parse`;
 
 const CURLY_QUOTES_TO_ASCII = [
   [/\u2018|\u2019|\u201A|\u201B/g, "'"],
@@ -69,6 +139,49 @@ const CURLY_QUOTES_TO_ASCII = [
   [/\u200B|\u200C|\u200D|\uFEFF/g, ""],
   [/\u0000|\u0001|\u0002|\u0003|\u0004|\u0005|\u0006|\u0007|\u0008|\u0009|\u000A|\u000B|\u000C|\u000D/g, " "]
 ];
+
+const STRING_CLOSERS = new Set([",", "}", "]", ":"]);
+
+function findNextNonWhitespace(str, startIndex) {
+  for (let i = startIndex; i < str.length; i += 1) {
+    const char = str[i];
+    if (char && !/\s/.test(char)) {
+      return char;
+    }
+  }
+  return null;
+}
+
+function escapeDanglingQuotes(jsonStr) {
+  let result = "";
+  let inString = false;
+
+  for (let i = 0; i < jsonStr.length; i += 1) {
+    const char = jsonStr[i];
+    const prevChar = i > 0 ? jsonStr[i - 1] : "";
+
+    if (char === '"' && prevChar !== "\\") {
+      if (inString) {
+        const nextNonWhitespace = findNextNonWhitespace(jsonStr, i + 1);
+        if (nextNonWhitespace && !STRING_CLOSERS.has(nextNonWhitespace)) {
+          result += '\\"';
+          continue;
+        }
+        inString = false;
+        result += char;
+        continue;
+      }
+
+      inString = true;
+      result += char;
+      continue;
+    }
+
+    result += char;
+  }
+
+  return result;
+}
 
 
 function cleanPlainText(input) {
@@ -677,83 +790,93 @@ function buildDiscoveryPrompt(paper, claimsDerived) {
 
   const methodSignals = claimsDerived.methodSignals.length > 0
     ? claimsDerived.methodSignals
-    : ["No method signals extracted from claims brief. Focus on pore structure, microbiome functions, and management levers." ];
-
-  const searchQueriesRaw = claimsDerived.searchQueries.length > 0
-    ? claimsDerived.searchQueries
-    : [generateSearchPhrase(`${title} soil structure microbiome management`), "soil aggregate microbiome greenhouse gases"];
-
-  const searchQueries = Array.from(
-    new Set(
-      searchQueriesRaw
-        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-        .filter((entry) => entry.length > 0)
-    )
-  );
+    : ["No method signals extracted from claims brief. Focus on method-level overlap."];
 
   const lines = [
-    "You are powering Evidentia’s Similar Papers feature. Collect the research notes we need before a cleanup agent converts them to JSON.",
-    "You are provided with a structured claims brief (executive summary, claims, gaps, methods, risk, next steps). Use it as the authoritative context—do not re-open the PDF.",
-    "Focus on the methods, evidence strength, gaps, and open questions surfaced in that brief when selecting comparison papers.",
-    "When you reference the brief, note the section (e.g., Key Claims C1/C2, Gaps, Methods Snapshot) so downstream systems can trace provenance.",
-    "Use the exact headings and bullet structure below for your output. Keep language plain and concrete.",
+    "Objective: Identify 3-5 papers with the highest methodological overlap to the source paper, based on its claims analysis.",
     "",
-    "Source Paper (claims brief synthesis):",
-    `- Title: ${title}`,
-    `- Identifier: ${doiOrId}`,
+    "Context: You have a claims brief (top 3 claims, evidence, gaps, methods). Work strictly from this brief—do not re-open the PDF. Focus on method similarity, not just topical relevance.",
+    "",
+    "CRITICAL REQUIREMENTS:",
+    "1. You MUST use web search to find candidate papers",
+    "2. You MUST fully read the COMPLETE full text of each paper before including it in your results",
+    "3. Do NOT include any paper you have not read in its entirety",
+    "4. If you encounter a paywall or cannot access the full text, SKIP that paper entirely",
+    "5. If you can only see an abstract, SKIP that paper - abstracts are insufficient",
+    "",
+    "Audience: Research analysts comparing experimental approaches.",
+    "",
+    "Inputs:",
+    `- Source paper: ${title}`,
     `- Authors: ${authors}`,
-    "- Summary:",
+    `- Identifier: ${doiOrId}`,
+    "- Claims brief summary:",
   ];
 
   summaryLines.slice(0, 3).forEach((entry) => {
-    lines.push(`  - ${entry}`);
+    lines.push(`  ${entry}`);
   });
 
-  lines.push("- Key method signals:");
+  lines.push("", "- Key method signals from brief:");
   methodSignals.slice(0, 5).forEach((entry) => {
-    lines.push(`  - ${entry}`);
-  });
-
-  lines.push("- Search queries:");
-  searchQueries.slice(0, 5).forEach((entry) => {
-    lines.push(`  - ${entry}`);
+    lines.push(`  ${entry}`);
   });
 
   lines.push(
     "",
-    "Similar Papers (3-5 entries):",
-    "For each entry use this template (start each paper with its number):",
-    "1. Identifier: <DOI or stable URL>",
-    "   Title: <paper title>",
-    "   Authors: <comma-separated names>",
-    "   Year: <year or 'Not reported'>",
-    "   Venue: <journal/conference or 'Not reported'>",
-    "   Cluster: <Sample and model | Field deployments | Insight primers>",
-    "   Why relevant: <2 sentences focusing on method overlap>",
-    "   Overlap highlights:",
-    "   - <short fragment 1>",
-    "   - <short fragment 2>",
-    "   - <short fragment 3>",
-    "   Method matrix:",
-    "   - Sample / model: <text>",
-    "   - Materials: <text>",
-    "   - Equipment: <text>",
-    "   - Procedure: <text>",
-    "   - Controls: <text>",
-    "   - Outputs / metrics: <text>",
-    "   - Quality checks: <text>",
-    "   - Outcome summary: <text>",
-    "   Gaps or uncertainties: <note if something is missing or risky>",
+    "Constraints:",
     "",
-    "Guidelines:",
-    "- Anchor recommendations to the claims brief: pull method cues, evidence strength, and gaps directly from the provided sections.",
-    "- Pick papers with executable method overlap (instrumentation, controls, sample handling).",
-    "- Where possible, map each similar paper back to the brief: cite which claim/gap/next-step it supports or extends.",
-    "- If information is missing, write 'Not reported' inside the relevant bullet.",
-    "- Keep each method matrix bullet to ~12-18 words.",
-    "- Stay under 1,000 tokens total.",
+    "Low verbosity, high reasoning; prioritize producing the answer efficiently.",
     "",
-    "Respond using these headings exactly. No JSON yet."
+    "You MUST read each paper completely from beginning to end before analyzing it.",
+    "",
+    "Extract method details ONLY from papers you have fully read - never from abstracts, summaries, or partial access.",
+    "",
+    "Find 3-5 papers maximum—rank by methodological overlap (instrumentation, controls, sample handling).",
+    "",
+    "Link each paper to specific claims/gaps/next-steps from the brief.",
+    "",
+    "If you cannot find enough papers with full text access, return fewer papers (even 1-2) rather than including papers you haven't fully read.",
+    "",
+    "Output Format:",
+    "",
+    "Output Guidelines:",
+    "- Method comparison: Keep each field (sample, materials, equipment, procedure, outcomes) to 1-3 concise sentences. Focus on key distinguishing details only, not exhaustive descriptions.",
+    "- Gaps: Summarize in 2-3 sentences maximum. Highlight the most significant limitation or uncertainty.",
+    "- Why relevant: Maximum 2 sentences focusing specifically on method overlap with the source paper.",
+    "- Key overlaps: 3 bullet points, each 1 sentence or short phrase (5-15 words).",
+    "",
+    "Source Paper Context: brief synthesis from claims",
+    "",
+    "Source Paper Methods (extract from the claims brief):",
+    "- Sample: <extract from claims brief methods/claims, 1-3 sentences>",
+    "- Materials: <extract from claims brief methods/claims, 1-3 sentences>",
+    "- Equipment: <extract from claims brief methods/claims, 1-3 sentences>",
+    "- Procedure: <extract from claims brief methods/claims, 1-3 sentences>",
+    "- Outcomes: <extract from claims brief results/claims, 1-3 sentences>",
+    "",
+    "Similar Papers (3-5 only, but ONLY papers you have fully read):",
+    "",
+    "For each paper:",
+    "- Title, authors, year, venue, identifier (DOI or URL to full text)",
+    "- Why relevant (2 sentences max, focus on method overlap from your full reading)",
+    "- Key overlaps (3 specific points, 5-15 words each, citing sections from the full paper)",
+    "- Method comparison (1-3 sentences per field: sample, materials, equipment, procedure, key outcomes)",
+    "- Gaps or uncertainties (2-3 sentences max from your full paper analysis)",
+    "",
+    "Steps:",
+    "",
+    "1. Extract method signals from claims brief",
+    "2. WEB SEARCH for papers with similar methods using extracted signals",
+    "3. For each candidate paper in search results:",
+    "   a. Attempt to access full text (try open access repositories, preprints, institutional access)",
+    "   b. If you hit a paywall or can only see abstract: SKIP immediately and try next candidate",
+    "   c. If you can access full text: READ THE ENTIRE PAPER from start to finish",
+    "   d. Only after reading completely: extract method details and assess overlap",
+    "4. Rank papers you have fully read by methodological overlap",
+    "5. Select top 3-5 papers that you have completely read",
+    "6. Map each back to brief (which claim/gap it addresses)",
+    "7. QA: Confirm you have read every single paper in your results from beginning to end; stop once verified"
   );
 
   return lines.join("\n");
@@ -1083,9 +1206,31 @@ async function runSimilarPapers(options = {}) {
       return { entryId, pdfPath, status: "skipped" };
     }
 
+    /**
+     * Clean JSON string by replacing smart quotes and other problematic characters
+     * that would break JSON.parse
+     */
+    function cleanJsonString(jsonStr) {
+      let cleaned = jsonStr;
+
+      // Apply all smart quote replacements
+      for (const [pattern, replacement] of CURLY_QUOTES_TO_ASCII) {
+        cleaned = cleaned.replace(pattern, replacement);
+      }
+
+      // Remove any markdown code fences if present
+      cleaned = cleaned.replace(/^```json\s*/gm, '');
+      cleaned = cleaned.replace(/^```\s*/gm, '');
+
+      cleaned = escapeDanglingQuotes(cleaned);
+
+      return cleaned.trim();
+    }
+
     let agentPayload;
     try {
-      agentPayload = JSON.parse(agentRaw);
+      const cleanedJson = cleanJsonString(agentRaw);
+      agentPayload = JSON.parse(cleanedJson);
     } catch (error) {
       console.error("\n❌ Failed to parse the Similar Papers JSON. Make sure it's valid JSON only — no markdown, trailing commas, or smart quotes.");
       console.error("Raw snippet preview:");
