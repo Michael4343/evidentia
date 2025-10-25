@@ -1955,6 +1955,8 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
     title: string;
     year?: number | null;
     venue?: string | null;
+    url?: string | null;
+    doi?: string | null;
     methodComparison?: {
       sample?: string;
       materials?: string;
@@ -1970,6 +1972,8 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
       title: displayTitle,
       year: sourceYear as number | null | undefined,
       venue: undefined,
+      url: undefined,
+      doi: undefined,
       methodComparison: structured.sourcePaper?.methodComparison,
       isSource: true
     },
@@ -2002,21 +2006,35 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
           <thead>
             <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-slate-500">Method dimension</th>
-              {comparisonPapers.map((paper, index) => (
-                <th key={index} className="px-4 py-3 text-slate-600">
-                  <div className="space-y-0.5">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                      Paper #{index + 1}
-                    </p>
-                    <p className="text-sm font-semibold text-slate-900 leading-snug">
-                      {paper.title ?? "Untitled"}
-                    </p>
-                    <p className="text-xs text-slate-500">
-                      {[paper.year, paper.venue].filter(Boolean).join(" · ") || "Metadata pending"}
-                    </p>
-                  </div>
-                </th>
-              ))}
+              {comparisonPapers.map((paper, index) => {
+                const paperUrl = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
+                return (
+                  <th key={index} className="px-4 py-3 text-slate-600">
+                    <div className="space-y-0.5">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                        Paper #{index + 1}
+                      </p>
+                      {paperUrl ? (
+                        <a
+                          href={paperUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm font-semibold text-blue-600 leading-snug hover:underline transition block"
+                        >
+                          {paper.title ?? "Untitled"}
+                        </a>
+                      ) : (
+                        <p className="text-sm font-semibold text-slate-900 leading-snug">
+                          {paper.title ?? "Untitled"}
+                        </p>
+                      )}
+                      <p className="text-xs text-slate-500">
+                        {[paper.year, paper.venue].filter(Boolean).join(" · ") || "Metadata pending"}
+                      </p>
+                    </div>
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
@@ -2039,29 +2057,44 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
 
       {/* Similar papers cards */}
       <div className="space-y-6">
-        {similarPapers.map((paper, index) => (
-          <article
-            key={paper.identifier ?? index}
-            className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-200 p-8 space-y-5 border border-slate-100"
-          >
-            {/* Paper header */}
-            <div>
-              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">
-                Similar Paper {index + 1}
-              </p>
-              <h4 className="mt-2 text-xl font-bold leading-tight tracking-tight text-slate-900">
-                {paper.title ?? "Untitled"}
-              </h4>
-              {(paper.authors || paper.year || paper.venue) && (
-                <p className="mt-1 text-sm text-slate-600">
-                  {[
-                    paper.authors?.join(", "),
-                    paper.year,
-                    paper.venue
-                  ].filter(Boolean).join(" · ")}
+        {similarPapers.map((paper, index) => {
+          const paperUrl = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
+          return (
+            <article
+              key={paper.identifier ?? index}
+              className="bg-white rounded-xl shadow-lg hover:shadow-xl transition-shadow duration-200 p-8 space-y-5 border border-slate-100"
+            >
+              {/* Paper header */}
+              <div>
+                <p className="text-xs font-medium text-slate-400 uppercase tracking-wider">
+                  Similar Paper {index + 1}
                 </p>
-              )}
-            </div>
+                {paperUrl ? (
+                  <h4 className="mt-2 text-xl font-bold leading-tight tracking-tight">
+                    <a
+                      href={paperUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-slate-900 hover:text-blue-600 transition"
+                    >
+                      {paper.title ?? "Untitled"}
+                    </a>
+                  </h4>
+                ) : (
+                  <h4 className="mt-2 text-xl font-bold leading-tight tracking-tight text-slate-900">
+                    {paper.title ?? "Untitled"}
+                  </h4>
+                )}
+                {(paper.authors || paper.year || paper.venue) && (
+                  <p className="mt-1 text-sm text-slate-600">
+                    {[
+                      paper.authors?.join(", "),
+                      paper.year,
+                      paper.venue
+                    ].filter(Boolean).join(" · ")}
+                  </p>
+                )}
+              </div>
 
             {/* Why relevant - blue accent */}
             {paper.whyRelevant && (
@@ -2153,7 +2186,8 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
               </div>
             )}
           </article>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

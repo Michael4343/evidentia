@@ -178,21 +178,35 @@ export function MockSimilarPapersShowcase({ paperId }: MockSimilarPapersShowcase
               <thead>
                 <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-slate-500">Method dimension</th>
-                  {comparisonPapers.map((paper, index) => (
-                    <th key={paper.identifier ?? index} className="px-4 py-3 text-slate-600">
-                      <div className="space-y-0.5">
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-                          Paper #{index + 1}
-                        </p>
-                        <p className="text-sm font-semibold text-slate-900 leading-snug">
-                          {paper.title ?? "Untitled"}
-                        </p>
-                        <p className="text-xs text-slate-500">
-                          {[paper.year, paper.venue].filter(Boolean).join(" · ") || "Metadata pending"}
-                        </p>
-                      </div>
-                    </th>
-                  ))}
+                  {comparisonPapers.map((paper, index) => {
+                    const paperUrl = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
+                    return (
+                      <th key={paper.identifier ?? index} className="px-4 py-3 text-slate-600">
+                        <div className="space-y-0.5">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">
+                            Paper #{index + 1}
+                          </p>
+                          {paperUrl ? (
+                            <a
+                              href={paperUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-sm font-semibold text-blue-600 leading-snug hover:underline transition block"
+                            >
+                              {paper.title ?? "Untitled"}
+                            </a>
+                          ) : (
+                            <p className="text-sm font-semibold text-slate-900 leading-snug">
+                              {paper.title ?? "Untitled"}
+                            </p>
+                          )}
+                          <p className="text-xs text-slate-500">
+                            {[paper.year, paper.venue].filter(Boolean).join(" · ") || "Metadata pending"}
+                          </p>
+                        </div>
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody>
@@ -216,20 +230,35 @@ export function MockSimilarPapersShowcase({ paperId }: MockSimilarPapersShowcase
           <div className="space-y-4">
             <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Recommended papers</h3>
             <ol className="space-y-6">
-              {comparisonPapers.map((paper, index) => (
-                <li
-                  key={paper.identifier ?? paper.title ?? index}
-                  className="rounded-lg border border-slate-200 bg-white px-4 py-4 shadow-sm"
-                >
-                  <div className="space-y-1.5">
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Paper #{index + 1}</p>
-                    <h4 className="text-base font-semibold text-slate-900">{paper.title ?? "Untitled"}</h4>
-                    <p className="text-sm text-slate-600">
-                      {[paper.authors?.join(", ") ?? "Unknown authors", paper.year, paper.venue]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </p>
-                  </div>
+              {comparisonPapers.map((paper, index) => {
+                const paperUrl = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
+                return (
+                  <li
+                    key={paper.identifier ?? paper.title ?? index}
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-4 shadow-sm"
+                  >
+                    <div className="space-y-1.5">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Paper #{index + 1}</p>
+                      {paperUrl ? (
+                        <h4 className="text-base font-semibold">
+                          <a
+                            href={paperUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-slate-900 hover:text-blue-600 transition"
+                          >
+                            {paper.title ?? "Untitled"}
+                          </a>
+                        </h4>
+                      ) : (
+                        <h4 className="text-base font-semibold text-slate-900">{paper.title ?? "Untitled"}</h4>
+                      )}
+                      <p className="text-sm text-slate-600">
+                        {[paper.authors?.join(", ") ?? "Unknown authors", paper.year, paper.venue]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
+                    </div>
 
                   {paper.whyRelevant && (
                     <p className="mt-3 text-sm leading-relaxed text-slate-700">{paper.whyRelevant}</p>
@@ -280,7 +309,8 @@ export function MockSimilarPapersShowcase({ paperId }: MockSimilarPapersShowcase
                     </div>
                   )}
                 </li>
-              ))}
+                );
+              })}
             </ol>
           </div>
         </div>
