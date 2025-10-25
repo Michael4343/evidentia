@@ -61,26 +61,87 @@ interface DerivedSignals {
   openQuestions: string[];
 }
 
-const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's Similar Papers UI.
+const CLEANUP_PROMPT_HEADER = `🚨 CRITICAL: USE ONLY STRAIGHT ASCII QUOTES (") - NEVER SMART QUOTES (" " ' ')
 
-Output requirements:
-- Return a single JSON object with keys: sourcePaper, similarPapers, promptNotes (optional).
-- sourcePaper fields:
-  - summary: string (keep concise, two sentences max)
-  - keyMethodSignals: array of 3-5 short strings (no numbering)
-  - searchQueries: array of 3-5 search phrases
-  - methodMatrix: object with keys (sampleModel, materialsSetup, equipmentSetup, procedureSteps, controls, outputsMetrics, qualityChecks, outcomeSummary). Extract these from the source paper's claims brief and methods snapshot. Use "Not reported" when information is missing.
-- similarPapers: array of 3-5 objects. Each object must include:
-  identifier (string), title (string), doi (string|null), url (string|null),
-  authors (array of strings), year (number|null), venue (string|null),
-  clusterLabel ("Sample and model" | "Field deployments" | "Insight primers"),
-  whyRelevant (string), overlapHighlights (array of exactly 3 short strings),
-  methodMatrix (object with keys: sampleModel, materialsSetup, equipmentSetup, procedureSteps, controls, outputsMetrics, qualityChecks, outcomeSummary),
-  gapsOrUncertainties (string|null).
-- Use "Not reported" inside methodMatrix when information is missing. Use null for unknown scalars.
-- No markdown, no commentary, no trailing prose. Ensure valid JSON (double quotes only).
-- Preserve factual content; do not invent new details.
-- Output raw JSON only — no markdown fences, comments, trailing prose, or extra keys.`;
+Your output MUST be valid JSON that passes JSON.parse. The #1 cause of failure is smart quotes.
+
+BAD (will fail):  "summary": "trained on "cell sentences""
+GOOD (will work): "summary": "trained on \\"cell sentences\\""
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Objective: Convert similar papers notes into strict, valid JSON.
+
+Context: You are receiving notes from a discovery agent. Transform this into clean JSON. This is a deterministic ETL process—preserve content exactly, validate schema, avoid extra keys or prose.
+
+CRITICAL JSON FORMATTING RULES:
+
+1. Use ONLY straight ASCII double quotes (") - NEVER use curly/smart quotes (" " ' ')
+2. Escape any internal quotes in strings with backslash: \\"
+3. No trailing commas in arrays or objects
+4. No single quotes - only double quotes for strings
+5. Numbers must be unquoted (year: 2024, not year: "2024")
+6. No markdown code fences (\`\`\`json) or backticks
+7. No comments (// or /* */) anywhere
+8. No trailing prose after the JSON closes
+9. Escape all internal double quotes inside string values with backslash: \\"
+
+Example of CORRECT quote handling:
+"summary": "The paper uses \\"cell sentences\\" to train models"
+
+Example of WRONG (will fail):
+"summary": "The paper uses "cell sentences" to train models"
+
+Schema Requirements:
+
+Return a single JSON object with keys: sourcePaper, similarPapers, promptNotes (optional).
+
+sourcePaper: {
+  summary (string),
+  keyMethodSignals (array of strings),
+  methodComparison: {
+    sample (string - from claims brief),
+    materials (string - from claims brief),
+    equipment (string - from claims brief),
+    procedure (string - from claims brief),
+    outcomes (string - from claims brief)
+  }
+}
+
+similarPapers (array, 3-5 items max): {
+  identifier (string - accept DOI, arXiv ID, PubMed URL, or any stable URL),
+  title (string),
+  authors (array of strings),
+  year (number|null),
+  venue (string|null),
+  whyRelevant (string),
+  methodOverlap (array of exactly 3 strings),
+  methodComparison: {
+    sample (string - from methods section),
+    materials (string - from methods section),
+    equipment (string - from methods section),
+    procedure (string - from methods section),
+    outcomes (string - from results/methods)
+  },
+  gaps (string|null)
+}
+
+Output Requirements:
+
+- Raw JSON only — start with { and end with }
+- Must be valid under JSON.parse (strict JSON syntax)
+- Use ONLY straight ASCII double quotes (")
+- Preserve factual content; use "Not reported" for missing data
+- No markdown, no commentary, no trailing prose
+
+Validation Steps:
+
+1. Ingest analyst notes exactly as provided
+2. Parse into structured fields (sourcePaper, similarPapers)
+3. Ensure 3-5 papers max
+4. Populate all required fields; use "Not reported" for missing method data
+5. Validate with JSON.parse; fix and re-validate if invalid
+6. Stop when valid`;
 
 function cleanPlainText(input: string): string {
   if (typeof input !== "string") {
@@ -378,69 +439,71 @@ function buildDiscoveryPrompt(paper: PaperPayload, claimsDerived: DerivedSignals
   );
 
   const lines = [
-    "You are powering Evidentia's Similar Papers feature. Collect the research notes we need before a cleanup agent converts them to JSON.",
-    "You do not have a live user in the loop. Do not ask clarifying questions or offer option menus—decide and move straight to the notes.",
-    "You are provided with a structured claims brief (executive summary, claims, gaps, methods, risk, next steps). Use it as the authoritative context—do not re-open the PDF.",
-    "Focus on the methods, evidence strength, gaps, and open questions surfaced in that brief when selecting comparison papers.",
-    "When you reference the brief, note the section (e.g., Key Claims C1/C2, Gaps, Methods Snapshot) so downstream systems can trace provenance.",
-    "Use the exact headings and bullet structure below for your output. Keep language plain and concrete.",
+    "Objective: Identify 3-5 papers with the highest methodological overlap to the source paper, based on its claims analysis.",
     "",
-    "Source Paper (claims brief synthesis):",
-    `- Title: ${title}`,
-    `- Identifier: ${doiOrId}`,
+    "Context: You have a claims brief (top 3 claims, evidence, gaps, methods). Work strictly from this brief—do not re-open the PDF. Focus on method similarity, not just topical relevance.",
+    "",
+    "Audience: Research analysts comparing experimental approaches.",
+    "",
+    "Inputs:",
+    `- Source paper: ${title}`,
     `- Authors: ${authors}`,
-    "- Summary:",
+    `- Identifier: ${doiOrId}`,
+    "- Claims brief summary:",
   ];
 
   summaryLines.slice(0, 3).forEach((entry) => {
-    lines.push(`  - ${entry}`);
+    lines.push(`  ${entry}`);
   });
 
-  lines.push("- Key method signals:");
+  lines.push("", "- Key method signals from brief:");
   methodSignals.slice(0, 5).forEach((entry) => {
-    lines.push(`  - ${entry}`);
-  });
-
-  lines.push("- Search queries:");
-  searchQueries.slice(0, 5).forEach((entry) => {
-    lines.push(`  - ${entry}`);
+    lines.push(`  ${entry}`);
   });
 
   lines.push(
     "",
-    "Similar Papers (3-5 entries):",
-    "For each entry use this template (start each paper with its number):",
-    "1. Identifier: <DOI or stable URL>",
-    "   Title: <paper title>",
-    "   Authors: <comma-separated names>",
-    "   Year: <year or 'Not reported'>",
-    "   Venue: <journal/conference or 'Not reported'>",
-    "   Cluster: <Sample and model | Field deployments | Insight primers>",
-    "   Why relevant: <2 sentences focusing on method overlap>",
-    "   Overlap highlights:",
-    "   - <short fragment 1>",
-    "   - <short fragment 2>",
-    "   - <short fragment 3>",
-    "   Method matrix:",
-    "   - Sample / model: <text>",
-    "   - Materials: <text>",
-    "   - Equipment: <text>",
-    "   - Procedure: <text>",
-    "   - Controls: <text>",
-    "   - Outputs / metrics: <text>",
-    "   - Quality checks: <text>",
-    "   - Outcome summary: <text>",
-    "   Gaps or uncertainties: <note if something is missing or risky>",
+    "Constraints:",
     "",
-    "Guidelines:",
-    "- Anchor recommendations to the claims brief: pull method cues, evidence strength, and gaps directly from the provided sections.",
-    "- Pick papers with executable method overlap (instrumentation, controls, sample handling).",
-    "- Where possible, map each similar paper back to the brief: cite which claim/gap/next-step it supports or extends.",
-    "- If information is missing, write 'Not reported' inside the relevant bullet.",
-    "- Keep each method matrix bullet to ~12-18 words.",
-    "- Stay under 1,000 tokens total.",
+    "Low verbosity, high reasoning; prioritize producing the answer efficiently.",
     "",
-    "Respond using these headings exactly. No JSON yet."
+    "Find 3-5 papers maximum—rank by methodological overlap (instrumentation, controls, sample handling).",
+    "",
+    "Link each paper to specific claims/gaps/next-steps from the brief.",
+    "",
+    "Output Format:",
+    "",
+    "Output Guidelines:",
+    "- Method comparison: Keep each field (sample, materials, equipment, procedure, outcomes) to 1-3 concise sentences. Focus on key distinguishing details only, not exhaustive descriptions.",
+    "- Gaps: Summarize in 2-3 sentences maximum. Highlight the most significant limitation or uncertainty.",
+    "- Why relevant: Maximum 2 sentences focusing specifically on method overlap with the source paper.",
+    "- Key overlaps: 3 bullet points, each 1 sentence or short phrase (5-15 words).",
+    "",
+    "Source Paper Context: brief synthesis from claims",
+    "",
+    "Source Paper Methods (extract from the claims brief):",
+    "- Sample: <extract from claims brief methods/claims, 1-3 sentences>",
+    "- Materials: <extract from claims brief methods/claims, 1-3 sentences>",
+    "- Equipment: <extract from claims brief methods/claims, 1-3 sentences>",
+    "- Procedure: <extract from claims brief methods/claims, 1-3 sentences>",
+    "- Outcomes: <extract from claims brief results/claims, 1-3 sentences>",
+    "",
+    "Similar Papers (3-5 only):",
+    "",
+    "For each paper:",
+    "- Title, authors, year, venue, identifier (DOI or URL)",
+    "- Why relevant (2 sentences max, focus on method overlap)",
+    "- Key overlaps (3 specific points, 5-15 words each)",
+    "- Method comparison (1-3 sentences per field: sample, materials, equipment, procedure, key outcomes)",
+    "- Gaps or uncertainties (2-3 sentences max)",
+    "",
+    "Steps:",
+    "",
+    "1. Extract method signals from claims brief",
+    "2. Rank candidates by executable method overlap",
+    "3. Select top 3-5",
+    "4. Map each back to brief (which claim/gap it addresses)",
+    "5. QA: all papers have method comparison and overlap points; stop once checks pass"
   );
 
   return lines.join("\n");
