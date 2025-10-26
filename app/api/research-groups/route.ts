@@ -9,6 +9,22 @@ interface PaperPayload {
   abstract?: string | null;
 }
 
+interface SimilarPaperEntry {
+  title: string;
+  authors?: string[];
+  doi?: string | null;
+  url?: string | null;
+  venue?: string | null;
+  year?: number | null;
+}
+
+interface SimilarPapersPayload {
+  text?: string;
+  structured?: {
+    similarPapers?: SimilarPaperEntry[];
+  };
+}
+
 interface ClaimsPayload {
   text?: string;
   structured?: ClaimsStructured;
@@ -46,68 +62,94 @@ interface RiskItem {
   readonly note?: string | null;
 }
 
-const DISCOVERY_PROMPT_TEMPLATE = `You are Evidentia's research co-pilot. You have web search tools enabled. Use them immediately to map active research groups linked to these papers so our team can reach out to the right labs.
+const DISCOVERY_PROMPT_TEMPLATE = `Objective: For EACH paper below, gather comprehensive contact information for the FIRST 3 AUTHORS listed on that paper.
 
-Source paper:
-- Title: [SOURCE_TITLE]
-- Summary: [SOURCE_SUMMARY]
-[SOURCE_DOI]
-[METHOD_SIGNALS]
+Context: You're building a collaboration pipeline for research analysts. For each paper, identify the first 3 authors (or all authors if fewer than 3) and find their complete contact details. You have web search tools enabled—use them immediately.
 
-Similar papers to cross-reference:
-[SIMILAR_PAPERS]
+Papers to analyze:
+[PAPERS_SECTION]
 
-Execute this research workflow now using web search:
+Task:
 
-1. Extract 3-5 core domain keywords from the source paper's method signals and similar papers' themes.
+For each paper:
+1. Take the FIRST 3 AUTHORS from the author list (or all if fewer than 3)
+2. For each author, use web search to gather comprehensive contact information:
+   - Full name (as listed on the paper)
+   - Institutional email (search university directories, lab pages)
+   - Current role/position (PI, Professor, Postdoc, PhD Student, etc.)
+   - ORCID identifier (search orcid.org by author name)
+   - Academic profiles (Google Scholar, LinkedIn, personal website)
 
-2. For each paper, execute Google Scholar searches immediately:
-   - Filter: Since 2020 to find recent work
-   - Query: author names + "lab" OR "group" to locate lab pages
-   - Filter: site:.edu OR site:.ac.uk OR site:.ac.* for academic sources
+Search methodology:
 
-3. Include only groups that meet these criteria:
-   - Have 2-3+ publications since 2020 matching the domain keywords
-   - Have an active lab/group webpage you can verify
-   - Have the PI currently listed at that institution
+1. Search each author's name on ORCID.org to find their unique identifier
+2. Search Google Scholar for author's academic profile
+3. Search LinkedIn for professional profile
+4. Search university/institution directories for institutional email
+5. Check if author has a personal website or lab page
+6. Determine current role/position from recent affiliations
 
-4. For each verified group, find current researchers and contact information:
-   - Search lab/group pages for current members (PhD students, postdocs, research staff)
-   - Check recent paper author lists (last 2 years) to identify current lab members
-   - Search institution directories for academic/institutional emails
-   - If email not publicly available, note "Check lab website contact form"
-   - Find at least 2-3 contacts per group with proper institutional emails
+Output Format:
 
-Output your findings using this plain text format (no JSON yet):
+Paper 1: <Paper Title> (<Identifier or 'Source'>)
 
-Paper: <Title> (<Identifier>)
-Groups:
-  - Group: <Group name> (<Institution>)
-    Website: <URL or 'Not provided'>
-    Summary: <1–2 sentences on why this group matters for the methods>
-    Members:
-      - Name | Email | Role
-      - Name | Email | Role
+Author 1: <Full Name>
+  Email: <institutional.email@university.edu or 'Not found'>
+  Role: <Current Position or 'Not found'>
+  ORCID: <0000-0000-0000-0000 or 'Not found'>
+  Profiles:
+    - Google Scholar: <URL or 'Not found'>
+    - LinkedIn: <URL or 'Not found'>
+    - Website: <URL or 'Not found'>
+
+Author 2: <Full Name>
+  Email: <email or 'Not found'>
+  Role: <role or 'Not found'>
+  ORCID: <ID or 'Not found'>
+  Profiles:
+    - Google Scholar: <URL or 'Not found'>
+    - LinkedIn: <URL or 'Not found'>
+
+Author 3: <Full Name>
+  Email: <email or 'Not found'>
+  Role: <role or 'Not found'>
+  ORCID: <ID or 'Not found'>
+  Profiles:
+    - Google Scholar: <URL or 'Not found'>
+
+[If paper has <3 authors, include only those available]
+
+Paper 2: <Next Paper Title> (<Identifier>)
+
+Author 1: ...
+Author 2: ...
+Author 3: ...
+
+[Repeat for all papers in this batch]
 
 Important:
-- Execute all searches and verification steps automatically without asking for permission
-- Only include groups you can verify are currently active with recent publications
-- If a group spans multiple papers, duplicate it under each relevant paper heading and note the connection
-- Use "Not provided" only when information genuinely cannot be found after thorough searching
-- Prioritize depth over breadth: 3-5 well-researched groups with complete contact info beats 10 groups with missing details
+- Execute all searches automatically without asking for permission
+- Use 'Not found' when information genuinely can't be located after thorough search
+- ORCID format: 0000-0000-0000-0000 (16 digits with hyphens)
+- Only include profiles that are publicly accessible
+- For each paper, include the first 3 authors (or all if <3)
+- Prioritize institutional emails over personal emails
 
 Begin web search and research immediately.`;
 
-const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's Research Groups UI.
+const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's Author Contacts UI.
 
 Output requirements:
 - Return a single JSON object with keys: papers (array), promptNotes (optional string).
-- Each paper object must include: title (string), identifier (string|null), groups (array).
-- Each group object must include: name (string), institution (string|null), website (string|null), notes (string|null), researchers (array).
-- Each researcher object must include: name (string), email (string|null), role (string|null).
-- Use null for unknown scalars. Use "Not provided" only inside notes when text is genuinely missing.
+- Each paper object must include: title (string), identifier (string|null), authors (array of up to 3 objects).
+- Each author object must include: name (string), email (string|null), role (string|null), orcid (string|null), profiles (array).
+- Each profile object must include: platform (string), url (string).
+- Use null for unknown scalars.
+- For ORCID: use format "0000-0000-0000-0000" or null if not found. Do not use "Not found" - use null instead.
+- For profiles: only include profiles that have actual URLs. Common platforms: "Google Scholar", "LinkedIn", "Personal Website", "ResearchGate", "Twitter".
 - No markdown, no commentary, no trailing prose. Ensure valid JSON (double quotes only).
 - Preserve factual content; do not invent new people or emails.
+- Each paper should have up to 3 authors (the first 3 from the author list, or fewer if the paper has <3 authors).
 - Output raw JSON only — no markdown fences, comments, trailing prose, or extra keys.`;
 
 function cleanPlainText(input: string): string {
@@ -127,45 +169,221 @@ function limitList(items: any, limit: number): string[] {
     .slice(0, limit);
 }
 
-function buildDiscoveryPrompt(
+function extractAuthors(authorsField: any): string {
+  if (Array.isArray(authorsField)) {
+    const authorNames = authorsField
+      .slice(0, 3)
+      .map((author, idx) => {
+        const name = typeof author === 'string' ? author : (author?.name || 'Unknown');
+        return `     ${idx + 1}. ${cleanPlainText(name)}`;
+      })
+      .join('\n');
+    return authorNames || '     Authors not specified';
+  }
+  if (typeof authorsField === 'string') {
+    return `     ${cleanPlainText(authorsField)}`;
+  }
+  return '     Authors not specified';
+}
+
+interface PaperBatchItem {
+  title: string;
+  identifier: string;
+  authors: string;
+  summary?: string;
+  methodSignals?: string;
+  isSource: boolean;
+}
+
+function buildPaperSection(papers: PaperBatchItem[], startIndex: number): string {
+  const lines: string[] = [];
+
+  papers.forEach((paper, idx) => {
+    const paperNum = startIndex + idx;
+    const label = paper.isSource ? "SOURCE PAPER" : `SIMILAR PAPER ${paperNum - 1}`;
+
+    lines.push(`${paperNum}. ${label}:`);
+    lines.push(`   Title: ${paper.title}`);
+    lines.push(`   Identifier: ${paper.identifier}`);
+    lines.push(`   Authors (in order):`);
+    lines.push(paper.authors);
+
+    if (paper.summary) {
+      lines.push(`   Summary: ${paper.summary}`);
+    }
+
+    if (paper.methodSignals) {
+      lines.push(paper.methodSignals);
+    }
+
+    lines.push("");
+  });
+
+  return lines.join("\n");
+}
+
+function buildBatchDiscoveryPrompt(papers: PaperBatchItem[], startIndex: number): string {
+  const papersSection = buildPaperSection(papers, startIndex);
+  return DISCOVERY_PROMPT_TEMPLATE.replace("[PAPERS_SECTION]", papersSection);
+}
+
+function preparePaperBatches(
   paper: PaperPayload,
   claims: ClaimsPayload,
-  similarPapersText: string
-): string {
-  const title = paper.title && paper.title.trim().length > 0 ? paper.title.trim() : "Unknown title";
-  const doiLine = paper.doi && paper.doi.trim() ? `- DOI: ${paper.doi.trim()}` : "";
+  similarPapers: SimilarPapersPayload
+): PaperBatchItem[] {
+  const allPapers: PaperBatchItem[] = [];
 
-  // Extract summary from claims
+  // Prepare source paper
+  const title = paper.title && paper.title.trim().length > 0 ? paper.title.trim() : "Unknown title";
+  const doiLine = paper.doi && paper.doi.trim() ? paper.doi.trim() : "Not provided";
+  const authorsSection = extractAuthors(paper.authors);
+
   const summaryLines = claims.structured?.executiveSummary
     ? limitList(claims.structured.executiveSummary, 3)
     : [cleanPlainText(paper.abstract || "Summary not provided in claims brief.")];
-
   const summary = summaryLines.join(" ");
 
-  // Extract method signals from claims
   const methodSignals = claims.structured?.methodsSnapshot
     ? limitList(claims.structured.methodsSnapshot, 5)
     : [];
-
   const methodSignalsSection = methodSignals.length
-    ? `- Method signals:\n${methodSignals.map(s => `  - ${s}`).join("\n")}`
+    ? `   Method signals:\n${methodSignals.map(s => `     - ${s}`).join("\n")}`
     : "";
 
-  // Include similar papers text directly
-  const similarPapersSection = similarPapersText.trim();
+  allPapers.push({
+    title,
+    identifier: doiLine,
+    authors: authorsSection,
+    summary,
+    methodSignals: methodSignalsSection || undefined,
+    isSource: true
+  });
 
-  let prompt = DISCOVERY_PROMPT_TEMPLATE
-    .replace("[SOURCE_TITLE]", title)
-    .replace("[SOURCE_SUMMARY]", summary)
-    .replace("[SOURCE_DOI]", doiLine)
-    .replace("[METHOD_SIGNALS]", methodSignalsSection)
-    .replace("[SIMILAR_PAPERS]", similarPapersSection);
+  // Prepare similar papers (limit to 5)
+  const similarPapersArray = (similarPapers.structured?.similarPapers || []).slice(0, 5);
 
-  return prompt;
+  similarPapersArray.forEach((similarPaper) => {
+    const paperTitle = cleanPlainText(similarPaper.title || "Unknown title");
+    const authors = Array.isArray(similarPaper.authors) && similarPaper.authors.length > 0
+      ? similarPaper.authors.map((author, idx) => `     ${idx + 1}. ${cleanPlainText(author)}`).join('\n')
+      : "     Authors not reported";
+
+    const identifier = similarPaper.doi
+      ? `DOI: ${similarPaper.doi}`
+      : similarPaper.url
+        ? `URL: ${similarPaper.url}`
+        : "No identifier";
+
+    allPapers.push({
+      title: paperTitle,
+      identifier,
+      authors,
+      isSource: false
+    });
+  });
+
+  return allPapers;
 }
 
 function buildCleanupPrompt(discoveryNotes: string): string {
-  return `${CLEANUP_PROMPT_HEADER}\n\nAnalyst's research groups notes:\n\n${discoveryNotes}`;
+  return `${CLEANUP_PROMPT_HEADER}\n\nAnalyst's author contacts notes:\n\n${discoveryNotes}`;
+}
+
+async function fetchBatchDiscovery(
+  prompt: string,
+  apiKey: string,
+  batchNumber: number,
+  totalBatches: number
+): Promise<string> {
+  console.log(`[research-groups] Starting batch ${batchNumber}/${totalBatches} discovery`);
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 600_000);
+
+  let response: Response;
+
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-5-mini",
+        reasoning: { effort: "low" },
+        tools: [{ type: "web_search", search_context_size: "medium" }],
+        tool_choice: "auto",
+        input: prompt,
+        max_output_tokens: 16_384
+      }),
+      signal: controller.signal
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    let message = `Batch ${batchNumber} OpenAI request failed.`;
+    try {
+      const errorPayload = await response.json();
+      console.error(`[research-groups] Batch ${batchNumber} OpenAI error payload`, errorPayload);
+      if (typeof errorPayload?.error === "string") {
+        message = errorPayload.error;
+      } else if (typeof errorPayload?.message === "string") {
+        message = errorPayload.message;
+      }
+    } catch (parseError) {
+      console.warn(`[research-groups] Batch ${batchNumber} failed to parse error payload`, parseError);
+    }
+    throw new Error(message);
+  }
+
+  let payload: any;
+
+  try {
+    payload = await response.json();
+  } catch (parseError) {
+    console.error(`[research-groups] Batch ${batchNumber} failed to parse JSON response`, parseError);
+    throw new Error(`Batch ${batchNumber}: Failed to read model response.`);
+  }
+
+  let outputText = typeof payload?.output_text === "string" ? payload.output_text.trim() : "";
+
+  if (!outputText && Array.isArray(payload?.output)) {
+    outputText = payload.output
+      .filter((item: any) => item && item.type === "message" && Array.isArray(item.content))
+      .flatMap((item: any) =>
+        item.content
+          .filter((part: any) => part?.type === "output_text" && typeof part.text === "string")
+          .map((part: any) => part.text)
+      )
+      .join("\n")
+      .trim();
+  }
+
+  if (payload?.status === "incomplete" && payload?.incomplete_details?.reason) {
+    console.warn(`[research-groups] Batch ${batchNumber} response incomplete`, payload.incomplete_details);
+    if (outputText) {
+      outputText = `${outputText}\n\n[Note: Batch ${batchNumber} response truncated because the model hit its output limit.]`;
+    } else {
+      throw new Error(
+        payload.incomplete_details.reason === "max_output_tokens"
+          ? `Batch ${batchNumber} hit the output limit before completing.`
+          : `Batch ${batchNumber} ended early: ${payload.incomplete_details.reason}`
+      );
+    }
+  }
+
+  if (!outputText) {
+    console.error(`[research-groups] Batch ${batchNumber} empty response payload`, payload);
+    throw new Error(`Batch ${batchNumber}: Model did not return any text.`);
+  }
+
+  console.log(`[research-groups] Batch ${batchNumber}/${totalBatches} completed successfully`);
+
+  return outputText;
 }
 
 export async function POST(request: Request) {
@@ -207,7 +425,12 @@ export async function POST(request: Request) {
     }
 
     // REQUIRE similar papers data
-    if (!body.similarPapers || typeof body.similarPapers !== "string" || body.similarPapers.trim().length === 0) {
+    if (
+      !body.similarPapers ||
+      typeof body.similarPapers !== "object" ||
+      Array.isArray(body.similarPapers) ||
+      (!body.similarPapers.text && !body.similarPapers.structured)
+    ) {
       return NextResponse.json(
         {
           error: "Similar papers analysis is required for research groups generation. Please wait for similar papers to complete first."
@@ -216,7 +439,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const similarPapersText = body.similarPapers.trim();
+    const similarPapersPayload: SimilarPapersPayload = {
+      text: typeof body.similarPapers.text === "string" ? body.similarPapers.text : "",
+      structured: body.similarPapers.structured
+    };
 
     const paper: PaperPayload =
       body.paper && typeof body.paper === "object" && body.paper
@@ -238,97 +464,50 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "OpenAI API key is not configured." }, { status: 500 });
     }
 
-    const discoveryPrompt = buildDiscoveryPrompt(paper, claims, similarPapersText);
+    // Step 1: Prepare all papers for batching
+    const allPapers = preparePaperBatches(paper, claims, similarPapersPayload);
+    const BATCH_SIZE = 2;
 
-    // Step 1: Generate research groups discovery notes
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 600_000);
-
-    let response: Response;
-
-    try {
-      response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: "gpt-5-mini",
-          reasoning: { effort: "low" },
-          tools: [{ type: "web_search", search_context_size: "medium" }],
-          tool_choice: "auto",
-          input: discoveryPrompt,
-          max_output_tokens: 8_192
-        }),
-        signal: controller.signal
-      });
-    } finally {
-      clearTimeout(timeoutId);
+    // Split papers into batches of 2
+    const batches: PaperBatchItem[][] = [];
+    for (let i = 0; i < allPapers.length; i += BATCH_SIZE) {
+      batches.push(allPapers.slice(i, i + BATCH_SIZE));
     }
 
-    if (!response.ok) {
-      let message = "OpenAI request failed.";
+    console.log(`[research-groups] Processing ${allPapers.length} papers in ${batches.length} batches`, {
+      totalPapers: allPapers.length,
+      batchCount: batches.length,
+      batchSize: BATCH_SIZE
+    });
+
+    // Step 2: Process each batch sequentially
+    const batchResults: string[] = [];
+
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      const batchNumber = i + 1;
+      const startIndex = i * BATCH_SIZE + 1; // Paper numbering starts at 1
+
       try {
-        const errorPayload = await response.json();
-        console.error("[research-groups] OpenAI error payload", errorPayload);
-        if (typeof errorPayload?.error === "string") {
-          message = errorPayload.error;
-        } else if (typeof errorPayload?.message === "string") {
-          message = errorPayload.message;
-        }
-      } catch (parseError) {
-        console.warn("[research-groups] Failed to parse OpenAI error payload", parseError);
-      }
-      return NextResponse.json({ error: message }, { status: response.status });
-    }
-
-    let payload: any;
-
-    try {
-      payload = await response.json();
-    } catch (parseError) {
-      console.error("[research-groups] Failed to parse JSON response", parseError);
-      return NextResponse.json({ error: "Failed to read model response." }, { status: 502 });
-    }
-
-    let outputText = typeof payload?.output_text === "string" ? payload.output_text.trim() : "";
-
-    if (!outputText && Array.isArray(payload?.output)) {
-      outputText = payload.output
-        .filter((item: any) => item && item.type === "message" && Array.isArray(item.content))
-        .flatMap((item: any) =>
-          item.content
-            .filter((part: any) => part?.type === "output_text" && typeof part.text === "string")
-            .map((part: any) => part.text)
-        )
-        .join("\n")
-        .trim();
-    }
-
-    if (payload?.status === "incomplete" && payload?.incomplete_details?.reason) {
-      console.warn("[research-groups] Model response incomplete", payload.incomplete_details);
-      if (outputText) {
-        outputText = `${outputText}\n\n[Note: Response truncated because the model hit its output limit. Consider rerunning if key details are missing.]`;
-      } else {
-        return NextResponse.json(
-          {
-            error:
-              payload.incomplete_details.reason === "max_output_tokens"
-                ? "Research groups discovery hit the output limit before completing. Try again in a moment."
-                : `Research groups discovery ended early: ${payload.incomplete_details.reason}`
-          },
-          { status: 502 }
-        );
+        const batchPrompt = buildBatchDiscoveryPrompt(batch, startIndex);
+        const batchOutput = await fetchBatchDiscovery(batchPrompt, apiKey, batchNumber, batches.length);
+        batchResults.push(batchOutput);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : `Batch ${batchNumber} failed`;
+        console.error(`[research-groups] Batch ${batchNumber} error:`, error);
+        return NextResponse.json({ error: message }, { status: 502 });
       }
     }
 
-    if (!outputText) {
-      console.error("[research-groups] Empty response payload", payload);
-      return NextResponse.json({ error: "Model did not return any text." }, { status: 502 });
-    }
+    // Step 3: Combine all batch results
+    const outputText = batchResults.join("\n\n---\n\n");
 
-    // Step 2: Convert the discovery notes to structured JSON
+    console.log(`[research-groups] All ${batches.length} batches completed successfully`, {
+      totalBatches: batches.length,
+      combinedOutputLength: outputText.length
+    });
+
+    // Step 4: Convert the combined discovery notes to structured JSON
     const cleanupPrompt = buildCleanupPrompt(outputText);
 
     const controller2 = new AbortController();
@@ -347,7 +526,7 @@ export async function POST(request: Request) {
           model: "gpt-5-mini",
           reasoning: { effort: "low" },
           input: cleanupPrompt,
-          max_output_tokens: 8_192
+          max_output_tokens: 16_384
         }),
         signal: controller2.signal
       });
@@ -411,6 +590,19 @@ export async function POST(request: Request) {
       // Fall back to returning just the text analysis
       return NextResponse.json({ text: outputText, structured: null });
     }
+
+    // Log success metrics
+    const papersProcessed = structuredGroups?.papers?.length ?? 0;
+    const totalAuthors = structuredGroups?.papers?.reduce((sum: number, paper: any) =>
+      sum + (Array.isArray(paper.authors) ? paper.authors.length : 0), 0) ?? 0;
+
+    console.log("[research-groups] Successfully completed both discovery and cleanup phases", {
+      hasText: Boolean(outputText),
+      hasStructured: Boolean(structuredGroups),
+      papersProcessed,
+      totalAuthors,
+      avgAuthorsPerPaper: papersProcessed > 0 ? (totalAuthors / papersProcessed).toFixed(2) : 0
+    });
 
     return NextResponse.json({
       text: outputText,

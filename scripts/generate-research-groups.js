@@ -70,16 +70,19 @@ async function promptYesNo(rl, question, { defaultValue = true } = {}) {
   }
 }
 
-const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's Research Groups UI.
+const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's Author Contacts UI.
 
 Output requirements:
 - Return a single JSON object with keys: papers (array), promptNotes (optional string).
-- Each paper object must include: title (string), identifier (string|null), groups (array).
-- Each group object must include: name (string), institution (string|null), website (string|null), notes (string|null), researchers (array).
-- Each researcher object must include: name (string), email (string|null), role (string|null).
-- Use null for unknown scalars. Use "Not provided" only inside notes when text is genuinely missing.
+- Each paper object must include: title (string), identifier (string|null), authors (array of up to 3 objects).
+- Each author object must include: name (string), email (string|null), role (string|null), orcid (string|null), profiles (array).
+- Each profile object must include: platform (string), url (string).
+- Use null for unknown scalars.
+- For ORCID: use format "0000-0000-0000-0000" or null if not found. Do not use "Not found" - use null instead.
+- For profiles: only include profiles that have actual URLs. Common platforms: "Google Scholar", "LinkedIn", "Personal Website", "ResearchGate", "Twitter".
 - No markdown, no commentary, no trailing prose. Ensure valid JSON (double quotes only).
 - Preserve factual content; do not invent new people or emails.
+- Each paper should have up to 3 authors (the first 3 from the author list, or fewer if the paper has <3 authors).
 Before responding, you must paste the analyst notes after these instructions so you can structure them. Use them verbatim; do not add new facts.
 `;
 
@@ -251,100 +254,134 @@ function buildDiscoveryPrompt(library) {
   const sourceTitle = cleanPlainText(
     library?.sourcePaper?.title || library?.sourcePdf?.title || "Unknown title"
   );
-  const sourceSummary = cleanPlainText(library?.sourcePaper?.summary || "Not provided");
-  const keySignals = Array.isArray(library?.sourcePaper?.keyMethodSignals)
-    ? library.sourcePaper.keyMethodSignals.map((signal) => cleanPlainText(signal)).filter(Boolean).slice(0, 5)
+  const sourceDoi = library?.sourcePaper?.doi || null;
+  const sourceAuthors = Array.isArray(library?.sourcePaper?.authors) && library.sourcePaper.authors.length
+    ? library.sourcePaper.authors.map((author) => cleanPlainText(author))
     : [];
   const similarPapers = Array.isArray(library?.similarPapers)
     ? library.similarPapers.slice(0, 5)
     : [];
 
   const lines = [
-    "You are Evidentia's research co-pilot. Map the active research groups linked to these papers so our team can reach out to the right labs.",
+    "Objective: For EACH paper below (source + similar papers), gather comprehensive contact information for the FIRST 3 AUTHORS listed on that paper.",
     "",
-    "Source paper:",
-    `- Title: ${sourceTitle}`,
-    `- Summary: ${sourceSummary}`
+    "Context: You're building a collaboration pipeline for research analysts. For each paper, identify the first 3 authors (or all authors if fewer than 3) and find their complete contact details.",
+    "",
+    "Audience: Research analysts building collaboration pipelines.",
+    "",
+    "Papers to analyze:",
+    ""
   ];
 
-  if (library?.sourcePaper?.doi) {
-    lines.push(`- DOI: ${library.sourcePaper.doi}`);
+  // Add source paper
+  lines.push("1. SOURCE PAPER:");
+  lines.push(`   Title: ${sourceTitle}`);
+  if (sourceDoi) {
+    lines.push(`   DOI: ${sourceDoi}`);
   }
-
-  if (keySignals.length) {
-    lines.push("- Method signals:");
-    keySignals.forEach((signal) => {
-      lines.push(`  - ${signal}`);
+  if (sourceAuthors.length) {
+    lines.push("   Authors (in order):");
+    sourceAuthors.forEach((author, idx) => {
+      lines.push(`     ${idx + 1}. ${author}`);
     });
+  } else {
+    lines.push("   Authors: Not specified");
   }
+  lines.push("");
 
+  // Add similar papers
   if (similarPapers.length) {
-    lines.push("", "Similar papers to cross-reference:");
     similarPapers.forEach((paper, index) => {
       const title = cleanPlainText(paper?.title || `Paper ${index + 1}`);
       const venue = cleanPlainText(paper?.venue || "Venue not reported");
       const year = paper?.year ? `${paper.year}` : "Year not reported";
       const authors = Array.isArray(paper?.authors) && paper.authors.length
-        ? cleanPlainText(paper.authors.join(", "))
-        : "Authors not reported";
-      const whyRelevant = cleanPlainText(paper?.whyRelevant || "No relevance note provided.");
-      const doi = paper?.doi ? `DOI: ${paper.doi}` : paper?.url ? `URL: ${paper.url}` : "No identifier provided";
+        ? paper.authors.map((author) => cleanPlainText(author))
+        : [];
+      const doi = paper?.doi ? `DOI: ${paper.doi}` : paper?.url ? `URL: ${paper.url}` : "No identifier";
 
-      lines.push(
-        `${index + 1}. ${title} — ${venue} (${year})`,
-        `   Authors: ${authors}`,
-        `   Identifier: ${doi}`,
-        `   Method overlap: ${whyRelevant}`
-      );
-
-      if (Array.isArray(paper?.overlapHighlights) && paper.overlapHighlights.length) {
-        lines.push("   Overlap highlights:");
-        paper.overlapHighlights.slice(0, 3).forEach((highlight) => {
-          lines.push(`     - ${cleanPlainText(highlight)}`);
+      lines.push(`${index + 2}. SIMILAR PAPER ${index + 1}:`);
+      lines.push(`   Title: ${title}`);
+      lines.push(`   Venue: ${venue} (${year})`);
+      lines.push(`   Identifier: ${doi}`);
+      if (authors.length) {
+        lines.push("   Authors (in order):");
+        authors.forEach((author, idx) => {
+          lines.push(`     ${idx + 1}. ${author}`);
         });
+      } else {
+        lines.push("   Authors: Not reported");
       }
+      lines.push("");
     });
   }
 
   lines.push(
-    "",
-    "Search Methodology:",
-    "1. Extract 3-5 core domain keywords from the source paper's method signals and similar papers' themes.",
-    "2. For each paper, run Google Scholar searches:",
-    "   - Use 'Since 2020' time filter to find recent work",
-    "   - Search: author names + 'lab' OR 'group' to find lab pages",
-    "   - Use site:.edu OR site:.ac.uk OR site:.ac.* filters for academic sources",
-    "3. Verify each group:",
-    "   - Check the group has 2-3+ publications since 2020 matching the domain keywords",
-    "   - Confirm an active lab/group webpage exists",
-    "   - Verify the PI is currently listed at that institution",
-    "",
     "Task:",
-    "- For the source paper and each similar paper, identify the active research groups, labs, or centres directly connected to those works.",
-    "- Under each paper heading, list relevant groups, then within each group list principal investigators, current graduate students, and postdoctoral researchers when available.",
     "",
-    "Finding Researchers & Contact Information:",
-    "- Check lab/group pages for current members (PhD students, postdocs, research staff)",
-    "- Review recent paper author lists (last 2 years) to identify current lab members",
-    "- Search institution directories for academic/institutional emails",
-    "- If email is not publicly listed, note 'Check lab website contact form' instead of 'Not provided'",
-    "- Prioritize finding at least 2-3 contacts per group with proper institutional emails",
+    "For each paper:",
+    "1. Take the FIRST 3 AUTHORS from the author list (or all if fewer than 3)",
+    "2. For each author, gather comprehensive contact information:",
+    "   - Full name (as listed on the paper)",
+    "   - Institutional email (search university directories, lab pages)",
+    "   - Current role/position (PI, Professor, Postdoc, PhD Student, etc.)",
+    "   - ORCID identifier (search orcid.org by author name)",
+    "   - Academic profiles (Google Scholar, LinkedIn, personal website)",
     "",
-    "Required notes format (use plain text headings — no JSON yet):",
-    "Paper: <Title> (<Identifier>)",
-    "Groups:",
-    "  - Group: <Group name> (<Institution>)",
-    "    Website: <URL or 'Not provided'>",
-    "    Summary: <1–2 sentences on why this group matters for the methods>",
-    "    Members:",
-    "      - Name | Email | Role",
-    "      - Name | Email | Role",
+    "Search methodology:",
     "",
-    "Guidelines:",
-    "- Only include groups you can verify are currently active with recent publications",
-    "- Repeat the group block for each paper that cites or collaborates with that group; if a group spans multiple papers, duplicate it under each relevant paper heading and note the connection in the summary.",
-    "- If information genuinely cannot be found after checking lab pages and recent papers, use 'Not provided', never leave blanks.",
-    "- Aim for depth over breadth: 3-5 well-researched groups with complete contact info beats 10 groups with missing details."
+    "1. Search each author's name on ORCID.org to find their unique identifier",
+    "2. Search Google Scholar for author's academic profile",
+    "3. Search LinkedIn for professional profile",
+    "4. Search university/institution directories for institutional email",
+    "5. Check if author has a personal website or lab page",
+    "6. Determine current role/position from recent affiliations",
+    "",
+    "Output Format:",
+    "",
+    "Paper 1: <Source Paper Title> (<Identifier or 'Source'>)",
+    "",
+    "Author 1: <Full Name>",
+    "  Email: <institutional.email@university.edu or 'Not found'>",
+    "  Role: <Current Position or 'Not found'>",
+    "  ORCID: <0000-0000-0000-0000 or 'Not found'>",
+    "  Profiles:",
+    "    - Google Scholar: <URL or 'Not found'>",
+    "    - LinkedIn: <URL or 'Not found'>",
+    "    - Website: <URL or 'Not found'>",
+    "",
+    "Author 2: <Full Name>",
+    "  Email: <email or 'Not found'>",
+    "  Role: <role or 'Not found'>",
+    "  ORCID: <ID or 'Not found'>",
+    "  Profiles:",
+    "    - Google Scholar: <URL or 'Not found'>",
+    "    - LinkedIn: <URL or 'Not found'>",
+    "",
+    "Author 3: <Full Name>",
+    "  Email: <email or 'Not found'>",
+    "  Role: <role or 'Not found'>",
+    "  ORCID: <ID or 'Not found'>",
+    "  Profiles:",
+    "    - Google Scholar: <URL or 'Not found'>",
+    "",
+    "[If paper has <3 authors, include only those available]",
+    "",
+    "Paper 2: <Similar Paper 1 Title> (<Identifier>)",
+    "",
+    "Author 1: ...",
+    "Author 2: ...",
+    "Author 3: ...",
+    "",
+    "[Repeat for all papers]",
+    "",
+    "Important:",
+    "- Execute all searches automatically without asking",
+    "- Use 'Not found' when information genuinely can't be located after thorough search",
+    "- ORCID format: 0000-0000-0000-0000 (16 digits with hyphens)",
+    "- Only include profiles that are publicly accessible",
+    "- For each paper, include the first 3 authors (or all if <3)",
+    "- Prioritize institutional emails over personal emails"
   );
 
   return lines.join("\n");
@@ -380,39 +417,34 @@ function normaliseResearcher(entry) {
   const email = emailRaw && emailRaw.length > 0 ? emailRaw : null;
   const role = entry.role ? cleanPlainText(entry.role) : null;
 
-  return {
-    name,
-    email,
-    role: role && role.length > 0 ? role : null
-  };
-}
+  // Handle ORCID
+  const orcid = entry.orcid && typeof entry.orcid === "string"
+    ? cleanPlainText(entry.orcid)
+    : null;
 
-function normaliseGroup(entry) {
-  if (!entry || typeof entry !== "object") {
-    throw new Error("Each group must be an object containing at least a name.");
-  }
+  // Handle profiles array
+  const profiles = Array.isArray(entry.profiles)
+    ? entry.profiles
+        .filter((profile) => profile && typeof profile === "object")
+        .map((profile) => {
+          const platform = profile.platform ? cleanPlainText(profile.platform) : null;
+          const url = profile.url ? cleanUrlStrict(profile.url) : null;
 
-  const name = cleanPlainText(entry.name || "");
-  if (!name) {
-    throw new Error("Group name is required.");
-  }
+          if (!platform || !url) {
+            return null;
+          }
 
-  const institution = entry.institution ? cleanPlainText(entry.institution) : null;
-  const website = entry.website ? cleanUrlStrict(entry.website) : null;
-  const notes = entry.notes ? cleanPlainText(entry.notes) : null;
-
-  const researchers = Array.isArray(entry.researchers)
-    ? entry.researchers
-        .map((person) => normaliseResearcher(person))
+          return { platform, url };
+        })
         .filter(Boolean)
     : [];
 
   return {
     name,
-    institution: institution && institution.length > 0 ? institution : null,
-    website: website && website.length > 0 ? website : null,
-    notes: notes && notes.length > 0 ? notes : null,
-    researchers
+    email,
+    role: role && role.length > 0 ? role : null,
+    orcid: orcid && orcid.length > 0 ? orcid : null,
+    profiles
   };
 }
 
@@ -427,12 +459,16 @@ function normalisePaper(entry) {
   }
 
   const identifier = entry.identifier ? cleanPlainText(entry.identifier) : null;
-  const groups = Array.isArray(entry.groups) ? entry.groups.map((group) => normaliseGroup(group)) : [];
+  const authors = Array.isArray(entry.authors)
+    ? entry.authors
+        .map((author) => normaliseResearcher(author))
+        .filter(Boolean)
+    : [];
 
   return {
     title,
     identifier: identifier && identifier.length > 0 ? identifier : null,
-    groups
+    authors
   };
 }
 
@@ -458,30 +494,20 @@ function formatResearchGroups(papers) {
   return papers
     .map((paper) => {
       const header = [`Paper: ${paper.title}${paper.identifier ? ` (${paper.identifier})` : ""}`];
-      const groupBlocks = paper.groups.length
-        ? paper.groups.map((group) => {
-            const groupHeader = [
-              `Group: ${group.name}${group.institution ? ` (${group.institution})` : ""}`,
-              group.website ? `Website: ${group.website}` : "Website: Not provided",
-              group.notes && group.notes.length > 0 ? `Summary: ${group.notes}` : "Summary: Not provided"
-            ];
 
-            const researcherRows = group.researchers.length
-              ? group.researchers
-              : [{ name: "Not provided", email: null, role: null }];
+      if (!paper.authors || paper.authors.length === 0) {
+        return `${header.join("\n")}\nNo author contacts found`;
+      }
 
-            const tableLines = ["| Name | Email | Role |", "| --- | --- | --- |"];
-            researcherRows.forEach((person) => {
-              const email = person.email || "Not provided";
-              const role = person.role || "Not provided";
-              tableLines.push(`| ${person.name} | ${email} | ${role} |`);
-            });
+      const tableLines = ["| Name | Email | Role | ORCID |", "| --- | --- | --- | --- |"];
+      paper.authors.forEach((author) => {
+        const email = author.email || "Not found";
+        const role = author.role || "Not found";
+        const orcid = author.orcid || "Not found";
+        tableLines.push(`| ${author.name} | ${email} | ${role} | ${orcid} |`);
+      });
 
-            return `${groupHeader.join("\n")}\n${tableLines.join("\n")}`;
-          })
-        : ["No groups reported"];
-
-      return `${header.join("\n")}\n${groupBlocks.join("\n\n")}`;
+      return `${header.join("\n")}\n${tableLines.join("\n")}`;
     })
     .join("\n\n");
 }
@@ -495,7 +521,7 @@ async function runResearchGroups(options = {}) {
   } = options;
 
   try {
-    console.log("\n=== Research Groups Prototype Helper ===\n");
+    console.log("\n=== Author Contacts Generator ===\n");
     console.log(`Working directory: ${workingDir}`);
 
     const library = readLibrary();
@@ -510,7 +536,7 @@ async function runResearchGroups(options = {}) {
         ask: (question) => ask(rl, question),
         library,
         allowCreate: false,
-        header: "Select the mock entry for research group generation"
+        header: "Select the mock entry for author contacts generation"
       });
       entryId = selection.entryId;
     }
@@ -561,38 +587,40 @@ async function runResearchGroups(options = {}) {
 
     console.log(`\nUsing PDF: ${pdfPath}`);
 
+    // Step 1: Discovery + Contact Gathering - Find first 3 authors per paper and get their details
     const discoveryPrompt = buildDiscoveryPrompt(existingLibrary);
     try {
       await copyPromptToClipboard(discoveryPrompt, {
-        label: "Discovery prompt"
+        label: "Discovery + Contact Gathering prompt (Step 1/2)"
       });
     } catch (error) {
       console.warn("Failed to copy discovery prompt. Printing below:\n");
       console.log(discoveryPrompt);
     }
 
-    console.log("\nPaste it into the deep research agent to gather group notes.\n");
+    console.log("\n=== STEP 1: Find First 3 Authors + Gather Contacts ===\n");
+    console.log("The discovery prompt has been copied to your clipboard.\n");
     console.log(
-      "\nNext steps:\n  1. Paste the prompt into your deep research agent.\n  2. Wait for the notes to finish compiling.\n  3. Press ENTER here when you're ready for the cleanup prompt.\n"
+      "Next steps:\n  1. Paste the prompt into your deep research agent.\n  2. Wait for the agent to find the first 3 authors for each paper and gather their contact details.\n  3. Press ENTER here when you're ready for the cleanup prompt.\n"
     );
 
-    await ask(rl, "\nPress ENTER once the notes are ready to receive the cleanup prompt: ");
+    await ask(rl, "\nPress ENTER once you have all author contact details: ");
 
+    // Step 2: Cleanup - Convert to structured JSON
     const cleanupPrompt = buildCleanupPrompt();
     try {
       await copyPromptToClipboard(cleanupPrompt, {
-        label: "Cleanup prompt"
+        label: "Cleanup prompt (Step 2/2)"
       });
     } catch (error) {
       console.warn("Failed to copy cleanup prompt. Printing below:\n");
       console.log(cleanupPrompt);
     }
 
+    console.log("\n=== STEP 2: Cleanup - Convert to JSON ===\n");
+    console.log("The cleanup prompt has been copied to your clipboard.\n");
     console.log(
-      "\nCleanup prompt ready. Paste it into the cleanup agent, add the notes beneath the divider, and request JSON.\n"
-    );
-    console.log(
-      "\nNext steps:\n  1. Paste the cleanup prompt into your LLM.\n  2. Add the discovery notes beneath the placeholder line, then run the cleanup.\n  3. Paste the cleaned JSON back here (press ENTER on an empty line when finished).\n"
+      "Next steps:\n  1. Paste the cleanup prompt into your LLM.\n  2. Copy all notes from Step 1 and paste them below the cleanup prompt.\n  3. Request JSON output.\n  4. Paste the cleaned JSON back here (press ENTER on an empty line when finished).\n"
     );
 
     const cleanedJsonRaw = await collectCleanedJson(rl);
@@ -606,16 +634,16 @@ async function runResearchGroups(options = {}) {
     try {
       cleanedPayload = JSON.parse(cleanedJsonRaw);
     } catch (error) {
-      console.error("\n❌ Failed to parse the Research Groups JSON. Ensure the cleanup agent returns valid JSON only.");
+      console.error("\n❌ Failed to parse the Author Contacts JSON. Ensure the cleanup agent returns valid JSON only.");
       console.error("Raw snippet preview:");
       console.error(cleanedJsonRaw.slice(0, 200));
-      throw new Error(`Failed to parse research groups JSON: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(`Failed to parse author contacts JSON: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     const normalised = normaliseResearchGroupsPayload(cleanedPayload);
     const formattedText = formatResearchGroups(normalised.papers);
 
-    const researchGroupsData = {
+    const authorContactsData = {
       maxChars: formattedText.length,
       truncated: false,
       text: formattedText,
@@ -636,7 +664,7 @@ async function runResearchGroups(options = {}) {
         path: relativePdfPath,
         publicPath: publicPdfPath
       },
-      researchGroups: researchGroupsData
+      authorContacts: authorContactsData
     };
 
     const removedIds = writeMockLibrary(libraryData);
@@ -644,7 +672,7 @@ async function runResearchGroups(options = {}) {
       console.log(`\nNote: removed entries ${removedIds.join(", ")} to maintain the ${MAX_ENTRIES}-entry limit.`);
     }
 
-    console.log(`\nMock library updated with research groups for entry "${CURRENT_ENTRY_ID}".`);
+    console.log(`\nMock library updated with author contacts for entry "${CURRENT_ENTRY_ID}".`);
     return { entryId: CURRENT_ENTRY_ID, pdfPath, status: "completed" };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

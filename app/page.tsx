@@ -8,6 +8,7 @@ import { PaperTabNav } from "@/components/paper-tab-nav";
 import { PdfViewer } from "@/components/pdf-viewer";
 import { UploadDropzone } from "@/components/upload-dropzone";
 import { MockSimilarPapersShowcase } from "@/components/mock-similar-papers-showcase";
+import { MockAuthorContactsShowcase } from "@/components/mock-author-contacts-showcase";
 import { MOCK_SAMPLE_PAPER_ID, MOCK_SAMPLE_PAPER_META } from "@/lib/mock-sample-paper";
 import {
   listMockLibrarySummaries,
@@ -35,6 +36,21 @@ const MOCK_UPLOADED_PAPER_BASE = {
   source: "local" as const
 };
 
+interface AuthorEntry {
+  name: string;
+  email: string | null;
+  role: string | null;
+  orcid: string | null;
+  profiles: Array<{ platform: string; url: string }>;
+}
+
+interface AuthorContactsPaperEntry {
+  title: string;
+  identifier: string | null;
+  authors: AuthorEntry[];
+}
+
+// Legacy interface for backwards compatibility
 interface ResearchGroupEntry {
   name: string;
   institution: string | null;
@@ -279,7 +295,7 @@ function ensureSourcePaperInSimilarStructured(
   };
 }
 
-function normalizeResearchGroupsStructured(raw: unknown): ResearchGroupPaperEntry[] | undefined {
+function normalizeAuthorContactsStructured(raw: unknown): AuthorContactsPaperEntry[] | undefined {
   if (!raw) {
     return undefined;
   }
@@ -291,6 +307,107 @@ function normalizeResearchGroupsStructured(raw: unknown): ResearchGroupPaperEntr
       : [];
 
   if (!Array.isArray(candidate) || candidate.length === 0) {
+    return undefined;
+  }
+
+  return candidate
+    .map((entry: any) => {
+      const authors = Array.isArray(entry?.authors)
+        ? entry.authors
+            .map((author: any) => {
+              if (!author || typeof author !== "object") {
+                return null;
+              }
+
+              const name = typeof author.name === "string" && author.name.trim().length > 0
+                ? author.name.trim()
+                : "";
+
+              if (!name) {
+                return null;
+              }
+
+              const email = typeof author.email === "string" && author.email.trim().length > 0
+                ? author.email.trim()
+                : null;
+              const role = typeof author.role === "string" && author.role.trim().length > 0
+                ? author.role.trim()
+                : null;
+              const orcid = typeof author.orcid === "string" && author.orcid.trim().length > 0
+                ? author.orcid.trim()
+                : null;
+
+              const profiles = Array.isArray(author.profiles)
+                ? author.profiles
+                    .map((profile: any) => {
+                      if (!profile || typeof profile !== "object") {
+                        return null;
+                      }
+                      const platform = typeof profile.platform === "string" && profile.platform.trim().length > 0
+                        ? profile.platform.trim()
+                        : null;
+                      const url = typeof profile.url === "string" && profile.url.trim().length > 0
+                        ? profile.url.trim()
+                        : null;
+                      if (!platform || !url) {
+                        return null;
+                      }
+                      return { platform, url };
+                    })
+                    .filter((p: { platform: string; url: string } | null): p is { platform: string; url: string } => p !== null)
+                : [];
+
+              return {
+                name,
+                email,
+                role,
+                orcid,
+                profiles
+              } satisfies AuthorEntry;
+            })
+            .filter((a: AuthorEntry | null): a is AuthorEntry => a !== null)
+        : [];
+
+      const title = typeof entry?.title === "string" ? entry.title : "Untitled paper";
+      const identifier = typeof entry?.identifier === "string" ? entry.identifier : null;
+
+      return {
+        title,
+        identifier,
+        authors
+      } satisfies AuthorContactsPaperEntry;
+    })
+    .filter((entry) => entry);
+}
+
+function normalizeResearchGroupsStructured(raw: unknown): ResearchGroupPaperEntry[] | AuthorContactsPaperEntry[] | undefined {
+  if (!raw) {
+    return undefined;
+  }
+
+  const candidate = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as any).papers)
+      ? (raw as any).papers
+      : [];
+
+  if (!Array.isArray(candidate) || candidate.length === 0) {
+    return undefined;
+  }
+
+  // Detect format: check first entry for .authors (new format) vs .groups (old format)
+  const firstEntry = candidate[0];
+  const hasAuthors = firstEntry && typeof firstEntry === "object" && "authors" in firstEntry;
+  const hasGroups = firstEntry && typeof firstEntry === "object" && "groups" in firstEntry;
+
+  // If it has .authors, use the author contacts normalizer
+  if (hasAuthors) {
+    return normalizeAuthorContactsStructured(raw);
+  }
+
+  // Otherwise, use the old research groups normalizer
+  if (!hasGroups) {
+    // No recognizable format
     return undefined;
   }
 
@@ -627,7 +744,7 @@ type ResearchGroupsState =
   | {
       status: "success";
       text: string;
-      structured?: ResearchGroupPaperEntry[];
+      structured?: ResearchGroupPaperEntry[] | AuthorContactsPaperEntry[];
     }
   | { status: "error"; message: string };
 
@@ -799,7 +916,7 @@ interface SimilarPapersResult {
 
 interface ResearchGroupsResult {
   text: string;
-  structured?: ResearchGroupPaperEntry[];
+  structured?: ResearchGroupPaperEntry[] | AuthorContactsPaperEntry[];
 }
 
 interface ResearchContactsResult {
@@ -2368,13 +2485,25 @@ function ResearchGroupsPanel({
   if (!paper) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
-        <p className="text-base font-medium text-slate-700">Upload a PDF to research related groups.</p>
-        <p className="text-sm text-slate-500">We need a paper selected before running the deep search.</p>
+        <p className="text-base font-medium text-slate-700">Upload a PDF to find author contacts.</p>
+        <p className="text-sm text-slate-500">We need a paper selected before finding contacts.</p>
       </div>
     );
   }
 
   const isRemotePaper = paper.source === "remote";
+
+  // Check for mock author contacts data
+  const hasMockAuthorContacts = Boolean(
+    isMockPaper(paper) &&
+    paper.id &&
+    (() => {
+      const summary = MOCK_SUMMARIES_BY_ID.get(paper.id);
+      const authorContactsData = summary?.raw?.authorContacts as any;
+      return authorContactsData?.structured && Array.isArray(authorContactsData.structured.papers) && authorContactsData.structured.papers.length > 0;
+    })()
+  );
+
   const hasMockContent = Boolean(
     state &&
       state.status === "success" &&
@@ -2382,12 +2511,21 @@ function ResearchGroupsPanel({
   );
   const hasGroupsData = state?.status === "success";
 
-  if (isMockPaper(paper) && !hasMockContent) {
+  // For mock papers with author contacts data, use the showcase component
+  if (isMockPaper(paper) && hasMockAuthorContacts && paper.id) {
+    return (
+      <div className="flex-1 overflow-auto">
+        <MockAuthorContactsShowcase paperId={paper.id} />
+      </div>
+    );
+  }
+
+  if (isMockPaper(paper) && !hasMockContent && !hasMockAuthorContacts) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
         <p className="text-base font-medium text-slate-700">Coming soon</p>
         <p className="text-sm text-slate-500">
-          Research groups will appear here once we wire this tab to the new crosswalk flow.
+          Author contacts will appear here once you run the author contacts generator script.
         </p>
       </div>
     );
@@ -2474,61 +2612,18 @@ function ResearchGroupsPanel({
     );
   }
 
-  function renderGroupContacts(group: ResearchGroupEntry) {
-    const researchers = Array.isArray(group.researchers) ? group.researchers : [];
-
-    if (researchers.length === 0) {
-      return <p className="text-sm text-slate-500">No named contacts listed.</p>;
-    }
-
-    return (
-      <ul className="space-y-2">
-        {researchers.map((person, personIndex) => {
-          const key = `${group.name}-${person.name ?? person.email ?? personIndex}`;
-          const roleBadge = person.role
-            ? (
-                <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                  {person.role}
-                </span>
-              )
-            : null;
-
-          return (
-            <li
-              key={key}
-              className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-sm text-slate-700"
-            >
-              <span className="font-semibold text-slate-900">{person.name || "Unnamed contact"}</span>
-              {roleBadge}
-              {person.email ? (
-                <a
-                  href={`mailto:${person.email}`}
-                  className="text-sm font-medium text-primary underline-offset-4 hover:underline"
-                >
-                  {person.email}
-                </a>
-              ) : (
-                <span className="text-xs text-slate-500">Email not provided</span>
-              )}
-            </li>
-          );
-        })}
-      </ul>
-    );
-  }
-
   const structuredEntries = Array.isArray(state.structured) ? state.structured : [];
-  const totalGroups = structuredEntries.reduce((count, entry) => count + entry.groups.length, 0);
-  const uniqueContacts = structuredEntries.reduce((set, entry) => {
-    entry.groups.forEach((group) => {
-      const researchers = Array.isArray(group.researchers) ? group.researchers : [];
-      researchers.forEach((person) => {
-        const key = `${person.email ?? ""}-${person.name ?? ""}`;
-        set.add(key);
-      });
-    });
-    return set;
-  }, new Set<string>()).size;
+
+  // Calculate statistics for author contacts
+  const totalPapers = structuredEntries.length;
+  const totalAuthors = structuredEntries.reduce((sum, paper) => {
+    const authors = (paper as any).authors || [];
+    return sum + authors.length;
+  }, 0);
+  const authorsWithEmails = structuredEntries.reduce((sum, paper) => {
+    const authors = (paper as any).authors || [];
+    return sum + authors.filter((author: any) => author.email).length;
+  }, 0);
 
   return (
     <div className="flex-1 overflow-auto">
@@ -2537,13 +2632,13 @@ function ResearchGroupsPanel({
           <header className="space-y-4">
             <div className="flex items-start justify-between gap-3">
               <div className="space-y-2">
-                <h2 className="text-xl font-semibold text-slate-900">Research Groups</h2>
-                <p className="text-sm text-slate-600">Compiled for {paper?.name ?? "the selected paper"}.</p>
+                <h2 className="text-xl font-semibold text-slate-900">Author Contacts</h2>
+                <p className="text-sm text-slate-600">Contact information for the first 3 authors of each paper.</p>
               </div>
               <button
                 onClick={onRetry}
                 className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                title="Re-run research groups search"
+                title="Re-run author contacts search"
               >
                 <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -2553,84 +2648,133 @@ function ResearchGroupsPanel({
             {structuredEntries.length > 0 && (
               <div className="grid gap-3 sm:grid-cols-3">
                 <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Matched papers</p>
-                  <p className="mt-1 text-2xl font-semibold text-slate-900">{structuredEntries.length}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Papers</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900">{totalPapers}</p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Active groups</p>
-                  <p className="mt-1 text-2xl font-semibold text-slate-900">{totalGroups}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Total authors</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900">{totalAuthors}</p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Named contacts</p>
-                  <p className="mt-1 text-2xl font-semibold text-slate-900">{uniqueContacts}</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">With emails</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900">{authorsWithEmails}</p>
                 </div>
               </div>
             )}
           </header>
 
           {structuredEntries.length > 0 ? (
-            <div className="space-y-5">
-              {structuredEntries.map((paperEntry, paperIndex) => (
-                <article
-                  key={`${paperEntry.title}-${paperIndex}`}
-                  className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-6">
+              {structuredEntries.map((paperEntry, paperIndex) => {
+                const authors = (paperEntry as any).authors || [];
+                const paperUrl = paperEntry.identifier
+                  ? paperEntry.identifier.startsWith("http")
+                    ? paperEntry.identifier
+                    : `https://doi.org/${paperEntry.identifier}`
+                  : null;
+
+                return (
+                  <article
+                    key={`${paperEntry.title}-${paperIndex}`}
+                    className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
+                  >
+                    {/* Paper header */}
                     <div className="space-y-1">
                       <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
                         Paper {paperIndex + 1}
                       </p>
-                      <h3 className="text-lg font-semibold text-slate-900">{paperEntry.title}</h3>
-                      <p className="text-xs text-slate-500">
-                        {paperEntry.identifier ? paperEntry.identifier : "Identifier not provided"}
-                      </p>
+                      {paperUrl ? (
+                        <h3 className="text-lg font-semibold">
+                          <a
+                            href={paperUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-slate-900 hover:text-blue-600 transition"
+                          >
+                            {paperEntry.title}
+                          </a>
+                        </h3>
+                      ) : (
+                        <h3 className="text-lg font-semibold text-slate-900">{paperEntry.title}</h3>
+                      )}
+                      <p className="text-xs text-slate-500">{paperEntry.identifier || "No identifier"}</p>
                     </div>
-                  </div>
 
-                  {paperEntry.groups.length > 0 ? (
-                    <div className="mt-5 space-y-5">
-                      {paperEntry.groups.map((group, groupIndex) => (
-                        <div
-                          key={`${paperEntry.title}-${group.name}-${groupIndex}`}
-                          className="rounded-xl border border-slate-200 bg-slate-50/80 p-4"
-                        >
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <p className="text-sm font-semibold text-slate-900">{group.name}</p>
-                              {group.institution && <p className="text-sm text-slate-600">{group.institution}</p>}
+                    {/* Author cards */}
+                    {authors.length > 0 ? (
+                      <div className="mt-5 space-y-4">
+                        {authors.map((author: any, authorIndex: number) => (
+                          <div
+                            key={`${paperEntry.title}-${author.name}-${authorIndex}`}
+                            className="rounded-xl border border-slate-200 bg-slate-50/80 p-5 space-y-3"
+                          >
+                            {/* Author name */}
+                            <div className="flex items-start justify-between">
+                              <p className="text-base font-semibold text-slate-900">{author.name}</p>
                             </div>
-                            {group.website ? (
-                              <a
-                                href={group.website}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="text-xs font-medium text-primary underline-offset-4 hover:underline"
-                              >
-                                Visit site
-                              </a>
-                            ) : (
-                              <span className="text-xs text-slate-400">No website listed</span>
+
+                            {/* Contact info row */}
+                            <div className="flex flex-wrap items-center gap-2 text-sm">
+                              {/* Role badge */}
+                              {author.role && (
+                                <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                                  {author.role}
+                                </span>
+                              )}
+
+                              {/* Email */}
+                              {author.email ? (
+                                <a
+                                  href={`mailto:${author.email}`}
+                                  className="font-medium text-blue-600 hover:underline"
+                                >
+                                  {author.email}
+                                </a>
+                              ) : (
+                                <span className="text-slate-500">No email</span>
+                              )}
+                            </div>
+
+                            {/* ORCID + Profiles */}
+                            {(author.orcid || (author.profiles && author.profiles.length > 0)) && (
+                              <div className="flex flex-wrap items-center gap-3 pt-2 border-t border-slate-200">
+                                {author.orcid && (
+                                  <a
+                                    href={`https://orcid.org/${author.orcid}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                                  >
+                                    <span className="font-medium">ORCID:</span> {author.orcid}
+                                  </a>
+                                )}
+
+                                {author.profiles && author.profiles.length > 0 && (
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {author.profiles.map((profile: any, profileIndex: number) => (
+                                      <a
+                                        key={`${author.name}-${profile.platform}-${profileIndex}`}
+                                        href={profile.url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] font-medium text-blue-700 hover:bg-blue-100 transition"
+                                      >
+                                        {profile.platform}
+                                      </a>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
                             )}
                           </div>
-
-                          {group.notes && (
-                            <p className="mt-3 text-sm leading-relaxed text-slate-700">{group.notes}</p>
-                          )}
-
-                          <div className="mt-4 space-y-2">
-                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                              Contacts
-                            </p>
-                          {renderGroupContacts(group)}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-sm text-slate-600">No groups reported for this paper.</p>
-                  )}
-                </article>
-              ))}
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-3 text-sm text-slate-600">No author contacts found for this paper.</p>
+                    )}
+                  </article>
+                );
+              })}
             </div>
           ) : (
             <article className="space-y-4">
@@ -2655,7 +2799,7 @@ function ResearcherThesesPanel({
   state: ResearcherThesesState | undefined;
   hasResearchGroups: boolean;
   isMock: boolean;
-  structuredGroups?: ResearchGroupPaperEntry[];
+  structuredGroups?: ResearchGroupPaperEntry[] | AuthorContactsPaperEntry[];
   deepDives?: ResearcherThesisDeepDive[];
   countdown?: string;
   onRetry?: () => void;
@@ -3210,7 +3354,12 @@ function ResearcherThesesPanel({
       </div>
     );
   }
-  const paperSections = structuredGroups.map((paper, paperIndex) => {
+  // Filter to only papers with old .groups format (ResearchGroupPaperEntry)
+  const groupsPapers = structuredGroups.filter((paper): paper is ResearchGroupPaperEntry => {
+    return "groups" in paper && Array.isArray((paper as any).groups);
+  });
+
+  const paperSections = groupsPapers.map((paper, paperIndex) => {
     const paperKey = makePaperKey(paper.title, paper.identifier);
     return (
       <article
@@ -3230,7 +3379,7 @@ function ResearcherThesesPanel({
         </header>
 
         <div className="space-y-4">
-          {paper.groups.map((group, groupIndex) => {
+          {paper.groups.map((group: ResearchGroupEntry, groupIndex: number) => {
             const key = normaliseGroupKey(group.name);
             const entries = key && groupedByGroup.has(key) ? groupedByGroup.get(key)! : [];
             if (key) {
@@ -4945,7 +5094,7 @@ export default function LandingPage() {
       verifiedClaimsStorageResolvedRef.current.add(paperId);
     }
 
-    const cachedGroups = readCachedState<{ text: string; structured?: ResearchGroupPaperEntry[] | any }>(
+    const cachedGroups = readCachedState<{ text: string; structured?: ResearchGroupPaperEntry[] | AuthorContactsPaperEntry[] | any }>(
       paperId,
       "groups"
     );
@@ -6111,7 +6260,7 @@ export default function LandingPage() {
   const runResearcherTheses = useCallback(
     async (
       paper: UploadedPaper,
-      researchGroupsStructured: ResearchGroupPaperEntry[] | undefined
+      researchGroupsStructured: ResearchGroupPaperEntry[] | AuthorContactsPaperEntry[] | undefined
     ): Promise<ResearcherThesesResult | null> => {
       if (!paper || isMockPaper(paper)) {
         return null;
@@ -6285,7 +6434,7 @@ export default function LandingPage() {
     async (
       paper: UploadedPaper,
       researchText: string,
-      researchGroupsStructured: ResearchGroupPaperEntry[] | undefined
+      researchGroupsStructured: ResearchGroupPaperEntry[] | AuthorContactsPaperEntry[] | undefined
     ): Promise<ResearchContactsResult | null> => {
       if (!paper || isMockPaper(paper)) {
         return null;
@@ -6430,30 +6579,41 @@ export default function LandingPage() {
         return null;
       }
 
-    // REQUIRE claims to be successful
-    if (!claims || claims.status !== "success") {
-      console.error("[research-groups] Claims are required but not available", {
-        paperId: paper.id,
-        claimsStatus: claims?.status
-      });
-      return null;
-    }
+      // Guard against duplicate calls
+      if (researchGroupsGenerationRef.current.has(paper.id)) {
+        console.log("[research-groups] already generating for this paper, skipping duplicate call", {
+          paperId: paper.id
+        });
+        return null;
+      }
 
-    // REQUIRE similar papers to be successful
-    if (!similarPapers || similarPapers.status !== "success") {
-      console.error("[research-groups] Similar papers are required but not available", {
-        paperId: paper.id,
-        similarPapersStatus: similarPapers?.status
-      });
-      return null;
-    }
+      // REQUIRE claims to be successful
+      if (!claims || claims.status !== "success") {
+        console.error("[research-groups] Claims are required but not available", {
+          paperId: paper.id,
+          claimsStatus: claims?.status
+        });
+        return null;
+      }
 
-    console.log("[research-groups] starting fetch", {
-      paperId: paper.id,
-      extractionTextLength: extraction.text.length,
-      hasClaimsText: Boolean(claims.text),
-      hasSimilarPapersText: Boolean(similarPapers.text)
-    });
+      // REQUIRE similar papers to be successful
+      if (!similarPapers || similarPapers.status !== "success") {
+        console.error("[research-groups] Similar papers are required but not available", {
+          paperId: paper.id,
+          similarPapersStatus: similarPapers?.status
+        });
+        return null;
+      }
+
+      // Mark as generating to prevent duplicate calls
+      researchGroupsGenerationRef.current.add(paper.id);
+
+      console.log("[research-groups] starting fetch", {
+        paperId: paper.id,
+        extractionTextLength: extraction.text.length,
+        hasClaimsText: Boolean(claims.text),
+        hasSimilarPapersText: Boolean(similarPapers.text)
+      });
 
     setResearchGroupsStates((prev) => ({
       ...prev,
@@ -6504,7 +6664,10 @@ export default function LandingPage() {
               text: claims.text,
               structured: claims.structured
             },
-            similarPapers: similarPapers.text
+            similarPapers: {
+              text: similarPapers.text,
+              structured: similarPapers.structured
+            }
           })
         });
       } catch (fetchError) {
@@ -6533,7 +6696,7 @@ export default function LandingPage() {
 
       const payload = (await response.json()) as {
         text?: string | null;
-        structured?: ResearchGroupPaperEntry[] | null;
+        structured?: unknown;
       };
       const outputText = typeof payload?.text === "string" ? payload.text.trim() : "";
 
@@ -6597,6 +6760,9 @@ export default function LandingPage() {
         }
       }));
       return null;
+    } finally {
+      // Clean up generation tracking
+      researchGroupsGenerationRef.current.delete(paper.id);
     }
   }, [supabase, user]);
 
@@ -6765,7 +6931,9 @@ export default function LandingPage() {
         }
       })();
 
+      // Register the promise immediately to prevent race conditions
       pipelineRunsRef.current.set(paper.id, runPromise);
+
       return runPromise;
     },
     [

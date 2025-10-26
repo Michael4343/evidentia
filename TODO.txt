@@ -4,8 +4,12 @@ Optimisei LLM prompts
 Add LLM evals and tracking
 
 CLAUDE
+chekcbox in claims
+view paper button
+
 remove refreesh button and add links to mock template UI
 reset state wehen logging in and out to add paper page
+
 
 Annotation tools for paper
 
