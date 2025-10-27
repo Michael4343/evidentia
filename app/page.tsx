@@ -3538,63 +3538,130 @@ function ResearcherThesesPanel({
   );
 }
 
+  function calculatePatentStats(patents: PatentEntry[]) {
+    const totalPatents = patents.length;
+    const allClaimIds = new Set<string>();
+    const dates: number[] = [];
+
+    patents.forEach((patent) => {
+      patent.overlapWithPaper?.claimIds?.forEach((id) => {
+        if (id && id.trim()) {
+          allClaimIds.add(id.trim());
+        }
+      });
+
+      if (patent.filingDate) {
+        const match = patent.filingDate.match(/^\d{4}/);
+        if (match) {
+          dates.push(parseInt(match[0], 10));
+        }
+      }
+      if (patent.grantDate) {
+        const match = patent.grantDate.match(/^\d{4}/);
+        if (match) {
+          dates.push(parseInt(match[0], 10));
+        }
+      }
+    });
+
+    const validatedClaims = Array.from(allClaimIds).sort();
+    let dateRange = "Various dates";
+    if (dates.length > 0) {
+      const minYear = Math.min(...dates);
+      const maxYear = Math.max(...dates);
+      dateRange = minYear === maxYear ? String(minYear) : `${minYear}–${maxYear}`;
+    }
+
+    return { totalPatents, validatedClaims, dateRange };
+  }
+
   function renderPatentCards(patents: PatentEntry[]) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-6">
         {patents.map((patent, index) => {
           const key = patent.patentNumber || patent.title || `patent-${index}`;
           const claimIds = patent.overlapWithPaper?.claimIds ?? [];
+          const overlapSummary = patent.overlapWithPaper?.summary;
+
           return (
-            <article key={key} className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="space-y-1">
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
-                        {patent.patentNumber ?? "Patent"}
-                      </p>
-                      <h3 className="text-base font-semibold text-slate-900">{patent.title ?? "Untitled patent"}</h3>
-                    </div>
+            <article
+              key={key}
+              className="rounded-lg border border-slate-200 bg-white shadow-sm overflow-hidden"
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
+                {/* Left column: Patent metadata and abstract (50% width) */}
+                <div className="p-5 space-y-3">
+                  <div className="space-y-1.5">
+                    <p className="text-sm font-mono text-slate-600">
+                      {patent.patentNumber ?? "Patent"}
+                    </p>
+                    <h3 className="text-base font-semibold text-slate-900 leading-snug">
+                      {patent.title ?? "Untitled patent"}
+                    </h3>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                    {patent.assignee && <span className="font-medium">{patent.assignee}</span>}
-                    {patent.filingDate && <span className="text-slate-400">•</span>}
-                    {patent.filingDate && <span>Filed: {patent.filingDate}</span>}
-                    {patent.grantDate && <span className="text-slate-400">•</span>}
-                    {patent.grantDate && <span>Granted: {patent.grantDate}</span>}
+                    {patent.assignee && <span className="font-semibold">{patent.assignee}</span>}
+                    {(patent.assignee && patent.filingDate) && <span className="text-slate-300">•</span>}
+                    {patent.filingDate && <span>Filed {patent.filingDate}</span>}
+                    {(patent.filingDate && patent.grantDate) && <span className="text-slate-300">•</span>}
+                    {patent.grantDate && <span>Granted {patent.grantDate}</span>}
                   </div>
+
+                  {patent.abstract && (
+                    <p className="text-sm leading-relaxed text-slate-700">{patent.abstract}</p>
+                  )}
+
+                  {patent.url && (
+                    <div className="pt-2">
+                      <a
+                        href={patent.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary transition hover:text-primary/80"
+                      >
+                        View patent
+                        <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                        </svg>
+                      </a>
+                    </div>
+                  )}
                 </div>
 
-                {patent.abstract && <p className="text-sm leading-relaxed text-slate-700">{patent.abstract}</p>}
-
-                {claimIds.length > 0 || patent.overlapWithPaper?.summary ? (
-                  <div className="rounded border border-blue-200 bg-blue-50/60 px-4 py-3">
-                    <div className="space-y-1.5">
-                      {claimIds.length > 0 && (
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
-                          Overlaps with paper claims: {claimIds.join(", ")}
-                        </p>
-                      )}
-                      {patent.overlapWithPaper?.summary && (
-                        <p className="text-sm leading-relaxed text-blue-800">{patent.overlapWithPaper.summary}</p>
-                      )}
+                {/* Right column: Validation information (50% width) */}
+                <div className="bg-blue-50/30 p-5 space-y-4">
+                  {claimIds.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">
+                        Validates Claims
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {claimIds.map((claimId, idx) => (
+                          <span
+                            key={`${claimId}-${idx}`}
+                            className="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700"
+                          >
+                            {claimId}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ) : null}
+                  )}
 
-                {patent.url && (
-                  <div className="pt-3">
-                    <a
-                      href={patent.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex w-full items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary/90"
-                    >
-                      See Patent
-                    </a>
-                  </div>
-                )}
+                  {overlapSummary && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-600">
+                        Technical Overlap
+                      </p>
+                      <p className="text-sm leading-relaxed text-slate-700">{overlapSummary}</p>
+                    </div>
+                  )}
+
+                  {!claimIds.length && !overlapSummary && (
+                    <p className="text-sm text-slate-500">No overlap information provided</p>
+                  )}
+                </div>
               </div>
             </article>
           );
@@ -3622,6 +3689,8 @@ function PatentsPanel({
 }) {
 
   function renderPatentsView(patents: PatentEntry[]) {
+    const stats = calculatePatentStats(patents);
+
     return (
       <div className="flex flex-1 flex-col overflow-auto">
         <div className="flex-1 overflow-auto bg-slate-50">
@@ -3630,7 +3699,7 @@ function PatentsPanel({
               <div className="space-y-2">
                 <h2 className="text-xl font-semibold text-slate-900">Related Patents</h2>
                 <p className="text-sm leading-relaxed text-slate-600">
-                  Patents covering similar methods, compositions, or systems described in the paper&apos;s claims.
+                  Patents that validate the paper&apos;s claims through independent technical filings.
                 </p>
               </div>
               {onRetry && (
@@ -3647,7 +3716,34 @@ function PatentsPanel({
             </header>
 
             {patents.length > 0 ? (
-              renderPatentCards(patents)
+              <>
+                {/* Statistics summary */}
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Patents Found
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900">{stats.totalPatents}</p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Claims Validated
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900">
+                      {stats.validatedClaims.length > 0 ? stats.validatedClaims.join(", ") : "None"}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      Date Range
+                    </p>
+                    <p className="mt-1 text-2xl font-semibold text-slate-900">{stats.dateRange}</p>
+                  </div>
+                </div>
+
+                {/* Patent cards */}
+                {renderPatentCards(patents)}
+              </>
             ) : (
               <div className="rounded-lg border border-slate-200 bg-white px-5 py-4 text-sm text-slate-600">
                 No patents surfaced yet.

@@ -27,18 +27,20 @@ const {
 
 const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's patent search notes into strict JSON for Evidentia's patent UI.
 
+Context: You should receive notes for 3-5 patents that validate the paper's claims through substantive technical overlap.
+
 Output requirements:
-- Return a single JSON object with keys: patents (array), promptNotes (optional string).
+- Return a single JSON object with keys: patents (array of 3-5 items), promptNotes (optional string).
 - Each patent object must include: patentNumber (string), title (string), assignee (string|null), filingDate (string|null), grantDate (string|null), abstract (string|null), overlapWithPaper (object with claimIds array and summary string), url (string).
-- Use null for unknown scalars. Use empty arrays for missing arrays.
+- Use null for unknown scalars. Use empty arrays for missing claimIds arrays only.
 - CRITICAL: Every patent MUST have a url field with a Google Patents link. Construct it as: https://patents.google.com/patent/{PATENT_NUMBER}
   Examples:
   * US7729863B2 → https://patents.google.com/patent/US7729863B2
   * WO2022272120A1 → https://patents.google.com/patent/WO2022272120A1
   * EP3438287B1 → https://patents.google.com/patent/EP3438287B1
 - Dates should be in YYYY-MM-DD format when available.
-- overlapWithPaper.claimIds should reference the paper claim IDs (e.g., ["C1", "C3"]).
-- overlapWithPaper.summary MUST be a detailed 2-3 sentence explanation of HOW the patent's technical claims map to specific methods/techniques in the paper. Be specific about the technical overlap.
+- overlapWithPaper.claimIds should reference the paper claim IDs (e.g., ["C1", "C3"]). This array shows which claims are validated by this patent.
+- overlapWithPaper.summary MUST be a detailed 2-3 sentence explanation of HOW the patent's technical claims map to specific methods/techniques in the paper. Be specific about the technical overlap—this is validation evidence.
 - No markdown, commentary, or trailing prose. Valid JSON only (double quotes).
 - Preserve factual content from the notes; do not invent new patents.
 - Output raw JSON only — no markdown fences, comments, trailing prose, or extra keys.`;
@@ -97,9 +99,11 @@ function buildPatentDiscoveryPrompt(entry) {
   }
 
   const lines = [
-    "You are a patent research analyst.",
+    "Objective: Identify 3-5 patents that validate the paper's claims through substantive technical overlap.",
     "",
-    "Search for Patents Covering Methods, Compositions, or Systems Described in Paper Claims",
+    "Context: You have a claims brief from a scientific paper. Search patent databases to find granted patents and published applications that cover similar technical approaches. Focus on validation evidence—patents that demonstrate the paper's methods have been independently developed and claimed in the patent literature.",
+    "",
+    "Inputs:",
     "",
     `Paper: ${paperTitle}`,
   ];
@@ -109,23 +113,6 @@ function buildPatentDiscoveryPrompt(entry) {
   }
 
   lines.push(
-    "",
-    "Goal: For each claim below, identify relevant patents that cover similar methods, compositions, systems, or applications. Focus on granted patents and published applications that overlap with the technical approaches described. Provide rigorous technical analysis of how patent claims map to specific paper methods.",
-    "",
-    "Methodology:",
-    "1. For each paper claim, extract specific technical elements:",
-    "   - Algorithms, computational methods, or analytical approaches",
-    "   - Compositions, materials, or chemical structures",
-    "   - Apparatus, devices, or instrumentation",
-    "   - Applications, use cases, or therapeutic methods",
-    "2. Search patent databases (Google Patents, USPTO, EPO, WIPO) for patents covering those elements.",
-    "3. For each patent found, perform technical claim mapping:",
-    "   - Identify which specific patent claims cover similar approaches",
-    "   - Map patent claim language to paper's technical elements",
-    "   - Explain HOW the patent claims cover the paper's methods (be specific)",
-    "   - Note both broad coverage and narrow technical overlap",
-    "4. Prioritize patents with substantive technical overlap, not just keyword matches.",
-    "5. For each patent, write a 2-3 sentence technical summary explaining the overlap.",
     "",
     "Claims from the paper:",
     ""
@@ -143,20 +130,35 @@ function buildPatentDiscoveryPrompt(entry) {
   });
 
   lines.push(
-    "Deliverable:",
-    "- Return plain text with one section per patent found.",
-    "- For each patent, provide:",
-    "  * Patent number (e.g., US1234567, EP9876543, WO2020123456)",
-    "  * Title",
-    "  * Assignee (company/institution)",
-    "  * Filing date and grant date (if granted)",
-    "  * Brief abstract (1-2 sentences)",
-    "  * Which paper claims this patent relates to (e.g., C1, C3)",
-    "  * Technical overlap summary (2-3 sentences explaining HOW the patent claims map to specific paper methods/techniques)",
-    "  * URL to patent document (Google Patents, USPTO, etc.)",
-    "- Include 5-10 most relevant patents with substantive technical overlap.",
-    "- Focus on quality over quantity - only include patents with clear technical mapping.",
-    "- If no patents are found for certain claims, note that explicitly.",
+    "Constraints:",
+    "",
+    "- Return 3-5 patents with the strongest technical overlap (quality over quantity).",
+    "- Include both granted patents and published applications.",
+    "- Bias toward recent filings (last 10 years) when relevance is comparable.",
+    "- Focus on substantive technical overlap, not just keyword matches.",
+    "- For each patent, explain HOW the patent claims map to specific paper methods (be specific about the technical elements that overlap).",
+    "",
+    "Output Format:",
+    "",
+    "For each patent provide:",
+    "- Patent number (e.g., US1234567B2, WO2020123456A1)",
+    "- Title",
+    "- Assignee (company/institution)",
+    "- Filing date and grant date (if granted)",
+    "- Brief abstract (1-2 sentences)",
+    "- Which paper claims this patent relates to (e.g., C1, C3)",
+    "- Technical overlap summary: 2-3 sentences explaining HOW the patent's technical claims map to specific methods/techniques in the paper. Be specific about algorithms, materials, apparatus, or applications that overlap.",
+    "- URL to patent document (Google Patents link)",
+    "",
+    "Steps:",
+    "",
+    "1. Extract specific technical elements from each paper claim: algorithms, compositions, materials, apparatus, methods, or applications.",
+    "2. Search patent databases (Google Patents, USPTO, EPO, WIPO) using these technical elements.",
+    "3. For each candidate patent, read the claims section and identify which patent claims cover similar technical approaches.",
+    "4. Map patent claim language to the paper's technical elements and note the overlap.",
+    "5. Select the 3-5 patents with the most substantive technical overlap to the paper's claims.",
+    "6. For each selected patent, write a 2-3 sentence technical summary explaining the specific overlap.",
+    "7. If fewer than 3 patents have substantive overlap, return what you find and note which claims lack patent coverage.",
     ""
   );
 
