@@ -155,7 +155,7 @@ const MOCK_AUTHOR_CONTACTS_STRUCTURED: AuthorContactsPaperEntry[] | undefined = 
   ? ((DEFAULT_ENTRY_RAW.authorContacts as any).structured.papers as AuthorContactsPaperEntry[])
   : undefined;
 
-const PIPELINE_TIMEOUT_MS = 300_000;
+const PIPELINE_TIMEOUT_MS = 600_000; // 10 minutes
 const PIPELINE_TIMEOUT_LABEL = `${PIPELINE_TIMEOUT_MS / 1000}s`;
 
 function isMockPaper(paper: UploadedPaper | null | undefined) {
@@ -6290,18 +6290,18 @@ export default function LandingPage() {
   const runResearcherTheses = useCallback(
     async (
       paper: UploadedPaper,
-      researchGroupsStructured: ResearchGroupPaperEntry[] | AuthorContactsPaperEntry[] | undefined
+      authorDataStructured: ResearchGroupPaperEntry[] | AuthorContactsPaperEntry[] | undefined
     ): Promise<ResearcherThesesResult | null> => {
       if (!paper || isMockPaper(paper)) {
         return null;
       }
 
-      if (!researchGroupsStructured || researchGroupsStructured.length === 0) {
+      if (!authorDataStructured || authorDataStructured.length === 0) {
         setResearchThesesStates((prev) => ({
           ...prev,
           [paper.id]: {
             status: "error",
-            message: "Research groups data is required for researcher theses lookup.",
+            message: "Author data is required for researcher theses lookup.",
             deepDives:
               prev[paper.id]?.status === "success" ? prev[paper.id].deepDives : undefined
           }
@@ -6311,7 +6311,7 @@ export default function LandingPage() {
 
       console.log("[researcher-theses] starting fetch", {
         paperId: paper.id,
-        papers: researchGroupsStructured.length
+        papers: authorDataStructured.length
       });
 
       setResearchThesesStates((prev) => ({
@@ -6344,9 +6344,9 @@ export default function LandingPage() {
               "Content-Type": "application/json"
             },
             body: JSON.stringify({
-              researchGroups: {
+              authorContacts: {
                 structured: {
-                  papers: researchGroupsStructured
+                  papers: authorDataStructured
                 }
               }
             }),
@@ -6889,38 +6889,105 @@ export default function LandingPage() {
             canGenerateGroups &&
             (!groupsState || groupsState.status !== "success" || forceGroups)
           ) {
-            const groupsResult = await runResearchGroups(paper, extractionData, claimsState, similarState);
-            if (!groupsResult) {
-              groupsState = researchGroupsStatesRef.current[paper.id];
-            } else {
-              groupsState = { status: "success", ...groupsResult } as ResearchGroupsState;
+            // Check storage first before running API
+            if (paper.storagePath && supabase && !forceGroups) {
+              try {
+                const storedGroups = await loadResearchGroupsFromStorage({
+                  client: supabase,
+                  storagePath: paper.storagePath
+                });
+
+                if (storedGroups?.text) {
+                  const normalized = normalizeResearchGroupsStructured(storedGroups.structured);
+                  setResearchGroupsStates((prev) => ({
+                    ...prev,
+                    [paper.id]: {
+                      status: "success",
+                      text: storedGroups.text,
+                      structured: normalized
+                    }
+                  }));
+                  groupsState = {
+                    status: "success",
+                    text: storedGroups.text,
+                    structured: normalized
+                  } as ResearchGroupsState;
+                }
+              } catch (error) {
+                console.error("[research-groups] Failed to load from storage in pipeline", error);
+              }
+            }
+
+            // Only run API if we don't have data
+            if (!groupsState || groupsState.status !== "success") {
+              const groupsResult = await runResearchGroups(paper, extractionData, claimsState, similarState);
+              if (!groupsResult) {
+                groupsState = researchGroupsStatesRef.current[paper.id];
+              } else {
+                groupsState = { status: "success", ...groupsResult } as ResearchGroupsState;
+              }
             }
           }
 
           const hasGroupsSuccess = groupsState?.status === "success";
+          let contactsState = researchContactsStatesRef.current[paper.id];
           if (groupsState?.status === "success") {
-            const contactsState = researchContactsStatesRef.current[paper.id];
             if (!contactsState || contactsState.status !== "success") {
               await runResearchGroupContacts(paper, groupsState.text, groupsState.structured);
+              contactsState = researchContactsStatesRef.current[paper.id];
             }
           }
 
           let thesesState = researchThesesStatesRef.current[paper.id];
-          const hasStructuredGroups =
+          // Use research groups structured data which contains full author info with roles
+          // This is passed as "authorContacts" to the API for semantic clarity
+          const hasStructuredAuthors =
             groupsState?.status === "success" &&
             Array.isArray(groupsState.structured) &&
             groupsState.structured.length > 0;
           const forceTheses = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.theses;
           if (
             groupsState?.status === "success" &&
-            hasStructuredGroups &&
+            hasStructuredAuthors &&
             (!thesesState || thesesState.status !== "success" || forceTheses)
           ) {
-            const thesesResult = await runResearcherTheses(paper, groupsState.structured);
-            if (thesesResult) {
-              thesesState = { status: "success", ...thesesResult } as ResearcherThesesState;
-            } else {
-              thesesState = researchThesesStatesRef.current[paper.id];
+            // Check storage first before running API
+            if (paper.storagePath && supabase && !forceTheses) {
+              try {
+                const storedTheses = await loadThesesFromStorage({
+                  client: supabase,
+                  storagePath: paper.storagePath
+                });
+
+                if (storedTheses?.researchers && storedTheses.researchers.length > 0) {
+                  const text = typeof storedTheses.text === "string" ? storedTheses.text.trim() : "";
+                  setResearchThesesStates((prev) => ({
+                    ...prev,
+                    [paper.id]: {
+                      status: "success",
+                      researchers: storedTheses.researchers,
+                      ...(text.length > 0 ? { text } : {})
+                    }
+                  }));
+                  thesesState = {
+                    status: "success",
+                    researchers: storedTheses.researchers,
+                    ...(text.length > 0 ? { text } : {})
+                  } as ResearcherThesesState;
+                }
+              } catch (error) {
+                console.error("[researcher-theses] Failed to load from storage in pipeline", error);
+              }
+            }
+
+            // Only run API if we don't have data
+            if (!thesesState || thesesState.status !== "success") {
+              const thesesResult = await runResearcherTheses(paper, groupsState.structured);
+              if (thesesResult) {
+                thesesState = { status: "success", ...thesesResult } as ResearcherThesesState;
+              } else {
+                thesesState = researchThesesStatesRef.current[paper.id];
+              }
             }
           }
 

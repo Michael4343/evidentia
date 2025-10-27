@@ -19,35 +19,37 @@ Output requirements:
 - Preserve factual content from the discovery responses; do not invent new theses or publications.
 - Include ALL researchers from ALL discovery responses in this thread - do not skip anyone.`;
 
-interface ResearchGroup {
+interface Author {
   name?: string;
-  institution?: string | null;
-  website?: string | null;
-  notes?: string | null;
-  researchers?: Array<{
-    name?: string;
-    email?: string | null;
-    role?: string | null;
-  }>;
+  email?: string | null;
+  role?: string | null;
+  orcid?: string | null;
 }
 
 interface Paper {
   title?: string;
   identifier?: string | null;
-  groups?: ResearchGroup[];
-  authors?: Array<{
-    name?: string;
-    email?: string | null;
-    role?: string | null;
-  }>;
+  year?: number | null;
+  authors?: Author[];
 }
 
-interface ResearchGroupsStructured {
+interface AuthorContactsStructured {
   papers?: Paper[];
 }
 
-interface ResearchGroupsPayload {
-  structured?: ResearchGroupsStructured;
+interface AuthorContactsPayload {
+  structured?: AuthorContactsStructured;
+}
+
+interface FilteredPaper {
+  title: string;
+  identifier: string | null;
+  year: number | null;
+  authors: Array<{
+    name: string;
+    email: string | null;
+    role: string | null;
+  }>;
 }
 
 function cleanPlainText(input: string): string {
@@ -57,134 +59,117 @@ function cleanPlainText(input: string): string {
   return input.replace(/\r\n/g, "\n").trim();
 }
 
-function buildDiscoveryPrompt(researchGroups: ResearchGroupsPayload): string {
-  const papers = researchGroups?.structured?.papers || [];
+/**
+ * Filter to key authors per paper: First author + Corresponding/PI author
+ * Falls back to positional last author if no corresponding author found by role
+ */
+function filterToKeyAuthors(papers: Paper[]): FilteredPaper[] {
+  return papers
+    .map((paper) => {
+      const paperTitle = cleanPlainText(paper?.title || "");
+      if (!paperTitle) {
+        return null;
+      }
 
-  if (papers.length === 0) {
-    throw new Error("No papers found in research groups data.");
-  }
+      const authors = paper?.authors || [];
+      if (authors.length === 0) {
+        return null;
+      }
 
-  // Extract all researchers from all groups across all papers
-  const allResearchers: Array<{
-    name: string;
-    email: string | null;
-    group: string;
-    institution: string;
-    website: string;
-    notes: string;
-    paper: string;
-  }> = [];
+      const keyAuthors: Array<{ name: string; email: string | null; role: string | null }> = [];
 
-  papers.forEach((paper) => {
-    const paperTitle = cleanPlainText(paper?.title || "Unknown paper");
+      // Find first author (role-based or positional)
+      const firstAuthorByRole = authors.find((a) =>
+        a?.role?.toLowerCase().includes("first author")
+      );
+      const firstAuthor = firstAuthorByRole || authors[0];
 
-    // Handle both formats: old format with .groups, new format with .authors
-    const hasGroups = Array.isArray(paper?.groups);
-    const hasAuthors = Array.isArray(paper?.authors);
-
-    if (hasGroups) {
-      // Old format: papers with .groups containing .researchers
-      const groups = paper.groups || [];
-      groups.forEach((group: any) => {
-        const groupName = cleanPlainText(group?.name || "Unknown group");
-        const institution = cleanPlainText(group?.institution || "");
-        const website = cleanPlainText(group?.website || "");
-        const notes = cleanPlainText(group?.notes || "");
-        const researchers = group?.researchers || [];
-
-        researchers.forEach((researcher: any) => {
-          const name = cleanPlainText(researcher?.name || "");
-          if (name.length > 0) {
-            allResearchers.push({
-              name,
-              email: researcher?.email || null,
-              group: groupName,
-              institution,
-              website,
-              notes,
-              paper: paperTitle
-            });
-          }
+      if (firstAuthor?.name) {
+        keyAuthors.push({
+          name: cleanPlainText(firstAuthor.name),
+          email: firstAuthor.email || null,
+          role: firstAuthor.role ? cleanPlainText(firstAuthor.role) : null
         });
+      }
+
+      // Find corresponding/PI author (role-based)
+      const correspondingAuthor = authors.find((a) => {
+        const role = a?.role?.toLowerCase() || "";
+        return (
+          role.includes("corresponding") ||
+          role.includes("pi") ||
+          role.includes("principal investigator") ||
+          role.includes("senior author")
+        );
       });
-    } else if (hasAuthors) {
-      // New format: papers with .authors directly
-      const authors = paper.authors || [];
-      authors.forEach((author: any) => {
-        const name = cleanPlainText(author?.name || "");
-        if (name.length > 0) {
-          allResearchers.push({
-            name,
-            email: author?.email || null,
-            group: "Author", // Default group name for new format
-            institution: "",
-            website: "",
-            notes: author?.role || "",
-            paper: paperTitle
+
+      if (correspondingAuthor && correspondingAuthor.name && correspondingAuthor.name !== firstAuthor.name) {
+        keyAuthors.push({
+          name: cleanPlainText(correspondingAuthor.name),
+          email: correspondingAuthor.email || null,
+          role: correspondingAuthor.role ? cleanPlainText(correspondingAuthor.role) : null
+        });
+      } else if (!correspondingAuthor && authors.length > 1) {
+        // Fallback to last positional author if no corresponding found
+        const lastAuthor = authors[authors.length - 1];
+        if (lastAuthor?.name && lastAuthor.name !== firstAuthor.name) {
+          keyAuthors.push({
+            name: cleanPlainText(lastAuthor.name),
+            email: lastAuthor.email || null,
+            role: lastAuthor.role ? cleanPlainText(lastAuthor.role) : "Last author"
           });
         }
-      });
-    }
-  });
+      }
 
-  if (allResearchers.length === 0) {
-    throw new Error("No researchers found in research groups data.");
-  }
+      if (keyAuthors.length === 0) {
+        return null;
+      }
 
+      return {
+        title: paperTitle,
+        identifier: paper.identifier ? cleanPlainText(paper.identifier) : null,
+        year: typeof paper.year === "number" ? paper.year : null,
+        authors: keyAuthors
+      };
+    })
+    .filter((p): p is FilteredPaper => p !== null);
+}
+
+/**
+ * Build a discovery prompt for a single paper's key authors
+ * Matches the pattern from generate-researcher-theses.js
+ */
+function buildDiscoveryPromptForPaper(paper: FilteredPaper): string {
   const lines = [
     "You are a research analyst specializing in PhD thesis discovery for Evidentia.",
     "",
-    "Your PRIMARY task is to find the doctoral dissertations for the researchers listed below.",
+    "Your PRIMARY task is to find the doctoral dissertations for the paper authors listed below.",
     "Use systematic database searches and verify researcher identity carefully.",
-    "",
-    "Research Groups and Members:",
     ""
   ];
 
-  // Group researchers by paper for better context
-  const researchersByPaper = new Map<string, typeof allResearchers>();
-  allResearchers.forEach((r) => {
-    if (!researchersByPaper.has(r.paper)) {
-      researchersByPaper.set(r.paper, []);
+  lines.push(`Paper: ${paper.title}`);
+  if (paper.year !== null) {
+    lines.push(`Publication year: ${paper.year}`);
+  }
+  if (paper.identifier) {
+    lines.push(`Identifier: ${paper.identifier}`);
+  }
+
+  lines.push("", "Authors to investigate:");
+  paper.authors.forEach((author, index) => {
+    const details = [`${index + 1}. ${author.name}`];
+    if (author.role) {
+      details.push(author.role);
     }
-    researchersByPaper.get(r.paper)!.push(r);
-  });
-
-  researchersByPaper.forEach((researchers, paperTitle) => {
-    lines.push(`Paper: ${paperTitle}`);
-
-    const researchersByGroup = new Map<string, typeof researchers>();
-    researchers.forEach((r) => {
-      if (!researchersByGroup.has(r.group)) {
-        researchersByGroup.set(r.group, []);
-      }
-      researchersByGroup.get(r.group)!.push(r);
-    });
-
-    researchersByGroup.forEach((groupResearchers, groupName) => {
-      const sample = groupResearchers[0];
-      const meta: string[] = [];
-      if (sample?.institution) {
-        meta.push(sample.institution);
-      }
-      if (sample?.website) {
-        meta.push(sample.website);
-      }
-      if (sample?.notes) {
-        meta.push(sample.notes);
-      }
-
-      const metaLine = meta.length > 0 ? ` (${meta.join(" · ")})` : "";
-      lines.push(`  Group: ${groupName}${metaLine}`);
-      groupResearchers.forEach((r) => {
-        const emailPart = r.email ? ` (${r.email})` : "";
-        lines.push(`    - ${r.name}${emailPart}`);
-      });
-    });
-    lines.push("");
+    if (author.email) {
+      details.push(author.email);
+    }
+    lines.push(`- ${details.join(" — ")}`);
   });
 
   lines.push(
+    "",
     "PRIMARY GOAL: Find the PhD thesis for each researcher listed above.",
     "",
     "For each researcher, complete the following steps in order:",
@@ -258,9 +243,9 @@ function buildDiscoveryPrompt(researchGroups: ResearchGroupsPayload): string {
     "",
     "---",
     "",
-    "Repeat this block for every researcher in the list. Do not skip anyone.",
-    "At the end, provide a summary:",
-    "- Total researchers searched: <number>",
+    "Repeat this block for every author in the list. Do not skip anyone.",
+    `At the end, provide a summary:`,
+    `- Total authors searched: ${paper.authors.length}`,
     "- Theses found: <number>",
     "- Theses not verified: <number>",
     "- Primary databases used: <list top 3>"
@@ -269,72 +254,57 @@ function buildDiscoveryPrompt(researchGroups: ResearchGroupsPayload): string {
   return lines.join("\n");
 }
 
-function buildCleanupPrompt(discoveryNotes: string): string {
-  return `${CLEANUP_PROMPT_HEADER}\n\nAnalyst's researcher thesis notes:\n\n${discoveryNotes}`;
+/**
+ * Build cleanup prompt that aggregates multiple discovery responses
+ */
+function buildCleanupPrompt(allDiscoveryNotes: string): string {
+  return `${CLEANUP_PROMPT_HEADER}\n\nAnalyst's researcher thesis notes (from multiple discovery passes):\n\n${allDiscoveryNotes}`;
 }
 
-export async function POST(request: Request) {
+/**
+ * Execute a single OpenAI API call with timeout and error handling
+ */
+async function callOpenAI(
+  prompt: string,
+  options: {
+    apiKey: string;
+    timeout?: number;
+    maxTokens?: number;
+    useWebSearch?: boolean;
+  }
+): Promise<string> {
+  const { apiKey, timeout = 600_000, maxTokens = 8_192, useWebSearch = false } = options;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
   try {
-    const body = await request.json().catch(() => null);
+    const requestBody: any = {
+      model: "gpt-5-mini-2025-08-07",
+      reasoning: { effort: "low" },
+      input: prompt,
+      max_output_tokens: maxTokens
+    };
 
-    // Validate input - expect research groups structured data
-    if (!body?.researchGroups || !body.researchGroups.structured) {
-      return NextResponse.json(
-        {
-          error: "Research groups data required. Please wait for research groups to complete first."
-        },
-        { status: 400 }
-      );
+    if (useWebSearch) {
+      requestBody.tools = [{ type: "web_search", search_context_size: "medium" }];
+      requestBody.tool_choice = "auto";
     }
 
-    const researchGroups = body.researchGroups as ResearchGroupsPayload;
-
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      console.error("[researcher-theses] OPENAI_API_KEY is not configured.");
-      return NextResponse.json({ error: "OpenAI API key is not configured." }, { status: 500 });
-    }
-
-    // Build discovery prompt
-    let discoveryPrompt: string;
-    try {
-      discoveryPrompt = buildDiscoveryPrompt(researchGroups);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to build discovery prompt.";
-      return NextResponse.json({ error: message }, { status: 400 });
-    }
-
-    // STEP 1: Discovery with web search
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 600_000);
-
-    let response: Response;
-    try {
-      response = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: "gpt-5-mini-2025-08-07",
-          reasoning: { effort: "low" },
-          tools: [{ type: "web_search", search_context_size: "medium" }],
-          tool_choice: "auto",
-          input: discoveryPrompt,
-          max_output_tokens: 8_192
-        }),
-        signal: controller.signal
-      });
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal
+    });
 
     if (!response.ok) {
       let message = "OpenAI request failed.";
       try {
         const errorPayload = await response.json();
-        console.error("[researcher-theses] OpenAI error payload", errorPayload);
         if (typeof errorPayload?.error === "string") {
           message = errorPayload.error;
         } else if (typeof errorPayload?.message === "string") {
@@ -343,16 +313,10 @@ export async function POST(request: Request) {
       } catch (parseError) {
         console.warn("[researcher-theses] Failed to parse OpenAI error payload", parseError);
       }
-      return NextResponse.json({ error: message }, { status: response.status });
+      throw new Error(message);
     }
 
-    let payload: any;
-    try {
-      payload = await response.json();
-    } catch (parseError) {
-      console.error("[researcher-theses] Failed to parse JSON response", parseError);
-      return NextResponse.json({ error: "Failed to read model response." }, { status: 502 });
-    }
+    const payload = await response.json();
 
     let outputText = typeof payload?.output_text === "string" ? payload.output_text.trim() : "";
 
@@ -371,109 +335,141 @@ export async function POST(request: Request) {
     if (payload?.status === "incomplete" && payload?.incomplete_details?.reason) {
       console.warn("[researcher-theses] Model response incomplete", payload.incomplete_details);
       if (outputText) {
-        outputText = `${outputText}\n\n[Note: Response truncated because the model hit its output limit. Consider rerunning if key details are missing.]`;
+        outputText = `${outputText}\n\n[Note: Response truncated because the model hit its output limit.]`;
       } else {
-        return NextResponse.json(
-          {
-            error:
-              payload.incomplete_details.reason === "max_output_tokens"
-                ? "Researcher thesis discovery hit the output limit before completing. Try again in a moment."
-                : `Researcher thesis discovery ended early: ${payload.incomplete_details.reason}`
-          },
-          { status: 502 }
+        throw new Error(
+          payload.incomplete_details.reason === "max_output_tokens"
+            ? "Researcher thesis discovery hit the output limit. Try again."
+            : `Researcher thesis discovery ended early: ${payload.incomplete_details.reason}`
         );
       }
     }
 
     if (!outputText) {
-      console.error("[researcher-theses] Empty response payload", payload);
-      return NextResponse.json({ error: "Model did not return any text." }, { status: 502 });
+      throw new Error("Model did not return any text.");
     }
 
-    // STEP 2: Cleanup - convert notes to structured JSON
-    const cleanupPrompt = buildCleanupPrompt(outputText);
+    return outputText;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
-    const controller2 = new AbortController();
-    const timeoutId2 = setTimeout(() => controller2.abort(), 600_000);
+export async function POST(request: Request) {
+  try {
+    const body = await request.json().catch(() => null);
 
-    let response2: Response;
-    try {
-      response2 = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`
+    // Validate input - expect author contacts structured data
+    if (!body?.authorContacts || !body.authorContacts.structured) {
+      return NextResponse.json(
+        {
+          error: "Author contacts data required. Please wait for author contacts to complete first."
         },
-        body: JSON.stringify({
-          model: "gpt-5-mini-2025-08-07",
-          reasoning: { effort: "low" },
-          input: cleanupPrompt,
-          max_output_tokens: 8_192
-        }),
-        signal: controller2.signal
-      });
-    } finally {
-      clearTimeout(timeoutId2);
+        { status: 400 }
+      );
     }
 
-    if (!response2.ok) {
-      let message = "OpenAI cleanup request failed.";
+    const authorContacts = body.authorContacts as AuthorContactsPayload;
+    const papers = authorContacts?.structured?.papers || [];
+
+    if (papers.length === 0) {
+      return NextResponse.json({ error: "No papers found in author contacts data." }, { status: 400 });
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      console.error("[researcher-theses] OPENAI_API_KEY is not configured.");
+      return NextResponse.json({ error: "OpenAI API key is not configured." }, { status: 500 });
+    }
+
+    // Filter to key authors (first + corresponding/PI)
+    const filteredPapers = filterToKeyAuthors(papers);
+
+    if (filteredPapers.length === 0) {
+      return NextResponse.json({ error: "No key authors found in papers." }, { status: 400 });
+    }
+
+    const totalAuthors = filteredPapers.reduce((sum, p) => sum + p.authors.length, 0);
+    console.log(`[researcher-theses] Processing ${filteredPapers.length} papers with ${totalAuthors} key authors`);
+
+    // STEP 1: Sequential discovery - one prompt per paper
+    const discoveryNotes: string[] = [];
+
+    for (let i = 0; i < filteredPapers.length; i++) {
+      const paper = filteredPapers[i];
+      console.log(
+        `[researcher-theses] Discovery ${i + 1}/${filteredPapers.length}: ${paper.title} (${paper.authors.length} authors)`
+      );
+
+      const discoveryPrompt = buildDiscoveryPromptForPaper(paper);
+
       try {
-        const errorPayload = await response2.json();
-        console.error("[researcher-theses] OpenAI cleanup error payload", errorPayload);
-        if (typeof errorPayload?.error === "string") {
-          message = errorPayload.error;
-        } else if (typeof errorPayload?.message === "string") {
-          message = errorPayload.message;
-        }
-      } catch (parseError) {
-        console.warn("[researcher-theses] Failed to parse OpenAI cleanup error payload", parseError);
+        const discoveryResponse = await callOpenAI(discoveryPrompt, {
+          apiKey,
+          timeout: 600_000,
+          maxTokens: 8_192,
+          useWebSearch: true
+        });
+
+        discoveryNotes.push(discoveryResponse);
+        console.log(
+          `[researcher-theses] Discovery ${i + 1}/${filteredPapers.length} completed (${discoveryResponse.length} chars)`
+        );
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Discovery request failed.";
+        console.error(`[researcher-theses] Discovery ${i + 1}/${filteredPapers.length} failed:`, error);
+        // Continue with other papers even if one fails
+        discoveryNotes.push(
+          `[Discovery failed for paper: ${paper.title}]\nError: ${message}\nSkipping these authors: ${paper.authors.map((a) => a.name).join(", ")}`
+        );
       }
-      return NextResponse.json({ error: message }, { status: response2.status });
     }
 
-    let payload2: any;
+    if (discoveryNotes.length === 0) {
+      return NextResponse.json({ error: "All discovery attempts failed." }, { status: 502 });
+    }
+
+    // Combine all discovery notes
+    const allDiscoveryText = discoveryNotes.join("\n\n---\n\n");
+
+    // STEP 2: Cleanup - convert aggregated notes to structured JSON
+    console.log(`[researcher-theses] Running cleanup on ${allDiscoveryText.length} chars of discovery notes`);
+
+    const cleanupPrompt = buildCleanupPrompt(allDiscoveryText);
+
+    let cleanupResponse: string;
     try {
-      payload2 = await response2.json();
-    } catch (parseError) {
-      console.error("[researcher-theses] Failed to parse JSON cleanup response", parseError);
-      return NextResponse.json({ error: "Failed to read model cleanup response." }, { status: 502 });
-    }
-
-    let cleanupOutputText = typeof payload2?.output_text === "string" ? payload2.output_text.trim() : "";
-
-    if (!cleanupOutputText && Array.isArray(payload2?.output)) {
-      cleanupOutputText = payload2.output
-        .filter((item: any) => item && item.type === "message" && Array.isArray(item.content))
-        .flatMap((item: any) =>
-          item.content
-            .filter((part: any) => part?.type === "output_text" && typeof part.text === "string")
-            .map((part: any) => part.text)
-        )
-        .join("\n")
-        .trim();
-    }
-
-    if (!cleanupOutputText) {
-      console.error("[researcher-theses] Empty cleanup response payload", payload2);
-      return NextResponse.json({ error: "Model did not return cleanup JSON." }, { status: 502 });
+      cleanupResponse = await callOpenAI(cleanupPrompt, {
+        apiKey,
+        timeout: 600_000,
+        maxTokens: 8_192,
+        useWebSearch: false
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cleanup request failed.";
+      console.error("[researcher-theses] Cleanup failed:", error);
+      return NextResponse.json({ error: `Cleanup failed: ${message}` }, { status: 502 });
     }
 
     // Parse structured output
     let structuredTheses: any;
     try {
       // Remove markdown code fences if present
-      const cleanedOutput = cleanupOutputText.replace(/^```json\s*\n?|\n?```\s*$/g, "").trim();
+      const cleanedOutput = cleanupResponse.replace(/^```json\s*\n?|\n?```\s*$/g, "").trim();
       structuredTheses = JSON.parse(cleanedOutput);
     } catch (parseError) {
       console.error("[researcher-theses] Failed to parse structured JSON", parseError);
-      console.error("[researcher-theses] Raw cleanup output:", cleanupOutputText);
+      console.error("[researcher-theses] Raw cleanup output:", cleanupResponse);
       // Fall back to returning just the text analysis
-      return NextResponse.json({ text: outputText, structured: null });
+      return NextResponse.json({ text: allDiscoveryText, structured: null });
     }
 
+    console.log(
+      `[researcher-theses] Success: ${structuredTheses?.researchers?.length || 0} researchers compiled`
+    );
+
     return NextResponse.json({
-      text: outputText,
+      text: allDiscoveryText,
       structured: structuredTheses
     });
   } catch (error) {

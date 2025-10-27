@@ -88,7 +88,7 @@ export async function POST(request: Request) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 120_000);
+    }, 600_000); // 10 minutes
 
     let response: Response;
 
@@ -103,7 +103,7 @@ export async function POST(request: Request) {
           model: "gpt-5-mini",
           reasoning: { effort: "low" },
           input: prompt,
-          max_output_tokens: 1_000
+          max_output_tokens: 4_000
         }),
         signal: controller.signal
       });
@@ -150,6 +150,23 @@ export async function POST(request: Request) {
         )
         .join("\n")
         .trim();
+    }
+
+    if (payload?.status === "incomplete" && payload?.incomplete_details?.reason) {
+      console.warn("[research-group-contacts] Model response incomplete", payload.incomplete_details);
+      if (textOutput) {
+        textOutput = `${textOutput}\n\n[Note: Response truncated because the model hit its output limit.]`;
+      } else {
+        return NextResponse.json(
+          {
+            error:
+              payload.incomplete_details.reason === "max_output_tokens"
+                ? "Contact extraction hit the output limit. Try reducing the number of groups."
+                : `Contact extraction ended early: ${payload.incomplete_details.reason}`
+          },
+          { status: 502 }
+        );
+      }
     }
 
     if (!textOutput) {
