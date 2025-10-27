@@ -62,9 +62,9 @@ interface RiskItem {
   readonly note?: string | null;
 }
 
-const DISCOVERY_PROMPT_TEMPLATE = `Objective: For EACH paper below, gather comprehensive contact information for the FIRST 3 AUTHORS listed on that paper.
+const DISCOVERY_PROMPT_TEMPLATE = `Objective: For EACH paper below, gather contact information for the FIRST author, LAST author, and CORRESPONDING author.
 
-Context: You're building a collaboration pipeline for research analysts. For each paper, identify the first 3 authors (or all authors if fewer than 3) and find their complete contact details. You have web search tools enabled—use them immediately.
+Context: You're building a collaboration pipeline for research analysts. For each paper, identify the key authors (first, last, corresponding) and find their complete contact details. You have web search tools enabled—use them immediately.
 
 Papers to analyze:
 [PAPERS_SECTION]
@@ -72,7 +72,15 @@ Papers to analyze:
 Task:
 
 For each paper:
-1. Take the FIRST 3 AUTHORS from the author list (or all if fewer than 3)
+1. Identify the following key authors:
+   - FIRST AUTHOR: The first author listed (typically did most of the work)
+   - LAST AUTHOR: The final author listed (typically the senior PI/supervisor)
+   - CORRESPONDING AUTHOR: The author marked with * or † or explicitly listed as "corresponding author" (main point of contact)
+
+   Note: If the paper has fewer than 3 total authors, include all authors.
+   If the corresponding author is the same as first or last, include them only once.
+   Prioritize finding the corresponding author as they are the primary contact.
+
 2. For each author, use web search to gather comprehensive contact information:
    - Full name (as listed on the paper)
    - Institutional email (search university directories, lab pages)
@@ -132,7 +140,9 @@ Important:
 - Use 'Not found' when information genuinely can't be located after thorough search
 - ORCID format: 0000-0000-0000-0000 (16 digits with hyphens)
 - Only include profiles that are publicly accessible
-- For each paper, include the first 3 authors (or all if <3)
+- For each paper, include: first author, last author, and corresponding author
+- If any of these roles overlap (e.g., first author is also corresponding), list them once
+- If the paper doesn't explicitly mark a corresponding author, make your best guess based on institutional affiliation or contact information provided
 - Prioritize institutional emails over personal emails
 
 Begin web search and research immediately.`;
@@ -149,7 +159,7 @@ Output requirements:
 - For profiles: only include profiles that have actual URLs. Common platforms: "Google Scholar", "LinkedIn", "Personal Website", "ResearchGate", "Twitter".
 - No markdown, no commentary, no trailing prose. Ensure valid JSON (double quotes only).
 - Preserve factual content; do not invent new people or emails.
-- Each paper should have up to 3 authors (the first 3 from the author list, or fewer if the paper has <3 authors).
+- Each paper should have up to 3 authors: first author, last author, and corresponding author (deduplicated if the same person appears in multiple roles). For papers with fewer than 3 total authors, include all authors.
 - Output raw JSON only — no markdown fences, comments, trailing prose, or extra keys.`;
 
 function cleanPlainText(input: string): string {
@@ -263,7 +273,45 @@ function preparePaperBatches(
   // Prepare similar papers (limit to 5)
   const similarPapersArray = (similarPapers.structured?.similarPapers || []).slice(0, 5);
 
-  similarPapersArray.forEach((similarPaper) => {
+  // Deduplicate: filter out any similar papers that match the source paper
+  const sourceDoi = paper.doi?.trim().toLowerCase() || null;
+  const sourceTitle = title.trim().toLowerCase();
+
+  const uniqueSimilarPapers = similarPapersArray.filter((similarPaper) => {
+    // Check DOI match (if both exist)
+    if (sourceDoi && similarPaper.doi) {
+      const similarDoi = similarPaper.doi.trim().toLowerCase();
+      // Match exact or partial DOIs (handles different formats like "10.1101/..." vs "https://doi.org/10.1101/...")
+      if (sourceDoi === similarDoi || sourceDoi.includes(similarDoi) || similarDoi.includes(sourceDoi)) {
+        console.log("[research-groups] Filtered out duplicate source paper by DOI", {
+          sourceDoi,
+          similarDoi,
+          title: similarPaper.title
+        });
+        return false; // Skip - matches source DOI
+      }
+    }
+
+    // Check title match as fallback (normalize case and whitespace)
+    const similarTitle = (similarPaper.title || "").trim().toLowerCase();
+    if (similarTitle && sourceTitle === similarTitle) {
+      console.log("[research-groups] Filtered out duplicate source paper by title", {
+        sourceTitle,
+        similarTitle
+      });
+      return false; // Skip - matches source title
+    }
+
+    return true; // Keep - doesn't match source
+  });
+
+  console.log("[research-groups] Deduplication complete", {
+    totalSimilarPapers: similarPapersArray.length,
+    uniqueSimilarPapers: uniqueSimilarPapers.length,
+    filteredCount: similarPapersArray.length - uniqueSimilarPapers.length
+  });
+
+  uniqueSimilarPapers.forEach((similarPaper) => {
     const paperTitle = cleanPlainText(similarPaper.title || "Unknown title");
     const authors = Array.isArray(similarPaper.authors) && similarPaper.authors.length > 0
       ? similarPaper.authors.map((author, idx) => `     ${idx + 1}. ${cleanPlainText(author)}`).join('\n')
@@ -286,8 +334,10 @@ function preparePaperBatches(
   return allPapers;
 }
 
-function buildCleanupPrompt(discoveryNotes: string): string {
-  return `${CLEANUP_PROMPT_HEADER}\n\nAnalyst's author contacts notes:\n\n${discoveryNotes}`;
+function buildCleanupPrompt(discoveryNotes: string, expectedPaperCount: number): string {
+  const countInstruction = `\n\nCRITICAL: The notes contain author contact information for EXACTLY ${expectedPaperCount} papers. You MUST extract all ${expectedPaperCount} papers. Do not stop early. Verify that your final JSON includes exactly ${expectedPaperCount} papers in the "papers" array.`;
+
+  return `${CLEANUP_PROMPT_HEADER}${countInstruction}\n\nAnalyst's author contacts notes:\n\n${discoveryNotes}`;
 }
 
 async function fetchBatchDiscovery(
@@ -508,7 +558,7 @@ export async function POST(request: Request) {
     });
 
     // Step 4: Convert the combined discovery notes to structured JSON
-    const cleanupPrompt = buildCleanupPrompt(outputText);
+    const cleanupPrompt = buildCleanupPrompt(outputText, allPapers.length);
 
     const controller2 = new AbortController();
     const timeoutId2 = setTimeout(() => controller2.abort(), 600_000);
@@ -596,10 +646,21 @@ export async function POST(request: Request) {
     const totalAuthors = structuredGroups?.papers?.reduce((sum: number, paper: any) =>
       sum + (Array.isArray(paper.authors) ? paper.authors.length : 0), 0) ?? 0;
 
+    // Validate paper count
+    if (papersProcessed < allPapers.length) {
+      console.warn("[research-groups] Cleanup phase returned fewer papers than expected", {
+        expected: allPapers.length,
+        received: papersProcessed,
+        missing: allPapers.length - papersProcessed
+      });
+      // Note: Continue anyway - partial results are better than nothing
+    }
+
     console.log("[research-groups] Successfully completed both discovery and cleanup phases", {
       hasText: Boolean(outputText),
       hasStructured: Boolean(structuredGroups),
       papersProcessed,
+      expectedPapers: allPapers.length,
       totalAuthors,
       avgAuthorsPerPaper: papersProcessed > 0 ? (totalAuthors / papersProcessed).toFixed(2) : 0
     });

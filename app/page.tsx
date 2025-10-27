@@ -228,8 +228,68 @@ function ensureSourcePaperInSimilarStructured(
     return structured;
   }
 
+  const normalizeIdentifier = (value: unknown): string | null => {
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    let lowered = trimmed.toLowerCase();
+    if (lowered.startsWith("https://doi.org/")) {
+      lowered = lowered.slice("https://doi.org/".length);
+    } else if (lowered.startsWith("http://doi.org/")) {
+      lowered = lowered.slice("http://doi.org/".length);
+    } else if (lowered.startsWith("https://dx.doi.org/")) {
+      lowered = lowered.slice("https://dx.doi.org/".length);
+    } else if (lowered.startsWith("http://dx.doi.org/")) {
+      lowered = lowered.slice("http://dx.doi.org/".length);
+    } else if (lowered.startsWith("doi:")) {
+      lowered = lowered.slice("doi:".length);
+    }
+
+    return lowered;
+  };
+
+  const sourceIdentifiers = new Set<string>();
+  const pushSourceIdentifier = (value: unknown) => {
+    const normalized = normalizeIdentifier(value);
+    if (normalized) {
+      sourceIdentifiers.add(normalized);
+    }
+  };
+
+  pushSourceIdentifier(paper.doi);
+  pushSourceIdentifier(paper.url);
+  pushSourceIdentifier(paper.id);
+
+  const seenIdentifiers = new Set<string>();
   const similarArray = Array.isArray(structured.similarPapers)
-    ? structured.similarPapers.filter(Boolean)
+    ? structured.similarPapers.filter((entry) => {
+        if (!entry) {
+          return false;
+        }
+
+        const identifiers = [entry.identifier, entry.doi, entry.url]
+          .map((value) => normalizeIdentifier(value))
+          .filter((value): value is string => Boolean(value));
+
+        if (identifiers.some((id) => sourceIdentifiers.has(id))) {
+          return false;
+        }
+
+        for (const id of identifiers) {
+          if (seenIdentifiers.has(id)) {
+            return false;
+          }
+        }
+
+        identifiers.forEach((id) => seenIdentifiers.add(id));
+        return true;
+      })
     : [];
 
   const normalizedDoi = typeof paper.doi === "string" ? paper.doi.trim().toLowerCase() : null;
@@ -2058,8 +2118,67 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
   // Smart fallback for source paper title
   const cleanFileName = sourceFileName?.replace(/\.pdf$/i, "").trim();
   const displayTitle = sourceTitle || cleanFileName || "Source";
+  const sourceTitleNormalized = displayTitle.trim().toLowerCase();
 
-  if (similarPapers.length === 0) {
+  const normalizeIdentifier = (value: unknown): string | null => {
+    if (typeof value !== "string") {
+      return null;
+    }
+
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    let lowered = trimmed.toLowerCase();
+    if (lowered.startsWith("https://doi.org/")) {
+      lowered = lowered.slice("https://doi.org/".length);
+    } else if (lowered.startsWith("http://doi.org/")) {
+      lowered = lowered.slice("http://doi.org/".length);
+    } else if (lowered.startsWith("https://dx.doi.org/")) {
+      lowered = lowered.slice("https://dx.doi.org/".length);
+    } else if (lowered.startsWith("http://dx.doi.org/")) {
+      lowered = lowered.slice("http://dx.doi.org/".length);
+    } else if (lowered.startsWith("doi:")) {
+      lowered = lowered.slice("doi:".length);
+    }
+
+    return lowered;
+  };
+
+  const seenIdentifiers = new Set<string>();
+  const seenTitles = new Set<string>();
+  if (sourceTitleNormalized) {
+    seenTitles.add(sourceTitleNormalized);
+  }
+
+  const dedupedSimilarPapers = similarPapers.filter((paper) => {
+    if (!paper) {
+      return false;
+    }
+
+    const identifiers = [paper.identifier, paper.doi, paper.url]
+      .map((value) => normalizeIdentifier(value))
+      .filter((value): value is string => Boolean(value));
+
+    if (identifiers.some((id) => seenIdentifiers.has(id))) {
+      return false;
+    }
+
+    const normalizedTitle = typeof paper.title === "string" ? paper.title.trim().toLowerCase() : "";
+    if (normalizedTitle && seenTitles.has(normalizedTitle)) {
+      return false;
+    }
+
+    identifiers.forEach((id) => seenIdentifiers.add(id));
+    if (normalizedTitle) {
+      seenTitles.add(normalizedTitle);
+    }
+
+    return true;
+  });
+
+  if (dedupedSimilarPapers.length === 0) {
     return (
       <div className="rounded-lg border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-sm text-slate-600">No similar papers found in the structured response.</p>
@@ -2094,7 +2213,7 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
       methodComparison: structured.sourcePaper?.methodComparison,
       isSource: true
     },
-    ...similarPapers
+    ...dedupedSimilarPapers
   ];
 
   const getMatrixValue = (paper: ComparisonPaper, key: keyof NonNullable<ComparisonPaper["methodComparison"]>) => {
@@ -2174,7 +2293,7 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
 
       {/* Similar papers cards */}
       <div className="space-y-6">
-        {similarPapers.map((paper, index) => {
+        {dedupedSimilarPapers.map((paper, index) => {
           const paperUrl = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
           return (
             <article
