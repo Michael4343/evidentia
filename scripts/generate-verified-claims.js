@@ -25,19 +25,30 @@ const {
   collectJsonInput
 } = require("./mock-cli-utils");
 
-const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's claim verification notes into strict JSON for Evidentia's verified claims UI.
+const CLEANUP_PROMPT_HEADER = `You convert the analyst's verified-claims notes into strict JSON for Evidentia's review UI.
 
-Output requirements:
-- Return a single JSON object with keys: claims (array), overallAssessment (string), promptNotes (optional string).
-- Each claim object must include: claimId (string matching C1, C2, etc.), originalClaim (string), verificationStatus (string), supportingEvidence (array), contradictingEvidence (array), verificationSummary (string), confidenceLevel (string).
-- verificationStatus must be one of: "Verified", "Partially Verified", "Contradicted", "Insufficient Evidence".
-- confidenceLevel must be one of: "High", "Moderate", "Low".
-- Each evidence item (supporting or contradicting) must have: source (string: "Similar Paper", "Patent", "Research Group", or "Thesis"), title (string), relevance (string explaining the connection).
-- verificationSummary must be a detailed 2-3 sentence explanation of the verification status and reasoning.
-- overallAssessment should be a brief paragraph summarizing the paper's overall claim validity across all claims.
-- No markdown, commentary, or trailing prose. Valid JSON only (double quotes).
-- Preserve factual content from the notes; do not invent evidence.
-- Output raw JSON only — no markdown fences, comments, trailing prose, or extra keys.`;
+Return exactly one JSON object with these keys:
+- "claims": array ordered as in the notes (use [] if the analyst supplied none).
+- "overallAssessment": string summarising the entire paper ("" if not provided).
+- "promptNotes": optional string with any remaining analyst cautions. Omit the key when nothing meaningful remains.
+
+Each element in "claims" must include:
+- "claimId": string such as "C1".
+- "originalClaim": the verbatim claim text.
+- "verificationStatus": one of "Verified", "Partially Verified", "Contradicted", "Insufficient Evidence".
+- "confidenceLevel": one of "High", "Moderate", "Low".
+- "supportingEvidence": array of objects with { "source": "Similar Paper" | "Research Group" | "Patent" | "Thesis", "title": string, "relevance": string }. Use [] when nothing is cited.
+- "contradictingEvidence": same schema; emit [] when the analyst reported none.
+- "verificationSummary": a 2-3 sentence user-facing explanation of the status and reasoning.
+
+Normalise as you parse:
+- Preserve analyst wording but trim whitespace and strip markdown or bullet symbols.
+- Map bracketed prefixes such as "[Similar Paper]" or "[Patent]" into the "source" field and remove them from titles.
+- Drop placeholder strings like "None found" or "No contradictions" and output empty arrays instead.
+- Collapse multi-line relevance notes into a single sentence per evidence item.
+- Maintain the original claim order from the notes and keep paragraph breaks in "promptNotes" using \n\n.
+
+Respond with raw JSON only (double quotes, no code fences) and never invent evidence or conclusions.`;
 
 const CURLY_QUOTES_TO_ASCII = [
   [/\u2018|\u2019|\u201A|\u201B/g, "'"],
@@ -342,9 +353,9 @@ function buildCleanupPrompt() {
   return [
     CLEANUP_PROMPT_HEADER.trim(),
     "",
-    "Refer to the analyst notes in the previous message (do not paste them here).",
+    "Do not repeat the analyst notes; they remain in the message above this divider.",
     "---",
-    "[Notes already provided above]",
+    "[Analyst notes stay above this divider]",
     "---",
     "Return the JSON object now."
   ].join("\n");

@@ -4053,53 +4053,143 @@ function VerifiedClaimsPanel({
       });
     })();
 
+    const totalClaims = claims.length;
+    const statusTallies = claims.reduce<Record<VerifiedClaimStatus, number>>(
+      (acc, claim) => {
+        acc[claim.verificationStatus] += 1;
+        return acc;
+      },
+      {
+        Verified: 0,
+        "Partially Verified": 0,
+        Contradicted: 0,
+        "Insufficient Evidence": 0
+      }
+    );
+    const confidenceTallies = claims.reduce<Record<VerifiedClaimConfidence, number>>(
+      (acc, claim) => {
+        acc[claim.confidenceLevel] += 1;
+        return acc;
+      },
+      { High: 0, Moderate: 0, Low: 0 }
+    );
+
+    const verifiedCount = statusTallies.Verified;
+    const partialCount = statusTallies["Partially Verified"];
+    const needsReviewCount = statusTallies.Contradicted + statusTallies["Insufficient Evidence"];
+    const highConfidenceCount = confidenceTallies.High;
+    const moderateConfidenceCount = confidenceTallies.Moderate;
+    const lowConfidenceCount = confidenceTallies.Low;
+
     return (
       <div className="flex flex-1 flex-col overflow-auto">
         <div className="flex-1 overflow-auto bg-slate-50">
-          <section className="w-full space-y-6 px-6 py-8">
+          <section className="w-full space-y-8 px-6 py-8">
             <header className="flex items-start justify-between gap-3">
               <div className="space-y-2">
                 <h2 className="text-xl font-semibold text-slate-900">Verified Claims</h2>
                 <p className="text-sm leading-relaxed text-slate-600">
                   Claims cross-referenced against similar papers, research groups, PhD theses, and patents.
-              </p>
-            </div>
-            {onRetry && (
-              <button
-                onClick={onRetry}
-                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-                title="Re-run verified claims analysis"
-              >
-                <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-              </button>
-            )}
-          </header>
+                </p>
+              </div>
+              {onRetry && (
+                <button
+                  onClick={onRetry}
+                  className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+                  title="Re-run verified claims analysis"
+                >
+                  <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                    />
+                  </svg>
+                </button>
+              )}
+            </header>
 
-          {warningsNode && <div className="flex justify-center">{warningsNode}</div>}
+            {warningsNode && <div className="flex justify-center">{warningsNode}</div>}
+
+            {totalClaims > 0 && (
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-slate-200 bg-white px-5 py-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Claims Assessed</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900">{totalClaims}</p>
+                  <p className="mt-1 text-xs text-slate-500">High confidence: {highConfidenceCount}</p>
+                </div>
+                <div className="rounded-2xl border border-green-200 bg-green-50/60 px-5 py-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-green-600">Verified</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900">{verifiedCount}</p>
+                  <p className="mt-1 text-xs text-green-700/80">Ready to cite with full confidence.</p>
+                </div>
+                <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-5 py-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-600">Partially Verified</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900">{partialCount}</p>
+                  <p className="mt-1 text-xs text-amber-700/80">Moderate confidence: {moderateConfidenceCount}</p>
+                </div>
+                <div className="rounded-2xl border border-rose-200 bg-rose-50/70 px-5 py-4 shadow-sm">
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-600">Needs Review</p>
+                  <p className="mt-1 text-2xl font-semibold text-slate-900">{needsReviewCount}</p>
+                  <p className="mt-1 text-xs text-rose-700/80">Low confidence: {lowConfidenceCount}</p>
+                </div>
+              </div>
+            )}
 
             {overallAssessment && (
-              <article className="rounded-lg border border-slate-300 bg-white px-5 py-4 shadow-sm">
-                <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400 mb-3">
-                  Overall Assessment
-                </h3>
-                <p className="text-sm leading-relaxed text-slate-700">{overallAssessment}</p>
+              <article className="rounded-2xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Overall Assessment</p>
+                <p className="mt-3 text-base leading-relaxed text-slate-700">{overallAssessment}</p>
               </article>
             )}
 
-            {normalizedPromptSections.map((section, index) =>
-              renderAnalystSectionCard(section, index, "prompt")
+            {normalizedPromptSections.length > 0 && (
+              <article className="rounded-2xl border border-indigo-100 bg-indigo-50/80 px-6 py-5 shadow-sm">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-indigo-600">Analyst Notes</p>
+                <div className="mt-3 space-y-3">
+                  {normalizedPromptSections.map((section, index) => (
+                    <div key={`prompt-${index}`} className="space-y-2">
+                      {section.title && <h3 className="text-sm font-semibold text-indigo-900">{section.title}</h3>}
+                      {section.paragraphs?.map((paragraph, paragraphIndex) => (
+                        <p key={`prompt-${index}-p-${paragraphIndex}`} className="text-sm leading-relaxed text-indigo-900/90">
+                          {paragraph}
+                        </p>
+                      ))}
+                      {section.bullets && section.bullets.length > 0 && (
+                        <ul className="list-disc space-y-1.5 pl-5 text-sm text-indigo-900/90">
+                          {section.bullets.map((bullet, bulletIndex) => (
+                            <li key={`prompt-${index}-b-${bulletIndex}`} className="leading-relaxed">
+                              {bullet}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </article>
             )}
 
             {claims.length > 0 && (
-              <div className="space-y-4">
-                {claims.map((claim, index) => (
-                  <article key={claim.claimId ?? index} className="rounded-lg border border-slate-200 bg-white px-5 py-4 shadow-sm">
-                    <div className="space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+              <div className="space-y-5">
+                {claims.map((claim, index) => {
+                  const supportingEvidence = Array.isArray(claim.supportingEvidence)
+                    ? claim.supportingEvidence
+                    : [];
+                  const contradictingEvidence = Array.isArray(claim.contradictingEvidence)
+                    ? claim.contradictingEvidence
+                    : [];
+                  const supportingCount = supportingEvidence.length;
+                  const contradictingCount = contradictingEvidence.length;
+
+                  return (
+                    <article
+                      key={claim.claimId ?? index}
+                      className="space-y-5 rounded-2xl border border-slate-200 bg-white px-6 py-6 shadow-sm"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
                             {claim.claimId ?? `Claim ${index + 1}`}
                           </span>
                           <span
@@ -4108,67 +4198,76 @@ function VerifiedClaimsPanel({
                             {claim.verificationStatus}
                           </span>
                         </div>
-                        <span
-                          className={`rounded-full px-3 py-1 text-xs font-semibold ${getConfidenceBadgeClasses(claim.confidenceLevel)}`}
-                        >
-                          Confidence: {claim.confidenceLevel}
-                        </span>
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-semibold ${getConfidenceBadgeClasses(claim.confidenceLevel)}`}
+                          >
+                            Confidence: {claim.confidenceLevel}
+                          </span>
+                          <span className="text-xs font-medium text-slate-500">
+                            {supportingCount} supporting • {contradictingCount} contradicting
+                          </span>
+                        </div>
                       </div>
 
-                      <div>
-                        <p className="text-sm font-semibold text-slate-600 mb-1">Original Claim:</p>
-                        <p className="text-sm leading-relaxed text-slate-700">{claim.originalClaim}</p>
+                      <div className="space-y-2">
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">Original Claim</p>
+                        <p className="text-base leading-relaxed text-slate-800">{claim.originalClaim}</p>
                       </div>
-
-                      {claim.supportingEvidence.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-green-700">✓ Supporting Evidence</p>
-                          <ul className="space-y-2 pl-4">
-                            {claim.supportingEvidence.map((evidence, evIndex) => (
-                              <li key={evIndex} className="text-sm leading-relaxed text-slate-700">
-                                <span className="inline-block rounded bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 mr-2">
-                                  {evidence.source}
-                                </span>
-                                <span className="font-medium">{evidence.title}</span>
-                                {evidence.relevance && (
-                                  <p className="mt-1 text-sm text-slate-600 ml-0">{evidence.relevance}</p>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {claim.contradictingEvidence.length > 0 && (
-                        <div className="space-y-2">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">✗ Contradicting Evidence</p>
-                          <ul className="space-y-2 pl-4">
-                            {claim.contradictingEvidence.map((evidence, evIndex) => (
-                              <li key={evIndex} className="text-sm leading-relaxed text-slate-700">
-                                <span className="inline-block rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 mr-2">
-                                  {evidence.source}
-                                </span>
-                                <span className="font-medium">{evidence.title}</span>
-                                {evidence.relevance && (
-                                  <p className="mt-1 text-sm text-slate-600 ml-0">{evidence.relevance}</p>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
 
                       {claim.verificationSummary && (
-                        <div className="rounded border border-blue-200 bg-blue-50/60 px-4 py-3">
-                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700 mb-1.5">
-                            Verification Summary
-                          </p>
-                          <p className="text-sm leading-relaxed text-blue-800">{claim.verificationSummary}</p>
+                        <div className="rounded-xl border border-blue-200 bg-blue-50/70 px-5 py-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-700">Verification Summary</p>
+                          <p className="mt-2 text-sm leading-relaxed text-blue-900">{claim.verificationSummary}</p>
                         </div>
                       )}
-                    </div>
-                  </article>
-                ))}
+
+                      <div className="grid gap-4 lg:grid-cols-2">
+                        <div className="rounded-xl border border-green-200 bg-green-50/80 px-5 py-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-green-700">Supporting Evidence</p>
+                          {supportingCount > 0 ? (
+                            <ul className="mt-3 space-y-3">
+                              {supportingEvidence.map((evidence, evIndex) => (
+                                <li key={evIndex} className="space-y-1">
+                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-green-600">
+                                    {evidence.source}
+                                  </p>
+                                  <p className="text-sm font-semibold leading-snug text-slate-800">{evidence.title}</p>
+                                  {evidence.relevance && (
+                                    <p className="text-sm leading-relaxed text-slate-700">{evidence.relevance}</p>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-3 text-sm text-green-700/80">No supporting evidence cited.</p>
+                          )}
+                        </div>
+
+                        <div className="rounded-xl border border-red-200 bg-red-50/80 px-5 py-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-700">Contradicting Evidence</p>
+                          {contradictingCount > 0 ? (
+                            <ul className="mt-3 space-y-3">
+                              {contradictingEvidence.map((evidence, evIndex) => (
+                                <li key={evIndex} className="space-y-1">
+                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-red-600">
+                                    {evidence.source}
+                                  </p>
+                                  <p className="text-sm font-semibold leading-snug text-slate-800">{evidence.title}</p>
+                                  {evidence.relevance && (
+                                    <p className="text-sm leading-relaxed text-slate-700">{evidence.relevance}</p>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-3 text-sm text-red-700/80">No contradictions surfaced.</p>
+                          )}
+                        </div>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             )}
           </section>

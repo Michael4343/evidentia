@@ -1,10 +1,7 @@
 CODEX
 chekcbox in claims
-50:50 patent claims
 make all papers link to source
 make all patents link to source
-remove refreesh button and add links to mock template UI
-reset state wehen logging in and out to add paper page
 
 Add LLM evals and tracking
 
