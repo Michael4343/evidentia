@@ -1,89 +1,156 @@
 # Prompts extracted from generate-researcher-theses.js
 
-## Discovery prompt — template
-Use this with your deep research agent. Fill the placeholders for each paper and repeat the per-paper section as needed.
+## Discovery prompts — per research group
+The CLI now outputs one prompt per research group so the research agent can focus on every listed researcher without truncation.
+
+**OPTIMIZED VERSION** - Prioritizes PhD thesis discovery with systematic search workflow.
 
 ```text
-You are a careful research assistant.
+You are a research analyst specializing in PhD thesis discovery for Evidentia.
 
-Compile PhD Theses from Research Groups of Paper Authors
+Your PRIMARY task is to find the doctoral dissertations for researchers in the target group.
+Use systematic database searches and verify researcher identity carefully.
 
-Goal: For each paper below, surface PhD theses that validate the research groups' expertise and connect directly to the paper's author teams.
-Work sequentially: paper → authors → research groups → thesis evidence.
-
-Methodology:
-1. Map every author and their active research group(s) at the time of publication. Use the listed groups as starting points and expand to co-affiliations when needed.
-2. For each group, search for PhD theses published within ±5 years of the paper's publication year. Prioritise official repositories (institutional libraries, national theses portals, ProQuest, HAL, ETH Research Collection, etc.).
-3. Rank theses by closeness to authors: lead author groups first, then co-author groups following author order. If the thesis author is also on the paper, mark that explicitly.
-4. Record whether the thesis or underlying datasets are publicly accessible. Capture the exact URL to the repository or PDF when it exists; otherwise note the access route (embargo, request required, etc.).
-5. Keep notes concise, cite concrete URLs, and flag gaps where information cannot be verified after diligent searching.
-
-Deliverable:
-- Return plain text with one Markdown table per paper using these exact columns (in order):
-  | Thesis title | Thesis author | Research group | Year | Associated paper author | Author position | Relevance ranking | Data availability | Data access link |
-- Sort each table by relevance (1 = highest).
-- After each table, add a short bullet list (≤3 bullets) noting key sources checked and any missing data that needs follow-up.
-
-Per-paper section (repeat for each paper):
-Paper: {PAPER_TITLE}
+Paper context: {PAPER_TITLE}
 Publication year: {YEAR}
 DOI: {DOI}    [or]    Identifier: {IDENTIFIER}
-Authors (listed order): {AUTHORS}
+Authors: {AUTHORS}
 
-Known research groups to start from:
-- {GROUP_NAME} — Institution: {INSTITUTION}
-  Website: {WEBSITE}
-  Focus: {GROUP_NOTES}
-  Contacts: {CONTACTS}  # e.g., Name | Role | Email; Name | Role | Email
+Target research group: {GROUP_NAME}
+- Institution: {INSTITUTION}
+- Website: {WEBSITE}
+- Focus: {GROUP_NOTES}
 
-Checklist:
-- Verify additional groups for any authors not covered by the list above.
-- Capture thesis titles verbatim; include repository identifiers (handle, DOI) when available.
-- Note if no qualifying thesis exists and explain why (e.g., MSc only, thesis unpublished, author still a candidate).
+Researchers to investigate:
+- 1. {RESEARCHER_NAME} — {ROLE} — {EMAIL}
+- 2. …
+
+PRIMARY GOAL: Find the PhD thesis for each researcher listed above.
+
+For each researcher, complete the following steps in order:
+
+STEP 1 - PhD Thesis Search (PRIORITY):
+Find their doctoral dissertation using the systematic search workflow below. Provide:
+- Thesis title
+- Year completed
+- Awarding institution
+- Direct URL to thesis or PDF (institutional repository, national library, or ProQuest)
+- Identity verification notes (see workflow below)
+
+If no thesis is found after thorough search, write "No thesis verified" and explain which databases were checked and why no match was found (e.g., researcher may have industry background, thesis not digitized, name ambiguity).
+
+STEP 2 - Supporting Context (SECONDARY):
+If easily available, note:
+- Most recent peer-reviewed publication (2022+ preferred): title, year, venue, URL
+- Data availability from that publication (yes/no/unknown)
+
+PhD Thesis Search Workflow (follow this sequence):
+
+1. START with institutional repository:
+   - Search {INSTITUTION}'s thesis repository/library
+   - Check department thesis lists and supervisor pages
+   - Look for theses in the research area: {GROUP_FOCUS}
+
+2. National thesis databases:
+   - ProQuest Dissertations & Theses (global coverage)
+   - National/regional thesis libraries (e.g., NDLTD, EThOS UK, HAL France, NARCIS Netherlands)
+   - University repository networks (OpenDOAR, BASE)
+
+3. Cross-reference with academic profiles:
+   - Google Scholar: check "Cited by" and early publications
+   - ORCID profile: look for thesis entries
+   - ResearchGate, LinkedIn: check education history
+
+4. Identity verification (CRITICAL):
+   - Confirm the thesis author matches the target researcher by checking:
+     • Thesis year aligns with current role (e.g., postdoc in 2023 likely PhD ~2018-2023)
+     • Research topic matches group focus area
+     • Co-authors or supervisor names appear in current work
+     • Institution matches known affiliations
+   - If multiple candidates appear, explain the ambiguity
+
+5. Name variations to check:
+   - Different first name spellings or middle initials
+   - Maiden names (especially for researchers who may have married)
+   - Hyphenated surnames
+   - Name order variations (Eastern vs Western conventions)
+
+Output format (plain text notes, no markdown tables):
+Researcher: <Full name> — <Group / Institution>
+Email: <email or Not provided>
+Role: <role or Not provided>
+
+PhD Thesis:
+  Title: <thesis title or No thesis verified>
+  Year: <year completed or Unknown>
+  Institution: <awarding institution or Unknown>
+  URL: <direct https:// link to thesis/PDF or Not found>
+  Verification: <concise note on how identity was confirmed OR why no thesis was found>
+
+Latest Publication (if easily found):
+  Title: <title or Skipped>
+  Year: <year or Skipped>
+  Venue: <venue or Skipped>
+  URL: <direct https:// link or Skipped>
+  Data Available: <yes/no/unknown or Skipped>
+
+Search Summary: <list 2-3 key databases checked>
+
+---
+
+Repeat this block for every researcher in the list. Do not skip anyone.
+At the end, provide a summary:
+- Total researchers searched: <number>
+- Theses found: <number>
+- Theses not verified: <number>
+- Primary databases used: <list top 3>
 ```
 
 ## Cleanup prompt — header
-Give this to a cleanup agent, then paste the analyst notes beneath the divider and request strict JSON only.
+Paste this at the end of your conversation thread after all discovery prompts have been completed. The cleanup agent will scan back through the thread to compile all responses.
 
 ```text
-You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's researcher thesis UI.
+You are a cleanup agent. Review ALL discovery responses in this conversation thread and compile them into strict JSON for Evidentia's researcher thesis UI.
+
+Task: Scan back through this conversation to find all author thesis discovery responses. Compile every author's information into a single JSON object.
 
 Output requirements:
 - Return a single JSON object with keys: researchers (array), promptNotes (optional string).
-- Each researcher object must include: name (string), email (string|null), group (string|null),
+- Each researcher object must include: name (string), email (string|null),
   latest_publication (object with title (string|null), year (number|null), venue (string|null), url (string|null)),
   phd_thesis (null or object with title (string|null), year (number|null), institution (string|null), url (string|null)),
   data_publicly_available ("yes" | "no" | "unknown").
 - Use null for unknown scalars. Use lowercase for data_publicly_available values.
-- Every url field must be a direct https:// link. If the notes provide a markdown link or reference-style footnote, extract the underlying URL and place it in the url field. Never leave a url blank when the notes include a working link.
-- For phd_thesis.url, copy the repository/download link from the analyst notes' "Data access link" column; if multiple are provided, prefer the PDF/download URL. Only set null when no link is given or it is explicitly unavailable.
+- Every url field must be a direct https:// link. If the discovery responses include markdown links or reference-style footnotes, extract the underlying URL. Never leave a url blank when a working link was provided.
+- For phd_thesis.url, prefer PDF/download URLs when multiple links are available. Only use null when no link was found or it is explicitly unavailable.
 - No markdown, commentary, or trailing prose. Valid JSON only (double quotes).
-- Preserve factual content from the notes; do not invent new theses or publications.
-Before responding, you must paste the analyst notes after these instructions so you can structure them. Use them verbatim; do not add new facts.
+- Preserve factual content from the discovery responses; do not invent new theses or publications.
+- Include ALL researchers from ALL discovery responses in this thread - do not skip anyone.
 ```
 
 ## Cleanup prompt — final wrapper
-This is what the script assembles before sending to the cleanup agent.
+This is what the script assembles before sending to the cleanup agent. It should be pasted at the END of the conversation thread after all discovery prompts.
 
 ```text
-You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's researcher thesis UI.
+You are a cleanup agent. Review ALL discovery responses in this conversation thread and compile them into strict JSON for Evidentia's researcher thesis UI.
+
+Task: Scan back through this conversation to find all author thesis discovery responses. Compile every author's information into a single JSON object.
 
 Output requirements:
 - Return a single JSON object with keys: researchers (array), promptNotes (optional string).
-- Each researcher object must include: name (string), email (string|null), group (string|null),
+- Each researcher object must include: name (string), email (string|null),
   latest_publication (object with title (string|null), year (number|null), venue (string|null), url (string|null)),
   phd_thesis (null or object with title (string|null), year (number|null), institution (string|null), url (string|null)),
   data_publicly_available ("yes" | "no" | "unknown").
 - Use null for unknown scalars. Use lowercase for data_publicly_available values.
-- Every url field must be a direct https:// link. If the notes provide a markdown link or reference-style footnote, extract the underlying URL and place it in the url field. Never leave a url blank when the notes include a working link.
-- For phd_thesis.url, copy the repository/download link from the analyst notes' "Data access link" column; if multiple are provided, prefer the PDF/download URL. Only set null when no link is given or it is explicitly unavailable.
+- Every url field must be a direct https:// link. If the discovery responses include markdown links or reference-style footnotes, extract the underlying URL. Never leave a url blank when a working link was provided.
+- For phd_thesis.url, prefer PDF/download URLs when multiple links are available. Only use null when no link was found or it is explicitly unavailable.
 - No markdown, commentary, or trailing prose. Valid JSON only (double quotes).
-- Preserve factual content from the notes; do not invent new theses or publications.
-Before responding, you must paste the analyst notes after these instructions so you can structure them. Use them verbatim; do not add new facts.
+- Preserve factual content from the discovery responses; do not invent new theses or publications.
+- Include ALL researchers from ALL discovery responses in this thread - do not skip anyone.
 
-Refer to the analyst notes in the previous message (do not paste them here).
----
-[Notes already provided above]
----
+Look back through this entire conversation thread to find all discovery responses.
+Compile every author's PhD thesis information into a single JSON object.
+
 Return the JSON object now.
 ```

@@ -82,9 +82,94 @@ Output requirements:
 - For profiles: only include profiles that have actual URLs. Common platforms: "Google Scholar", "LinkedIn", "Personal Website", "ResearchGate", "Twitter".
 - No markdown, no commentary, no trailing prose. Ensure valid JSON (double quotes only).
 - Preserve factual content; do not invent new people or emails.
-- Each paper should have up to 3 authors (the first 3 from the author list, or fewer if the paper has <3 authors).
+- Each paper should have up to 3 authors: first author, last author, and corresponding author (deduplicated if the same person appears in multiple roles). For papers with fewer than 3 total authors, include all authors.
 Before responding, you must paste the analyst notes after these instructions so you can structure them. Use them verbatim; do not add new facts.
 `;
+
+const DISCOVERY_PROMPT_TEMPLATE = `Objective: For EACH paper below, gather contact information for the FIRST author, LAST author, and CORRESPONDING author.
+
+Context: You're building a collaboration pipeline for research analysts. For each paper, identify the key authors (first, last, corresponding) and find their complete contact details. You have web search tools enabled—use them immediately.
+
+Papers to analyze:
+[PAPERS_SECTION]
+
+Task:
+
+For each paper:
+1. Identify the following key authors:
+   - FIRST AUTHOR: The first author listed (typically did most of the work)
+   - LAST AUTHOR: The final author listed (typically the senior PI/supervisor)
+   - CORRESPONDING AUTHOR: The author marked with * or † or explicitly listed as "corresponding author" (main point of contact)
+
+   Note: If the paper has fewer than 3 total authors, include all authors.
+   If the corresponding author is the same as first or last, include them only once.
+   Prioritize finding the corresponding author as they are the primary contact.
+
+2. For each author, use web search to gather comprehensive contact information:
+   - Full name (as listed on the paper)
+   - Institutional email (search university directories, lab pages)
+   - Current role/position (PI, Professor, Postdoc, PhD Student, etc.)
+   - ORCID identifier (search orcid.org by author name)
+   - Academic profiles (Google Scholar, LinkedIn, personal website)
+
+Search methodology:
+
+1. Search each author's name on ORCID.org to find their unique identifier
+2. Search Google Scholar for author's academic profile
+3. Search LinkedIn for professional profile
+4. Search university/institution directories for institutional email
+5. Check if author has a personal website or lab page
+6. Determine current role/position from recent affiliations
+
+Output Format:
+
+Paper 1: <Paper Title> (<Identifier or 'Source'>)
+
+Author 1: <Full Name>
+  Email: <institutional.email@university.edu or 'Not found'>
+  Role: <Current Position or 'Not found'>
+  ORCID: <0000-0000-0000-0000 or 'Not found'>
+  Profiles:
+    - Google Scholar: <URL or 'Not found'>
+    - LinkedIn: <URL or 'Not found'>
+    - Website: <URL or 'Not found'>
+
+Author 2: <Full Name>
+  Email: <email or 'Not found'>
+  Role: <role or 'Not found'>
+  ORCID: <ID or 'Not found'>
+  Profiles:
+    - Google Scholar: <URL or 'Not found'>
+    - LinkedIn: <URL or 'Not found'>
+
+Author 3: <Full Name>
+  Email: <email or 'Not found'>
+  Role: <role or 'Not found'>
+  ORCID: <ID or 'Not found'>
+  Profiles:
+    - Google Scholar: <URL or 'Not found'>
+
+[If paper has <3 authors, include only those available]
+
+Paper 2: <Next Paper Title> (<Identifier>)
+
+Author 1: ...
+Author 2: ...
+Author 3: ...
+
+[Repeat for all papers in this batch]
+
+Important:
+- Execute all searches automatically without asking for permission
+- Use 'Not found' when information genuinely can't be located after thorough search
+- ORCID format: 0000-0000-0000-0000 (16 digits with hyphens)
+- Only include profiles that are publicly accessible
+- For each paper, include: first author, last author, and corresponding author
+- If any of these roles overlap (e.g., first author is also corresponding), list them once
+- If the paper doesn't explicitly mark a corresponding author, make your best guess based on institutional affiliation or contact information provided
+- Prioritize institutional emails over personal emails
+
+Begin web search and research immediately.`;
 
 const CURLY_QUOTES_TO_ASCII = [
   [/\u2018|\u2019|\u201A|\u201B/g, "'"],
@@ -95,6 +180,8 @@ const CURLY_QUOTES_TO_ASCII = [
   [/\u200B|\u200C|\u200D|\uFEFF/g, ""],
   [/\u0000|\u0001|\u0002|\u0003|\u0004|\u0005|\u0006|\u0007|\u0008|\u0009|\u000A|\u000B|\u000C|\u000D/g, " "]
 ];
+
+const MAX_FULL_LISTED_AUTHORS = 12;
 
 function cleanPlainText(input) {
   if (typeof input !== "string") {
@@ -154,6 +241,145 @@ function cleanEmail(input) {
   value = value.replace(/["')\]\[]+$/g, "").replace(/^["'(\[]+/g, "");
 
   return value.trim().toLowerCase();
+}
+
+function cleanAuthorName(value) {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  let cleaned = cleanPlainText(value);
+  cleaned = cleaned.replace(/[\*\u2020\u2021]+$/g, "");
+  cleaned = cleaned.replace(/[\*\u2020\u2021]+/g, "");
+  cleaned = cleaned.replace(/[\u2070\u00B9\u00B2\u00B3\u2074-\u2079]+$/g, "");
+  cleaned = cleaned.replace(/\s*\([^)]*corresponding[^)]*\)\s*$/i, "");
+  cleaned = cleaned.replace(/\s*\d+$/g, "");
+  cleaned = cleaned.replace(/\s+/g, " ").trim();
+
+  return cleaned;
+}
+
+function canonicalAuthorKey(name) {
+  if (typeof name !== "string") {
+    return "";
+  }
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function normaliseAuthorEntries(authorsField) {
+  if (Array.isArray(authorsField)) {
+    return authorsField
+      .map((author) => {
+        let raw = "";
+        if (typeof author === "string") {
+          raw = author;
+        } else if (author && typeof author === "object" && typeof author.name === "string") {
+          raw = author.name;
+        }
+
+        const cleanedRaw = cleanPlainText(raw);
+        const cleaned = cleanAuthorName(cleanedRaw);
+        if (!cleaned) {
+          return null;
+        }
+        return { raw: cleanedRaw, cleaned };
+      })
+      .filter(Boolean);
+  }
+
+  if (typeof authorsField === "string") {
+    const cleanedRaw = cleanPlainText(authorsField);
+    const cleaned = cleanAuthorName(cleanedRaw);
+    return cleaned ? [{ raw: cleanedRaw, cleaned }] : [];
+  }
+
+  return [];
+}
+
+function findCorrespondingAuthor(entries) {
+  return entries.find((entry) => /\*|\u2020|\u2021|correspond/i.test(entry.raw));
+}
+
+function deriveKeyAuthors(entries) {
+  if (!entries || entries.length === 0) {
+    return { keyAuthors: [], hasCorresponding: false };
+  }
+
+  const keyMap = new Map();
+  let hasCorresponding = false;
+
+  const addEntry = (entry, role) => {
+    if (!entry || !entry.cleaned) {
+      return;
+    }
+    const key = canonicalAuthorKey(entry.cleaned);
+    if (!key) {
+      return;
+    }
+
+    const existing = keyMap.get(key);
+    if (existing) {
+      if (!existing.roles.includes(role)) {
+        existing.roles.push(role);
+      }
+    } else {
+      keyMap.set(key, { name: entry.cleaned, roles: [role] });
+    }
+
+    if (role === "corresponding author") {
+      hasCorresponding = true;
+    }
+  };
+
+  const first = entries[0];
+  const last = entries.length > 1 ? entries[entries.length - 1] : entries[0];
+  const corresponding = findCorrespondingAuthor(entries);
+
+  addEntry(first, "first author");
+  addEntry(last, "last author");
+  if (corresponding) {
+    addEntry(corresponding, "corresponding author");
+  }
+
+  return {
+    keyAuthors: Array.from(keyMap.values()),
+    hasCorresponding
+  };
+}
+
+function formatAuthorsBlock(authorsField) {
+  const entries = normaliseAuthorEntries(authorsField);
+  if (!entries.length) {
+    return ["   Authors: Not specified"];
+  }
+
+  const { keyAuthors, hasCorresponding } = deriveKeyAuthors(entries);
+  const lines = ["   Key authors to prioritise:"];
+
+  if (keyAuthors.length) {
+    keyAuthors.forEach((entry) => {
+      lines.push(`     - ${entry.name} (${entry.roles.join(" / ")})`);
+    });
+  } else {
+    lines.push("     - Not enough information to identify key authors.");
+  }
+
+  if (!hasCorresponding) {
+    lines.push("     - Corresponding author not marked; confirm during research.");
+  }
+
+  lines.push("   Full author list (ordered):");
+
+  entries.slice(0, MAX_FULL_LISTED_AUTHORS).forEach((entry, index) => {
+    lines.push(`     ${index + 1}. ${entry.cleaned}`);
+  });
+
+  if (entries.length > MAX_FULL_LISTED_AUTHORS) {
+    const remaining = entries.length - MAX_FULL_LISTED_AUTHORS;
+    lines.push(`     ... ${remaining} more author${remaining === 1 ? "" : "s"} not listed`);
+  }
+
+  return lines;
 }
 
 function findPdfFiles(rootDir, maxDepth = MAX_SCAN_DEPTH, limit = MAX_LISTED_PDFS) {
@@ -251,140 +477,45 @@ async function promptForPdfPath(rl, rootDir) {
 }
 
 function buildDiscoveryPrompt(library) {
-  const sourceTitle = cleanPlainText(
-    library?.sourcePaper?.title || library?.sourcePdf?.title || "Unknown title"
-  );
-  const sourceDoi = library?.sourcePaper?.doi || null;
-  const sourceAuthors = Array.isArray(library?.sourcePaper?.authors) && library.sourcePaper.authors.length
-    ? library.sourcePaper.authors.map((author) => cleanPlainText(author))
-    : [];
-  const similarPapers = Array.isArray(library?.similarPapers)
-    ? library.similarPapers.slice(0, 5)
-    : [];
+  const sourcePaper = library?.sourcePaper || {};
+  const sourceTitle = cleanPlainText(sourcePaper.title || library?.sourcePdf?.title || "Unknown title");
+  const sourceIdentifier = sourcePaper.doi ? `DOI: ${cleanPlainText(sourcePaper.doi)}` : "Identifier not provided";
 
-  const lines = [
-    "Objective: For EACH paper below (source + similar papers), gather comprehensive contact information for the FIRST 3 AUTHORS listed on that paper.",
-    "",
-    "Context: You're building a collaboration pipeline for research analysts. For each paper, identify the first 3 authors (or all authors if fewer than 3) and find their complete contact details.",
-    "",
-    "Audience: Research analysts building collaboration pipelines.",
-    "",
-    "Papers to analyze:",
-    ""
+  const sections = [];
+
+  const sourceLines = [
+    "1. SOURCE PAPER:",
+    `   Title: ${sourceTitle}`,
+    `   Identifier: ${sourceIdentifier}`
   ];
+  sourceLines.push(...formatAuthorsBlock(sourcePaper.authors || []));
+  sections.push(sourceLines.join("\n"));
 
-  // Add source paper
-  lines.push("1. SOURCE PAPER:");
-  lines.push(`   Title: ${sourceTitle}`);
-  if (sourceDoi) {
-    lines.push(`   DOI: ${sourceDoi}`);
-  }
-  if (sourceAuthors.length) {
-    lines.push("   Authors (in order):");
-    sourceAuthors.forEach((author, idx) => {
-      lines.push(`     ${idx + 1}. ${author}`);
-    });
-  } else {
-    lines.push("   Authors: Not specified");
-  }
-  lines.push("");
+  const similarPapers = Array.isArray(library?.similarPapers) ? library.similarPapers.slice(0, 5) : [];
 
-  // Add similar papers
-  if (similarPapers.length) {
-    similarPapers.forEach((paper, index) => {
-      const title = cleanPlainText(paper?.title || `Paper ${index + 1}`);
-      const venue = cleanPlainText(paper?.venue || "Venue not reported");
-      const year = paper?.year ? `${paper.year}` : "Year not reported";
-      const authors = Array.isArray(paper?.authors) && paper.authors.length
-        ? paper.authors.map((author) => cleanPlainText(author))
-        : [];
-      const doi = paper?.doi ? `DOI: ${paper.doi}` : paper?.url ? `URL: ${paper.url}` : "No identifier";
+  similarPapers.forEach((paper, index) => {
+    const title = cleanPlainText(paper?.title || `Paper ${index + 1}`);
+    const venue = cleanPlainText(paper?.venue || "Venue not reported");
+    const year = paper?.year ? `${paper.year}` : "Year not reported";
+    const identifier = paper?.doi
+      ? `DOI: ${cleanPlainText(paper.doi)}`
+      : paper?.url
+        ? `URL: ${cleanPlainText(paper.url)}`
+        : "No identifier";
 
-      lines.push(`${index + 2}. SIMILAR PAPER ${index + 1}:`);
-      lines.push(`   Title: ${title}`);
-      lines.push(`   Venue: ${venue} (${year})`);
-      lines.push(`   Identifier: ${doi}`);
-      if (authors.length) {
-        lines.push("   Authors (in order):");
-        authors.forEach((author, idx) => {
-          lines.push(`     ${idx + 1}. ${author}`);
-        });
-      } else {
-        lines.push("   Authors: Not reported");
-      }
-      lines.push("");
-    });
-  }
+    const lines = [
+      `${index + 2}. SIMILAR PAPER ${index + 1}:`,
+      `   Title: ${title}`,
+      `   Venue: ${venue} (${year})`,
+      `   Identifier: ${identifier}`
+    ];
 
-  lines.push(
-    "Task:",
-    "",
-    "For each paper:",
-    "1. Take the FIRST 3 AUTHORS from the author list (or all if fewer than 3)",
-    "2. For each author, gather comprehensive contact information:",
-    "   - Full name (as listed on the paper)",
-    "   - Institutional email (search university directories, lab pages)",
-    "   - Current role/position (PI, Professor, Postdoc, PhD Student, etc.)",
-    "   - ORCID identifier (search orcid.org by author name)",
-    "   - Academic profiles (Google Scholar, LinkedIn, personal website)",
-    "",
-    "Search methodology:",
-    "",
-    "1. Search each author's name on ORCID.org to find their unique identifier",
-    "2. Search Google Scholar for author's academic profile",
-    "3. Search LinkedIn for professional profile",
-    "4. Search university/institution directories for institutional email",
-    "5. Check if author has a personal website or lab page",
-    "6. Determine current role/position from recent affiliations",
-    "",
-    "Output Format:",
-    "",
-    "Paper 1: <Source Paper Title> (<Identifier or 'Source'>)",
-    "",
-    "Author 1: <Full Name>",
-    "  Email: <institutional.email@university.edu or 'Not found'>",
-    "  Role: <Current Position or 'Not found'>",
-    "  ORCID: <0000-0000-0000-0000 or 'Not found'>",
-    "  Profiles:",
-    "    - Google Scholar: <URL or 'Not found'>",
-    "    - LinkedIn: <URL or 'Not found'>",
-    "    - Website: <URL or 'Not found'>",
-    "",
-    "Author 2: <Full Name>",
-    "  Email: <email or 'Not found'>",
-    "  Role: <role or 'Not found'>",
-    "  ORCID: <ID or 'Not found'>",
-    "  Profiles:",
-    "    - Google Scholar: <URL or 'Not found'>",
-    "    - LinkedIn: <URL or 'Not found'>",
-    "",
-    "Author 3: <Full Name>",
-    "  Email: <email or 'Not found'>",
-    "  Role: <role or 'Not found'>",
-    "  ORCID: <ID or 'Not found'>",
-    "  Profiles:",
-    "    - Google Scholar: <URL or 'Not found'>",
-    "",
-    "[If paper has <3 authors, include only those available]",
-    "",
-    "Paper 2: <Similar Paper 1 Title> (<Identifier>)",
-    "",
-    "Author 1: ...",
-    "Author 2: ...",
-    "Author 3: ...",
-    "",
-    "[Repeat for all papers]",
-    "",
-    "Important:",
-    "- Execute all searches automatically without asking",
-    "- Use 'Not found' when information genuinely can't be located after thorough search",
-    "- ORCID format: 0000-0000-0000-0000 (16 digits with hyphens)",
-    "- Only include profiles that are publicly accessible",
-    "- For each paper, include the first 3 authors (or all if <3)",
-    "- Prioritize institutional emails over personal emails"
-  );
+    lines.push(...formatAuthorsBlock(paper?.authors || []));
+    sections.push(lines.join("\n"));
+  });
 
-  return lines.join("\n");
+  const papersSection = sections.join("\n\n");
+  return DISCOVERY_PROMPT_TEMPLATE.replace("[PAPERS_SECTION]", papersSection);
 }
 
 function buildCleanupPrompt() {
@@ -587,7 +718,7 @@ async function runResearchGroups(options = {}) {
 
     console.log(`\nUsing PDF: ${pdfPath}`);
 
-    // Step 1: Discovery + Contact Gathering - Find first 3 authors per paper and get their details
+    // Step 1: Discovery + Contact Gathering - Identify key authors (first, last, corresponding) and gather their details
     const discoveryPrompt = buildDiscoveryPrompt(existingLibrary);
     try {
       await copyPromptToClipboard(discoveryPrompt, {
@@ -598,10 +729,10 @@ async function runResearchGroups(options = {}) {
       console.log(discoveryPrompt);
     }
 
-    console.log("\n=== STEP 1: Find First 3 Authors + Gather Contacts ===\n");
+    console.log("\n=== STEP 1: Identify Key Authors + Gather Contacts ===\n");
     console.log("The discovery prompt has been copied to your clipboard.\n");
     console.log(
-      "Next steps:\n  1. Paste the prompt into your deep research agent.\n  2. Wait for the agent to find the first 3 authors for each paper and gather their contact details.\n  3. Press ENTER here when you're ready for the cleanup prompt.\n"
+      "Next steps:\n  1. Paste the prompt into your deep research agent.\n  2. Let it capture the first, last, and corresponding authors for each paper (deduplicated when roles overlap) with full contact details.\n  3. Press ENTER here when you're ready for the cleanup prompt.\n"
     );
 
     await ask(rl, "\nPress ENTER once you have all author contact details: ");

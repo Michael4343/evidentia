@@ -9,7 +9,8 @@
       "Bash(npm run lint)",
       "WebFetch(domain:posthog.com)",
       "Read(//mnt/c/Users/mickl/Desktop/**)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(git log:*)"
     ],
     "deny": [],
     "ask": []
