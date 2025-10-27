@@ -149,6 +149,12 @@ const MOCK_RESEARCH_GROUPS_STRUCTURED: ResearchGroupPaperEntry[] | undefined = A
   ? ((DEFAULT_ENTRY_RAW.researchGroups as any).structured.papers as ResearchGroupPaperEntry[])
   : undefined;
 
+const MOCK_AUTHOR_CONTACTS_STRUCTURED: AuthorContactsPaperEntry[] | undefined = Array.isArray(
+  (DEFAULT_ENTRY_RAW?.authorContacts as any)?.structured?.papers
+)
+  ? ((DEFAULT_ENTRY_RAW.authorContacts as any).structured.papers as AuthorContactsPaperEntry[])
+  : undefined;
+
 const PIPELINE_TIMEOUT_MS = 300_000;
 const PIPELINE_TIMEOUT_LABEL = `${PIPELINE_TIMEOUT_MS / 1000}s`;
 
@@ -355,6 +361,30 @@ function ensureSourcePaperInSimilarStructured(
   };
 }
 
+function extractPlainEmail(value: string | null | undefined): string | null {
+  if (!value || typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+
+  // Check for markdown link format: [email](mailto:email) or [text](mailto:email)
+  const markdownMatch = trimmed.match(/\[([^\]]+)\]\(mailto:([^)]+)\)/);
+  if (markdownMatch) {
+    // Return the email from the mailto: part (more reliable)
+    return markdownMatch[2].trim();
+  }
+
+  // Check for plain mailto: links
+  const mailtoMatch = trimmed.match(/mailto:([^\s)]+)/);
+  if (mailtoMatch) {
+    return mailtoMatch[1].trim();
+  }
+
+  // Return as-is if it's already a plain email
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 function normalizeAuthorContactsStructured(raw: unknown): AuthorContactsPaperEntry[] | undefined {
   if (!raw) {
     return undefined;
@@ -387,9 +417,7 @@ function normalizeAuthorContactsStructured(raw: unknown): AuthorContactsPaperEnt
                 return null;
               }
 
-              const email = typeof author.email === "string" && author.email.trim().length > 0
-                ? author.email.trim()
-                : null;
+              const email = extractPlainEmail(author.email);
               const role = typeof author.role === "string" && author.role.trim().length > 0
                 ? author.role.trim()
                 : null;
@@ -744,7 +772,7 @@ interface ExtractedText {
 interface ResearcherThesisRecord {
   name: string | null;
   email: string | null;
-  group: string | null;
+  role?: string | null;
   latest_publication: {
     title: string | null;
     year: number | null;
@@ -3122,18 +3150,29 @@ function ResearcherThesesPanel({
     );
   }
 
-  function renderResearcherCard(record: ResearcherThesisRecord, label: string) {
+  function parseAuthorRole(role: string | null | undefined): string | null {
+    if (!role) return null;
+    const lowerRole = role.toLowerCase();
+    if (lowerRole.includes("corresponding")) return "Corresponding Author";
+    if (lowerRole.includes("first author")) return "First Author";
+    if (lowerRole.includes("last author")) return "Last Author";
+    // Return the original role if no special designation
+    return role;
+  }
+
+  function renderResearcherCard(record: ResearcherThesisRecord) {
+    const authorRole = parseAuthorRole(record.role);
+
     return (
       <article className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
         <header className="flex flex-col gap-3 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="space-y-1">
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-              <span>{label}</span>
-            </div>
             <p className="text-base font-semibold text-slate-900">
               {record.name ?? record.email ?? "Unnamed researcher"}
             </p>
-            {record.group && <p className="text-sm text-slate-600">{record.group}</p>}
+            {authorRole && (
+              <p className="text-xs font-medium text-slate-500">{authorRole}</p>
+            )}
             {record.email && (
               <p className="text-sm text-slate-600">
                 <a href={`mailto:${record.email}`} className="text-primary hover:underline">
@@ -3163,7 +3202,7 @@ function ResearcherThesesPanel({
     <ol className="space-y-5">
       {researchers.map((researcher, index) => {
         const key = researcher.name ?? researcher.email ?? index;
-        return <li key={key}>{renderResearcherCard(researcher, `Researcher ${index + 1}`)}</li>;
+        return <li key={key}>{renderResearcherCard(researcher)}</li>;
       })}
     </ol>
   );
@@ -3210,63 +3249,10 @@ function ResearcherThesesPanel({
     );
   }
 
-  const normaliseKey = (value: string | null | undefined) =>
-    value ? value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() : "";
-
-  const normaliseGroupKey = normaliseKey;
-
-  const makePaperKey = (title: string | null | undefined, identifier: string | null | undefined) => {
-    const titleKey = normaliseKey(title);
-    const identifierKey = normaliseKey(identifier);
-    return `${titleKey}::${identifierKey}`;
-  };
-
-  const deepDiveBuckets = new Map<string, ResearcherThesisDeepDive[]>();
-
-  orderedDeepDives.forEach((entry) => {
-    const groupKey = normaliseGroupKey(entry.group?.name ?? null);
-    if (!groupKey) {
-      return;
-    }
-    const paperKey = makePaperKey(entry.paper?.title ?? null, entry.paper?.identifier ?? null);
-    const bucketKey = `${paperKey}::${groupKey}`;
-    if (!deepDiveBuckets.has(bucketKey)) {
-      deepDiveBuckets.set(bucketKey, []);
-    }
-    deepDiveBuckets.get(bucketKey)!.push(entry);
+  // Filter to only papers with new .authors format (AuthorContactsPaperEntry)
+  const authorsPapers = structuredGroups.filter((paper): paper is AuthorContactsPaperEntry => {
+    return "authors" in paper && Array.isArray((paper as any).authors);
   });
-
-  const groupedByGroup = new Map<string, ResearcherThesisRecord[]>();
-  const grouplessResearchers: ResearcherThesisRecord[] = [];
-
-  researchers.forEach((record) => {
-    const key = normaliseGroupKey(record.group);
-    if (key) {
-      if (!groupedByGroup.has(key)) {
-        groupedByGroup.set(key, []);
-      }
-      groupedByGroup.get(key)!.push(record);
-    } else {
-      grouplessResearchers.push(record);
-    }
-  });
-
-  const remainingGroups = new Map(groupedByGroup);
-
-  function renderThesisGroupResearchers(entries: ResearcherThesisRecord[]) {
-    if (!entries.length) {
-      return <p className="text-sm text-slate-600">No thesis records captured for this group yet.</p>;
-    }
-
-    return (
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {entries.map((entry, index) => {
-          const key = entry.name ?? entry.email ?? `member-${index}`;
-          return <div key={key}>{renderResearcherCard(entry, `Member ${index + 1}`)}</div>;
-        })}
-      </div>
-    );
-  }
 
   function formatTimestamp(value: string | null | undefined) {
     if (!value) {
@@ -3473,13 +3459,32 @@ function ResearcherThesesPanel({
       </div>
     );
   }
-  // Filter to only papers with old .groups format (ResearchGroupPaperEntry)
-  const groupsPapers = structuredGroups.filter((paper): paper is ResearchGroupPaperEntry => {
-    return "groups" in paper && Array.isArray((paper as any).groups);
-  });
 
-  const paperSections = groupsPapers.map((paper, paperIndex) => {
-    const paperKey = makePaperKey(paper.title, paper.identifier);
+  // Render sections for papers with author contacts
+  const paperSections = authorsPapers.map((paper, paperIndex) => {
+    // Match researchers to this paper's authors by name/email
+    const paperAuthors = researchers.filter((researcher) => {
+      return paper.authors.some((author) => {
+        const nameMatch = researcher.name && author.name && researcher.name.toLowerCase() === author.name.toLowerCase();
+        const emailMatch = researcher.email && author.email && researcher.email.toLowerCase() === author.email.toLowerCase();
+        return nameMatch || emailMatch;
+      });
+    });
+
+    // Merge author info (role) from paper.authors into researcher records
+    const enrichedAuthors = paperAuthors.map((researcher) => {
+      const matchingAuthor = paper.authors.find((author) => {
+        const nameMatch = researcher.name && author.name && researcher.name.toLowerCase() === author.name.toLowerCase();
+        const emailMatch = researcher.email && author.email && researcher.email.toLowerCase() === author.email.toLowerCase();
+        return nameMatch || emailMatch;
+      });
+
+      return {
+        ...researcher,
+        role: matchingAuthor?.role || researcher.role
+      };
+    });
+
     return (
       <article
         key={`${paper.title}-${paperIndex}`}
@@ -3491,70 +3496,21 @@ function ResearcherThesesPanel({
           </div>
           <h3 className="text-lg font-semibold text-slate-900">{paper.title}</h3>
           <p className="text-sm text-slate-600">
-            {[paper.identifier, paper.groups.length ? `${paper.groups.length} research groups` : null]
+            {[paper.identifier, `${paper.authors.length} author${paper.authors.length === 1 ? "" : "s"}`]
               .filter(Boolean)
-              .join(" · ") || "Group assignments"}
+              .join(" · ")}
           </p>
         </header>
 
-        <div className="space-y-4">
-          {paper.groups.map((group: ResearchGroupEntry, groupIndex: number) => {
-            const key = normaliseGroupKey(group.name);
-            const entries = key && groupedByGroup.has(key) ? groupedByGroup.get(key)! : [];
-            if (key) {
-              remainingGroups.delete(key);
-            }
-
-            const deepDiveKey = `${paperKey}::${key}`;
-            const groupDeepDiveEntries = key && deepDiveBuckets.has(deepDiveKey)
-              ? deepDiveBuckets.get(deepDiveKey) ?? []
-              : [];
-
-            return (
-              <section
-                key={`${group.name}-${groupIndex}`}
-                className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-slate-900">{group.name}</p>
-                    {group.institution && <p className="text-sm text-slate-600">{group.institution}</p>}
-                  </div>
-                  {group.website ? (
-                    <a
-                      href={group.website}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs font-medium text-primary underline-offset-4 hover:underline"
-                    >
-                      Visit site
-                    </a>
-                  ) : (
-                    <span className="text-xs text-slate-400">No website listed</span>
-                  )}
-                </div>
-
-                {group.notes && (
-                  <p className="text-sm leading-relaxed text-slate-700">{group.notes}</p>
-                )}
-
-                {renderThesisGroupResearchers(entries)}
-
-                {renderGroupDeepDives(groupDeepDiveEntries)}
-              </section>
-            );
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {enrichedAuthors.map((author, index) => {
+            const key = author.name ?? author.email ?? `author-${index}`;
+            return <div key={key}>{renderResearcherCard(author)}</div>;
           })}
         </div>
       </article>
     );
   });
-
-  const extraGroups = Array.from(remainingGroups.entries()).map(([key, entries]) => ({
-    label: entries[0]?.group ?? key,
-    entries
-  }));
-
-  const hasExtras = extraGroups.length > 0 || grouplessResearchers.length > 0;
 
   return (
     <div className="flex-1 overflow-auto">
@@ -3562,7 +3518,7 @@ function ResearcherThesesPanel({
         <header className="flex items-center justify-between gap-3">
           <div className="space-y-1">
             <h2 className="text-xl font-semibold text-slate-900">Researcher Theses</h2>
-            <p className="text-sm text-slate-600">PhD theses and publications from research group members</p>
+            <p className="text-sm text-slate-600">PhD theses from paper authors</p>
           </div>
           {onRetry && (
             <button
@@ -3577,51 +3533,6 @@ function ResearcherThesesPanel({
           )}
         </header>
         <div className="space-y-6">{paperSections}</div>
-
-        {hasExtras && (
-          <article className="space-y-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-            <header className="space-y-1 border-b border-slate-100 pb-3">
-              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                Additional thesis records
-              </div>
-              <p className="text-sm text-slate-600">
-                These entries could not be matched to the current research group structure.
-              </p>
-            </header>
-
-            <div className="space-y-4">
-              {extraGroups.map((bucket, index) => (
-                <section
-                  key={`${bucket.label ?? "unlabelled"}-${index}`}
-                  className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4"
-                >
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-slate-900">{bucket.label ?? "Unnamed group"}</p>
-                    <p className="text-xs text-slate-500">Unmapped group</p>
-                  </div>
-                  {renderThesisGroupResearchers(bucket.entries)}
-                </section>
-              ))}
-
-              {grouplessResearchers.length > 0 && (
-                <section className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold text-slate-900">Researchers without group assignment</p>
-                    <p className="text-xs text-slate-500">
-                      Capture a research group before running the thesis pass to improve matching.
-                    </p>
-                  </div>
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {grouplessResearchers.map((record, index) => {
-                      const key = record.name ?? record.email ?? `unassigned-${index}`;
-                      return <div key={key}>{renderResearcherCard(record, `Record ${index + 1}`)}</div>;
-                    })}
-                  </div>
-                </section>
-              )}
-            </div>
-          </article>
-        )}
       </section>
     </div>
   );
@@ -7671,7 +7582,7 @@ export default function LandingPage() {
           isMock={Boolean(isActivePaperMock)}
           structuredGroups={
             isActivePaperMock
-              ? MOCK_RESEARCH_GROUPS_STRUCTURED
+              ? MOCK_AUTHOR_CONTACTS_STRUCTURED
               : activeResearchGroupState?.status === "success"
                 ? activeResearchGroupState.structured
                 : undefined
