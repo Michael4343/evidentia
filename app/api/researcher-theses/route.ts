@@ -2,20 +2,22 @@ import { NextResponse } from "next/server";
 
 export const runtime = "nodejs";
 
-const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's notes into strict JSON for Evidentia's researcher thesis UI.
+const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Review ALL discovery responses in this conversation thread and compile them into strict JSON for Evidentia's researcher thesis UI.
+
+Task: Scan back through this conversation to find all author thesis discovery responses. Compile every author's information into a single JSON object.
 
 Output requirements:
 - Return a single JSON object with keys: researchers (array), promptNotes (optional string).
-- Each researcher object must include: name (string), email (string|null), group (string|null),
+- Each researcher object must include: name (string), email (string|null),
   latest_publication (object with title (string|null), year (number|null), venue (string|null), url (string|null)),
   phd_thesis (null or object with title (string|null), year (number|null), institution (string|null), url (string|null)),
   data_publicly_available ("yes" | "no" | "unknown").
 - Use null for unknown scalars. Use lowercase for data_publicly_available values.
-- Every url field must be a direct https:// link. If the notes provide a markdown link or reference-style footnote, extract the underlying URL and place it in the url field. Never leave a url blank when the notes include a working link.
-- For phd_thesis.url, copy the repository/download link from the analyst notes' "Data access link" column; if multiple are provided, prefer the PDF/download URL. Only set null when no link is given or it is explicitly unavailable.
+- Every url field must be a direct https:// link. If the discovery responses include markdown links or reference-style footnotes, extract the underlying URL. Never leave a url blank when a working link was provided.
+- For phd_thesis.url, prefer PDF/download URLs when multiple links are available. Only use null when no link was found or it is explicitly unavailable.
 - No markdown, commentary, or trailing prose. Valid JSON only (double quotes).
-- Preserve factual content from the notes; do not invent new theses or publications.
-- Output raw JSON only — no markdown fences, comments, trailing prose, or extra keys.`;
+- Preserve factual content from the discovery responses; do not invent new theses or publications.
+- Include ALL researchers from ALL discovery responses in this thread - do not skip anyone.`;
 
 interface ResearchGroup {
   name?: string;
@@ -33,6 +35,11 @@ interface Paper {
   title?: string;
   identifier?: string | null;
   groups?: ResearchGroup[];
+  authors?: Array<{
+    name?: string;
+    email?: string | null;
+    role?: string | null;
+  }>;
 }
 
 interface ResearchGroupsStructured {
@@ -70,30 +77,54 @@ function buildDiscoveryPrompt(researchGroups: ResearchGroupsPayload): string {
 
   papers.forEach((paper) => {
     const paperTitle = cleanPlainText(paper?.title || "Unknown paper");
-    const groups = paper?.groups || [];
 
-    groups.forEach((group) => {
-      const groupName = cleanPlainText(group?.name || "Unknown group");
-      const institution = cleanPlainText(group?.institution || "");
-      const website = cleanPlainText(group?.website || "");
-      const notes = cleanPlainText(group?.notes || "");
-      const researchers = group?.researchers || [];
+    // Handle both formats: old format with .groups, new format with .authors
+    const hasGroups = Array.isArray(paper?.groups);
+    const hasAuthors = Array.isArray(paper?.authors);
 
-      researchers.forEach((researcher) => {
-        const name = cleanPlainText(researcher?.name || "");
+    if (hasGroups) {
+      // Old format: papers with .groups containing .researchers
+      const groups = paper.groups || [];
+      groups.forEach((group: any) => {
+        const groupName = cleanPlainText(group?.name || "Unknown group");
+        const institution = cleanPlainText(group?.institution || "");
+        const website = cleanPlainText(group?.website || "");
+        const notes = cleanPlainText(group?.notes || "");
+        const researchers = group?.researchers || [];
+
+        researchers.forEach((researcher: any) => {
+          const name = cleanPlainText(researcher?.name || "");
+          if (name.length > 0) {
+            allResearchers.push({
+              name,
+              email: researcher?.email || null,
+              group: groupName,
+              institution,
+              website,
+              notes,
+              paper: paperTitle
+            });
+          }
+        });
+      });
+    } else if (hasAuthors) {
+      // New format: papers with .authors directly
+      const authors = paper.authors || [];
+      authors.forEach((author: any) => {
+        const name = cleanPlainText(author?.name || "");
         if (name.length > 0) {
           allResearchers.push({
             name,
-            email: researcher?.email || null,
-            group: groupName,
-            institution,
-            website,
-            notes,
+            email: author?.email || null,
+            group: "Author", // Default group name for new format
+            institution: "",
+            website: "",
+            notes: author?.role || "",
             paper: paperTitle
           });
         }
       });
-    });
+    }
   });
 
   if (allResearchers.length === 0) {
@@ -101,13 +132,10 @@ function buildDiscoveryPrompt(researchGroups: ResearchGroupsPayload): string {
   }
 
   const lines = [
-    "You are a research analyst identifying PhD theses and publications.",
+    "You are a research analyst specializing in PhD thesis discovery for Evidentia.",
     "",
-    "Task:",
-    "For each researcher listed below, find:",
-    "1. Most recent publication (2022 or later preferred) - title, year, venue, URL",
-    "2. PhD thesis if verifiable - title, year, institution, direct thesis URL",
-    "3. Data availability for latest publication - yes/no/unknown",
+    "Your PRIMARY task is to find the doctoral dissertations for the researchers listed below.",
+    "Use systematic database searches and verify researcher identity carefully.",
     "",
     "Research Groups and Members:",
     ""
@@ -157,26 +185,85 @@ function buildDiscoveryPrompt(researchGroups: ResearchGroupsPayload): string {
   });
 
   lines.push(
-    "Guidelines:",
-    "- Use web search to verify official records and repositories for each researcher individually.",
-    "- Prefer institutional repositories, Google Scholar, DBLP, Semantic Scholar, and university thesis databases.",
-    "- If you cannot confirm a field after reasonable searching, write 'Not found' for that specific field instead of skipping it.",
-    "- Never return a blanket statement that nothing was found; produce an entry for every researcher listed.",
-    "- For thesis URLs, prioritise direct PDF/download links from trusted sources; otherwise provide the best official landing page.",
-    "- Cite sources or reasoning briefly so downstream systems can trace provenance.",
+    "PRIMARY GOAL: Find the PhD thesis for each researcher listed above.",
     "",
-    "Output format (plain text notes, no JSON yet):",
-    "For each researcher, use this exact format:",
+    "For each researcher, complete the following steps in order:",
     "",
-    "Researcher: [Name] ([Group / Institution])",
-    "Email: [email or Not provided]",
-    "Latest Publication: [title] ([year]) - [venue]",
-    "Publication URL: [direct link or Not found]",
-    "PhD Thesis: [title] ([year]) - [institution]",
-    "Thesis URL: [direct link or Not found]",
-    "Data Available: [yes/no/unknown]",
-    "Evidence: [short note on search hits, repositories, or reasoning]",
-    ""
+    "STEP 1 - PhD Thesis Search (PRIORITY):",
+    "Find their doctoral dissertation using the systematic search workflow below. Provide:",
+    "- Thesis title",
+    "- Year completed",
+    "- Awarding institution",
+    "- Direct URL to thesis or PDF (institutional repository, national library, or ProQuest)",
+    "- Identity verification notes (see workflow below)",
+    "",
+    "If no thesis is found after thorough search, write \"No thesis verified\" and explain which databases were checked and why no match was found (e.g., researcher may have industry background, thesis not digitized, name ambiguity).",
+    "",
+    "STEP 2 - Supporting Context (SECONDARY):",
+    "If easily available, note:",
+    "- Most recent peer-reviewed publication (2022+ preferred): title, year, venue, URL",
+    "- Data availability from that publication (yes/no/unknown)",
+    "",
+    "PhD Thesis Search Workflow (follow this sequence):",
+    "",
+    "1. START with institutional repositories:",
+    "   - Use the author's current/known affiliation to search their institution's thesis repository",
+    "   - Check department thesis lists and supervisor pages",
+    "   - Look for theses related to the paper's research topic",
+    "",
+    "2. National thesis databases:",
+    "   - ProQuest Dissertations & Theses (global coverage)",
+    "   - National/regional thesis libraries (e.g., NDLTD, EThOS UK, HAL France, NARCIS Netherlands)",
+    "   - University repository networks (OpenDOAR, BASE)",
+    "",
+    "3. Cross-reference with academic profiles:",
+    "   - Google Scholar: check \"Cited by\" and early publications",
+    "   - ORCID profile: look for thesis entries",
+    "   - ResearchGate, LinkedIn: check education history",
+    "",
+    "4. Identity verification (CRITICAL):",
+    "   - Confirm the thesis author matches the target researcher by checking:",
+    "     • Thesis year aligns with current role (e.g., postdoc in 2023 likely PhD ~2018-2023)",
+    "     • Research topic matches the paper's focus area",
+    "     • Co-authors or supervisor names appear in their publication history",
+    "     • Institution matches known affiliations",
+    "   - If multiple candidates appear, explain the ambiguity",
+    "",
+    "5. Name variations to check:",
+    "   - Different first name spellings or middle initials",
+    "   - Maiden names (especially for researchers who may have married)",
+    "   - Hyphenated surnames",
+    "   - Name order variations (Eastern vs Western conventions)",
+    "",
+    "Output format (plain text notes, no markdown tables):",
+    "Researcher: <Full name>",
+    "Email: <email or Not provided>",
+    "Role: <role or Not provided>",
+    "",
+    "PhD Thesis:",
+    "  Title: <thesis title or No thesis verified>",
+    "  Year: <year completed or Unknown>",
+    "  Institution: <awarding institution or Unknown>",
+    "  URL: <direct https:// link to thesis/PDF or Not found>",
+    "  Verification: <concise note on how identity was confirmed OR why no thesis was found>",
+    "",
+    "Latest Publication (if easily found):",
+    "  Title: <title or Skipped>",
+    "  Year: <year or Skipped>",
+    "  Venue: <venue or Skipped>",
+    "  URL: <direct https:// link or Skipped>",
+    "  Data Available: <yes/no/unknown or Skipped>",
+    "",
+    "Search Summary: <list 2-3 key databases checked>",
+    "",
+    "---",
+    "",
+    "Repeat this block for every researcher in the list. Do not skip anyone.",
+    "At the end, provide a summary:",
+    "- Total researchers searched: <number>",
+    "- Theses found: <number>",
+    "- Theses not verified: <number>",
+    "- Primary databases used: <list top 3>"
   );
 
   return lines.join("\n");
