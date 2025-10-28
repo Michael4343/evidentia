@@ -1375,18 +1375,55 @@ function createResearchContactsStateFromRaw(): ResearchGroupContactsState {
   };
 }
 
+function sanitiseResearcherEmail(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const mailtoMatch = trimmed.match(/mailto:([^\s)>]+)/i);
+  if (mailtoMatch && mailtoMatch[1]) {
+    return mailtoMatch[1].replace(/[)>]+$/, "").trim().toLowerCase() || null;
+  }
+
+  const emailMatch = trimmed.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  if (emailMatch && emailMatch[0]) {
+    return emailMatch[0].trim().toLowerCase();
+  }
+
+  return trimmed.includes("@") ? trimmed.toLowerCase() : null;
+}
+
+function normaliseResearcherRecords(records: ResearcherThesisRecord[]): ResearcherThesisRecord[] {
+  return records.map((record) => ({
+    ...record,
+    name: record.name?.trim() ?? record.name,
+    email: sanitiseResearcherEmail(record.email),
+    data_publicly_available:
+      record.data_publicly_available &&
+      ["yes", "no", "unknown"].includes(record.data_publicly_available.toLowerCase())
+        ? (record.data_publicly_available.toLowerCase() as ResearcherThesisRecord["data_publicly_available"])
+        : "unknown"
+  }));
+}
+
 function createResearchThesesStateFromRaw(raw: RawMockLibraryEntry): ResearcherThesesState {
   const text = typeof raw.researcherTheses?.text === "string" ? raw.researcherTheses.text : undefined;
   const researchers = Array.isArray(raw.researcherTheses?.structured?.researchers)
     ? (raw.researcherTheses.structured.researchers as ResearcherThesisRecord[])
     : [];
+  const normalisedResearchers = normaliseResearcherRecords(researchers);
   const deepDives = Array.isArray(raw.researcherTheses?.deepDives?.entries)
     ? (raw.researcherTheses.deepDives.entries as ResearcherThesisDeepDive[])
     : undefined;
 
   return {
     status: "success",
-    researchers,
+    researchers: normalisedResearchers,
     ...(text ? { text } : {}),
     ...(deepDives ? { deepDives } : {})
   };
@@ -1410,11 +1447,13 @@ const MOCK_RESEARCH_THESES_DEEP_DIVES: ResearcherThesisDeepDive[] = Array.isArra
   ? ((DEFAULT_ENTRY_RAW.researcherTheses as any).deepDives.entries as ResearcherThesisDeepDive[])
   : [];
 
+const MOCK_RESEARCH_THESES_STRUCTURED_NORMALISED = normaliseResearcherRecords(MOCK_RESEARCH_THESES_STRUCTURED);
+
 const MOCK_RESEARCH_THESES_INITIAL_STATE: ResearcherThesesState =
-  MOCK_RESEARCH_THESES_STRUCTURED.length > 0
+  MOCK_RESEARCH_THESES_STRUCTURED_NORMALISED.length > 0
     ? {
         status: "success",
-        researchers: MOCK_RESEARCH_THESES_STRUCTURED,
+        researchers: MOCK_RESEARCH_THESES_STRUCTURED_NORMALISED,
         text: MOCK_RESEARCH_THESES_TEXT,
         deepDives: MOCK_RESEARCH_THESES_DEEP_DIVES
       }
@@ -5644,11 +5683,12 @@ export default function LandingPage() {
         "theses"
       );
       if (cachedTheses?.researchers) {
+        const normalisedResearchers = normaliseResearcherRecords(cachedTheses.researchers);
         setResearchThesesStates((prev) => ({
           ...prev,
           [paperId]: {
             status: "success",
-            researchers: cachedTheses.researchers,
+            researchers: normalisedResearchers,
             ...(cachedTheses.text && cachedTheses.text.trim().length > 0
               ? { text: cachedTheses.text }
               : {})
@@ -5680,16 +5720,19 @@ export default function LandingPage() {
           }
 
           const researchers = Array.isArray(storedData?.researchers) ? storedData.researchers : [];
+          const normalisedResearchers = normaliseResearcherRecords(researchers);
           const text = typeof storedData?.text === "string" ? storedData.text.trim() : "";
 
-          if (researchers.length > 0) {
-            const cachePayload = text.length > 0 ? { researchers, text } : { researchers };
+          if (normalisedResearchers.length > 0) {
+            const cachePayload = text.length > 0
+              ? { researchers: normalisedResearchers, text }
+              : { researchers: normalisedResearchers };
             writeCachedState(paperId, "theses", cachePayload);
             setResearchThesesStates((prev) => ({
               ...prev,
               [paperId]: {
                 status: "success",
-                researchers,
+                researchers: normalisedResearchers,
                 ...(text.length > 0 ? { text } : {})
               }
             }));
@@ -6745,16 +6788,19 @@ export default function LandingPage() {
         const researchers = Array.isArray(payload?.researchers)
           ? payload.researchers
           : structuredResearchers;
+        const normalisedResearchers = normaliseResearcherRecords(researchers);
 
         const text = typeof payload?.text === "string" ? payload.text.trim() : "";
 
         console.log("[researcher-theses] fetch success", {
           paperId: paper.id,
-          researchers: researchers.length,
+          researchers: normalisedResearchers.length,
           hasText: text.length > 0
         });
 
-        const cachePayload = text.length > 0 ? { researchers, text } : { researchers };
+        const cachePayload = text.length > 0
+          ? { researchers: normalisedResearchers, text }
+          : { researchers: normalisedResearchers };
         writeCachedState(paper.id, "theses", cachePayload);
 
         if (paper.storagePath && supabase && user) {
@@ -6775,7 +6821,7 @@ export default function LandingPage() {
             : undefined;
 
         const result: ResearcherThesesResult = {
-          researchers,
+          researchers: normalisedResearchers,
           ...(text.length > 0 ? { text } : {}),
           ...(nextDeepDives ? { deepDives: nextDeepDives } : {})
         };

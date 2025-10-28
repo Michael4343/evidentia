@@ -97,6 +97,31 @@ function cleanPlainText(input) {
 }
 
 
+function normaliseEmail(input) {
+  if (typeof input !== "string") {
+    return null;
+  }
+
+  const cleaned = cleanPlainText(input);
+  if (!cleaned) {
+    return null;
+  }
+
+  const mailtoMatch = cleaned.match(/mailto:([^\s)]+)/i);
+  if (mailtoMatch && mailtoMatch[1]) {
+    return mailtoMatch[1].replace(/[)>]+$/, "").trim().toLowerCase() || null;
+  }
+
+  const raw = cleaned.replace(/^mailto:/i, "");
+  const emailMatch = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  if (emailMatch && emailMatch[0]) {
+    return emailMatch[0].trim().toLowerCase();
+  }
+
+  return null;
+}
+
+
 async function collectCleanedJson(rl) {
   return collectJsonInput(rl, { promptLabel: "cleaned JSON" });
 }
@@ -451,8 +476,7 @@ function normaliseResearcher(entry) {
     return null;
   }
 
-  const emailRaw = typeof entry.email === "string" ? entry.email.trim() : "";
-  const email = emailRaw ? emailRaw.toLowerCase() : null;
+  const email = normaliseEmail(entry.email);
 
   const latestPublication = normaliseLatestPublication(entry.latest_publication || {});
   const thesis = normaliseThesis(entry.phd_thesis);
