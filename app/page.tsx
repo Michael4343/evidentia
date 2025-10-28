@@ -2516,7 +2516,7 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
             ))}
           </tbody>
         </table>
-        <p className="px-4 pb-4 text-xs text-slate-500">"Not reported" highlights gaps to close before replication or scale-up.</p>
+        <p className="px-4 pb-4 text-xs text-slate-500">&quot;Not reported&quot; highlights gaps to close before replication or scale-up.</p>
       </div>
 
       {/* Similar papers cards */}
