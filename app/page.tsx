@@ -4287,7 +4287,7 @@ function VerifiedClaimsPanel({
                 <div className="rounded-2xl border border-amber-200 bg-amber-50/70 px-5 py-4 shadow-sm">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-600">Partially Verified</p>
                   <p className="mt-1 text-2xl font-semibold text-slate-900">{partialCount}</p>
-                  <p className="mt-1 text-xs text-amber-700/80">Moderate confidence: {moderateConfidenceCount}</p>
+                  <p className="mt-1 text-xs text-amber-700/80">Expected for most claims - reasonable support.</p>
                 </div>
                 <div className="rounded-2xl border border-rose-200 bg-rose-50/70 px-5 py-4 shadow-sm">
                   <p className="text-xs font-semibold uppercase tracking-[0.18em] text-rose-600">Needs Review</p>
