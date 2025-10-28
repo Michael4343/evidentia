@@ -158,6 +158,97 @@ const MOCK_AUTHOR_CONTACTS_STRUCTURED: AuthorContactsPaperEntry[] | undefined = 
 const PIPELINE_TIMEOUT_MS = 600_000; // 10 minutes
 const PIPELINE_TIMEOUT_LABEL = `${PIPELINE_TIMEOUT_MS / 1000}s`;
 
+const CLAIM_EVIDENCE_SOURCE_ALIASES = new Map<string, string>([
+  ["similar paper", "Similar Paper"],
+  ["similar papers", "Similar Paper"],
+  ["paper", "Similar Paper"],
+  ["research group", "Research Group"],
+  ["research groups", "Research Group"],
+  ["group", "Research Group"],
+  ["patent", "Patent"],
+  ["patents", "Patent"],
+  ["thesis", "Thesis"],
+  ["phd thesis", "Thesis"],
+  ["theses", "Thesis"]
+]);
+
+const CLAIM_EVIDENCE_PLACEHOLDER_PATTERN = /^(?:none(?:\s+found)?|no\s+(?:relevant\s+)?(?:evidence|contradictions?)|not\s+(?:provided|reported)|n\/?a)$/i;
+
+function canonicaliseClaimEvidenceSource(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.replace(/[\[\]]/g, "").trim();
+  if (!normalized) {
+    return null;
+  }
+  const alias = CLAIM_EVIDENCE_SOURCE_ALIASES.get(normalized.toLowerCase());
+  if (alias) {
+    return alias;
+  }
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function stripLeadingClaimEvidenceMarker(value: string): string {
+  return value.replace(/^(?:[-*\u2022]+|\d+\.)\s*/, "").trim();
+}
+
+function collapseClaimEvidenceWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function normaliseClaimEvidenceFields(input: { source: string; title: string; relevance: string }): VerifiedClaimEvidence | null {
+  let sourceCandidate = (input.source ?? "").trim();
+  let title = (input.title ?? "").trim();
+  let relevance = (input.relevance ?? "").trim();
+
+  const bracketMatch = title.match(/^\[(Similar Paper|Research Group|Patent|Thesis)\]\s*/i);
+  if (bracketMatch) {
+    if (!sourceCandidate) {
+      sourceCandidate = bracketMatch[1];
+    }
+    title = title.slice(bracketMatch[0].length).trim();
+  }
+
+  const labelledMatch = title.match(/^(Similar Paper|Research Group|Patent|Thesis)\s*(?:\u2014|\u2013|-|:)\s*/i);
+  if (labelledMatch) {
+    if (!sourceCandidate) {
+      sourceCandidate = labelledMatch[1];
+    }
+    title = title.slice(labelledMatch[0].length).trim();
+  }
+
+  title = stripLeadingClaimEvidenceMarker(title);
+  title = collapseClaimEvidenceWhitespace(title);
+
+  if (!title || CLAIM_EVIDENCE_PLACEHOLDER_PATTERN.test(title)) {
+    return null;
+  }
+
+  let source = canonicaliseClaimEvidenceSource(sourceCandidate);
+  if (!source) {
+    source = canonicaliseClaimEvidenceSource(bracketMatch?.[1]);
+  }
+  if (!source && labelledMatch?.[1]) {
+    source = canonicaliseClaimEvidenceSource(labelledMatch[1]);
+  }
+  if (!source) {
+    source = "Similar Paper";
+  }
+
+  if (relevance) {
+    relevance = collapseClaimEvidenceWhitespace(relevance);
+  }
+
+  const cleanedRelevance = relevance && !CLAIM_EVIDENCE_PLACEHOLDER_PATTERN.test(relevance) ? relevance : "";
+
+  return {
+    source,
+    title,
+    ...(cleanedRelevance ? { relevance: cleanedRelevance } : {})
+  } satisfies VerifiedClaimEvidence;
+}
+
 function isMockPaper(paper: UploadedPaper | null | undefined) {
   if (!paper?.id) {
     return false;
@@ -534,24 +625,86 @@ function normalizePatentEntry(raw: any): PatentEntry | null {
     return null;
   }
 
-  const patentNumber = typeof raw.patentNumber === "string" && raw.patentNumber.trim().length > 0 ? raw.patentNumber.trim() : null;
-  const title = typeof raw.title === "string" && raw.title.trim().length > 0 ? raw.title.trim() : null;
-  const assignee = typeof raw.assignee === "string" && raw.assignee.trim().length > 0 ? raw.assignee.trim() : null;
-  const filingDate = typeof raw.filingDate === "string" && raw.filingDate.trim().length > 0 ? raw.filingDate.trim() : null;
-  const grantDate = typeof raw.grantDate === "string" && raw.grantDate.trim().length > 0 ? raw.grantDate.trim() : null;
-  const summary = typeof raw.abstract === "string" && raw.abstract.trim().length > 0 ? raw.abstract.trim() : null;
-  const url = typeof raw.url === "string" && raw.url.trim().length > 0 ? raw.url.trim() : null;
+  const extractString = (value: unknown): string | null => {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+    return null;
+  };
 
-  const overlapRaw = raw.overlapWithPaper;
-  const claimIds = Array.isArray(overlapRaw?.claimIds)
-    ? overlapRaw.claimIds
-        .map((claim: any) => (typeof claim === "string" ? claim.trim() : ""))
-        .filter((claim: string) => claim.length > 0)
-    : [];
-  const overlapSummary =
-    overlapRaw && typeof overlapRaw.summary === "string" && overlapRaw.summary.trim().length > 0
-      ? overlapRaw.summary.trim()
-      : null;
+  const fallbackStringArray = (candidates: unknown[]): string | null => {
+    for (const candidate of candidates) {
+      const extracted = extractString(candidate);
+      if (extracted) {
+        return extracted;
+      }
+    }
+    return null;
+  };
+
+  let patentNumber = fallbackStringArray([
+    (raw as any).patentNumber,
+    (raw as any).patentId,
+    (raw as any).number,
+    (raw as any).publicationNumber,
+    (raw as any).applicationNumber
+  ]);
+
+  let title = fallbackStringArray([(raw as any).title, (raw as any).name, (raw as any).headline]);
+  const assignee = fallbackStringArray([(raw as any).assignee, (raw as any).assigneeName, (raw as any).applicant]);
+  const filingDate = extractString((raw as any).filingDate);
+  const grantDate = extractString((raw as any).grantDate);
+  const summary = fallbackStringArray([(raw as any).abstract, (raw as any).summary, (raw as any).description]);
+  let url = extractString((raw as any).url) ?? extractString((raw as any).link);
+
+  if (!patentNumber && url) {
+    const match = url.match(/patent\/(.+?)(?:[/?#]|$)/i);
+    if (match) {
+      patentNumber = match[1];
+    }
+  }
+
+  if (patentNumber && !url) {
+    url = `https://patents.google.com/patent/${patentNumber}`;
+  }
+
+  if (!title && summary) {
+    title = summary.slice(0, 80);
+  }
+
+  if (!patentNumber && !title) {
+    return null;
+  }
+
+  const overlapRaw = (raw as any).overlapWithPaper ?? raw.overlap ?? raw.claimAlignment;
+  let claimIds: string[] = [];
+  if (Array.isArray(overlapRaw?.claimIds)) {
+    claimIds = overlapRaw.claimIds
+      .map((claim: any) => (typeof claim === "string" ? claim.trim() : ""))
+      .filter((claim: string) => claim.length > 0);
+  } else if (typeof overlapRaw?.claimIds === "string") {
+    claimIds = overlapRaw.claimIds
+      .split(/[,;\s]+/)
+      .map((segment: string) => segment.trim())
+      .filter(Boolean);
+  } else if (typeof (raw as any).claimsCovered === "string") {
+    claimIds = (raw as any).claimsCovered
+      .split(/[,;\s]+/)
+      .map((segment: string) => segment.trim())
+      .filter(Boolean);
+  }
+
+  const overlapSummary = (() => {
+    const candidates = [
+      overlapRaw?.summary,
+      overlapRaw?.overlap,
+      overlapRaw?.description,
+      (raw as any).overlapSummary,
+      (raw as any).validationNotes,
+      (raw as any).technicalOverlap
+    ];
+    return fallbackStringArray(candidates);
+  })();
 
   const overlap: PatentOverlapWithPaper | null = claimIds.length > 0 || overlapSummary
     ? {
@@ -577,9 +730,15 @@ function normalizePatentsStructured(raw: unknown): PatentsStructured | undefined
     return undefined;
   }
 
-  const rawObject = raw as { patents?: unknown; promptNotes?: unknown };
+  const rawObject = raw as { patents?: unknown; promptNotes?: unknown; items?: unknown; results?: unknown };
   const promptNotes = typeof rawObject.promptNotes === "string" && rawObject.promptNotes.trim().length > 0 ? rawObject.promptNotes.trim() : null;
-  const patentsArray = Array.isArray(rawObject.patents) ? rawObject.patents : [];
+  const patentsArray = Array.isArray(rawObject.patents)
+    ? rawObject.patents
+    : Array.isArray((rawObject as any).items)
+      ? (rawObject as any).items
+      : Array.isArray((rawObject as any).results)
+        ? (rawObject as any).results
+        : [];
 
   const patents = patentsArray
     .map((entry) => normalizePatentEntry(entry))
@@ -600,19 +759,21 @@ function normalizeVerifiedClaimEvidence(raw: any): VerifiedClaimEvidence | null 
     return null;
   }
 
-  const source = typeof raw.source === "string" && raw.source.trim().length > 0 ? raw.source.trim() : "";
-  const title = typeof raw.title === "string" && raw.title.trim().length > 0 ? raw.title.trim() : "";
-  const relevance = typeof raw.relevance === "string" && raw.relevance.trim().length > 0 ? raw.relevance.trim() : null;
+  const sourceCandidate = typeof raw.source === "string" ? raw.source : "";
+  const titleCandidate = typeof raw.title === "string" ? raw.title : "";
+  const relevanceCandidate = typeof raw.relevance === "string" ? raw.relevance : "";
 
-  if (!source || !title) {
+  const normalised = normaliseClaimEvidenceFields({
+    source: sourceCandidate,
+    title: titleCandidate,
+    relevance: relevanceCandidate
+  });
+
+  if (!normalised) {
     return null;
   }
 
-  return {
-    source,
-    title,
-    ...(relevance ? { relevance } : {})
-  };
+  return normalised;
 }
 
 function normalizeVerifiedClaimsStructured(raw: unknown): VerifiedClaimsStructured | undefined {
@@ -6090,7 +6251,7 @@ export default function LandingPage() {
         const structuredData = payload?.structured ? normalizePatentsStructured(payload.structured) : undefined;
 
         if (!text && !structuredData) {
-          throw new Error("Patent response did not include notes or structured data.");
+          throw new Error("Patent API returned empty results. The response may have been truncated or malformed. Please try again.");
         }
 
         console.log("[patents] fetch success", {
@@ -7189,11 +7350,49 @@ export default function LandingPage() {
           let patentsState = patentsStatesRef.current[paper.id];
           const forcePatents = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.patents;
           if (!patentsState || patentsState.status !== "success" || forcePatents) {
-            const patentsResult = await runPatents(paper, extractionData, claimsState);
-            if (!patentsResult) {
-              return;
+            // Check storage first before running API
+            if (paper.storagePath && supabase && !forcePatents) {
+              try {
+                const storedPatents = await loadPatentsFromStorage({
+                  client: supabase,
+                  storagePath: paper.storagePath
+                });
+
+                if (storedPatents) {
+                  const text = typeof storedPatents.text === "string" ? storedPatents.text : "";
+                  const structured = storedPatents.structured
+                    ? normalizePatentsStructured(storedPatents.structured)
+                    : undefined;
+
+                  if (text || structured) {
+                    setPatentsStates((prev) => ({
+                      ...prev,
+                      [paper.id]: {
+                        status: "success",
+                        ...(text ? { text } : {}),
+                        ...(structured ? { structured } : {})
+                      }
+                    }));
+                    patentsState = {
+                      status: "success",
+                      ...(text ? { text } : {}),
+                      ...(structured ? { structured } : {})
+                    } as PatentsState;
+                  }
+                }
+              } catch (error) {
+                console.error("[patents] Failed to load from storage in pipeline", error);
+              }
             }
-            patentsState = { status: "success", ...patentsResult } as PatentsState;
+
+            // Only run API if we don't have data or if forced
+            if (!patentsState || patentsState.status !== "success" || forcePatents) {
+              const patentsResult = await runPatents(paper, extractionData, claimsState);
+              if (!patentsResult) {
+                return;
+              }
+              patentsState = { status: "success", ...patentsResult } as PatentsState;
+            }
           }
 
           const patentsStateForVerified =
@@ -7204,7 +7403,7 @@ export default function LandingPage() {
           const thesesForVerified = thesesState && thesesState.status === "success" ? thesesState : undefined;
 
           let verifiedState = verifiedClaimsStatesRef.current[paper.id];
-          const forceVerified = forcedStageIndex !== null && forcedStageIndex <= PIPELINE_STAGE_INDEX.verifiedClaims;
+          const forceVerified = forcedStageIndex !== null && forcedStageIndex === PIPELINE_STAGE_INDEX.verifiedClaims;
           if (!verifiedState || verifiedState.status !== "success" || forceVerified) {
             const verifiedResult = await runVerifiedClaims(
               paper,
@@ -7596,9 +7795,16 @@ export default function LandingPage() {
       return;
     }
 
+    // Clear state to trigger re-generation
+    setPatentsStates((prev) => {
+      const next = { ...prev };
+      delete next[activePaper.id];
+      return next;
+    });
+
     patentsGenerationRef.current.delete(activePaper.id);
     void startPipeline(activePaper, { resetFrom: "patents" });
-  }, [activePaper, startPipeline]);
+  }, [activePaper, setPatentsStates, startPipeline]);
 
   const handleRetryVerifiedClaims = useCallback(() => {
     if (!activePaper) {

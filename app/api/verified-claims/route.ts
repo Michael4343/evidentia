@@ -135,19 +135,46 @@ type VerifiedClaimsStructured = {
   promptNotes?: string | null;
 };
 
-const CLEANUP_PROMPT_HEADER = `You are a cleanup agent. Convert the analyst's claim verification notes into strict JSON for Evidentia's verified claims UI.
+const EVIDENCE_SOURCE_ALIASES = new Map<string, string>([
+  ["similar paper", "Similar Paper"],
+  ["similar papers", "Similar Paper"],
+  ["paper", "Similar Paper"],
+  ["research group", "Research Group"],
+  ["research groups", "Research Group"],
+  ["group", "Research Group"],
+  ["patent", "Patent"],
+  ["patents", "Patent"],
+  ["thesis", "Thesis"],
+  ["phd thesis", "Thesis"],
+  ["theses", "Thesis"]
+]);
 
-Output requirements:
-- Return a single JSON object with keys: claims (array), overallAssessment (string), promptNotes (optional string).
-- Each claim object must include: claimId (string matching C1, C2, etc.), originalClaim (string), verificationStatus (string), supportingEvidence (array), contradictingEvidence (array), verificationSummary (string), confidenceLevel (string).
-- verificationStatus must be one of: "Verified", "Partially Verified", "Contradicted", "Insufficient Evidence".
-- confidenceLevel must be one of: "High", "Moderate", "Low".
-- Each evidence item (supporting or contradicting) must have: source (string: "Similar Paper", "Patent", "Research Group", or "Thesis"), title (string), relevance (string explaining the connection).
-- verificationSummary must be a detailed 2-3 sentence explanation of the verification status and reasoning.
-- overallAssessment should be a brief paragraph summarizing the paper's overall claim validity across all claims.
-- No markdown, commentary, or trailing prose. Valid JSON only (double quotes).
-- Preserve factual content from the notes; do not invent evidence.
-- Output raw JSON only — no markdown fences, comments, trailing prose, or extra keys.`;
+const EVIDENCE_PLACEHOLDER_PATTERN = /^(?:none(?:\s+found)?|no\s+(?:relevant\s+)?(?:evidence|contradictions?)|not\s+(?:provided|reported)|n\/?a)$/i;
+
+const CLEANUP_PROMPT_HEADER = `You convert the analyst's verified-claims notes into strict JSON for Evidentia's review UI.
+
+Return exactly one JSON object with these keys:
+- "claims": array ordered as in the notes (use [] if the analyst supplied none).
+- "overallAssessment": string summarising the entire paper ("" if not provided).
+- "promptNotes": optional string with any remaining analyst cautions. Omit the key when nothing meaningful remains.
+
+Each element in "claims" must include:
+- "claimId": string such as "C1".
+- "originalClaim": the verbatim claim text.
+- "verificationStatus": one of "Verified", "Partially Verified", "Contradicted", "Insufficient Evidence".
+- "confidenceLevel": one of "High", "Moderate", "Low".
+- "supportingEvidence": array of objects with { "source": "Similar Paper" | "Research Group" | "Patent" | "Thesis", "title": string, "relevance": string }. Use [] when nothing is cited.
+- "contradictingEvidence": same schema; emit [] when the analyst reported none.
+- "verificationSummary": a 2-3 sentence user-facing explanation of the status and reasoning.
+
+Normalise as you parse:
+- Preserve analyst wording but trim whitespace and strip markdown or bullet symbols.
+- Map bracketed prefixes such as "[Similar Paper]" or "[Patent]" into the "source" field and remove them from titles.
+- Drop placeholder strings like "None found" or "No contradictions" and output empty arrays instead.
+- Collapse multi-line relevance notes into a single sentence per evidence item.
+- Maintain the original claim order from the notes and keep paragraph breaks in "promptNotes" using \n\n.
+
+Respond with raw JSON only (double quotes, no code fences) and never invent evidence or conclusions.`;
 
 function cleanPlainText(input: unknown): string {
   if (typeof input !== "string") {
@@ -163,6 +190,34 @@ function cleanPlainText(input: unknown): string {
     .replace(/\u00A0/g, " ")
     .replace(/[\u200B-\u200F\uFEFF]/g, "")
     .trim();
+}
+
+function canonicaliseEvidenceSource(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+  const normalized = value.replace(/[\[\]]/g, "").trim();
+  if (!normalized) {
+    return null;
+  }
+  const alias = EVIDENCE_SOURCE_ALIASES.get(normalized.toLowerCase());
+  if (alias) {
+    return alias;
+  }
+  const canonical = normalized.charAt(0).toUpperCase() + normalized.slice(1);
+  return canonical;
+}
+
+function stripLeadingEvidenceMarker(value: string): string {
+  return value.replace(/^(?:[-*\u2022]+|\d+\.)\s*/, "").trim();
+}
+
+function collapseWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function isEvidencePlaceholder(value: string): boolean {
+  return EVIDENCE_PLACEHOLDER_PATTERN.test(value.trim());
 }
 
 function formatArray(values: unknown, mapper: (value: any, index: number) => string | null): string[] {
@@ -432,16 +487,19 @@ function buildVerificationPrompt(payload: BodyPayload, claims: ClaimsPayload): s
   return lines.join("\n");
 }
 
-function buildCleanupPrompt(): string {
+function buildCleanupPrompt(analystNotes: string): string {
+  const trimmedNotes = analystNotes.trim();
   return [
     CLEANUP_PROMPT_HEADER.trim(),
     "",
-    "Refer to the analyst notes in the previous message (do not paste them here).",
-    "---",
-    "[Notes already provided above]",
+    "The analyst notes are provided below. Do not copy them into the JSON—only use them for reference.",
+    "--- ANALYST NOTES ---",
+    trimmedNotes,
     "---",
     "Return the JSON object now."
-  ].join("\n");
+  ]
+    .filter((line) => line !== "")
+    .join("\n");
 }
 
 function stripMarkdownFences(payload: string): string {
@@ -453,18 +511,54 @@ function normaliseEvidence(entry: any): VerifiedClaimEvidence | null {
     return null;
   }
 
-  const source = cleanPlainText(entry.source);
-  const title = cleanPlainText(entry.title);
-  const relevanceRaw = cleanPlainText(entry.relevance);
+  let sourceCandidate = cleanPlainText(entry.source);
+  let title = cleanPlainText(entry.title);
+  let relevanceRaw = cleanPlainText(entry.relevance);
 
-  if (!source || !title) {
+  const bracketMatch = title.match(/^\[(Similar Paper|Research Group|Patent|Thesis)\]\s*/i);
+  if (bracketMatch) {
+    if (!sourceCandidate) {
+      sourceCandidate = bracketMatch[1];
+    }
+    title = title.slice(bracketMatch[0].length).trim();
+  }
+
+  const labelledMatch = title.match(/^(Similar Paper|Research Group|Patent|Thesis)\s*(?:\u2014|\u2013|-|:)\s*/i);
+  if (labelledMatch) {
+    if (!sourceCandidate) {
+      sourceCandidate = labelledMatch[1];
+    }
+    title = title.slice(labelledMatch[0].length).trim();
+  }
+
+  title = stripLeadingEvidenceMarker(title);
+  title = collapseWhitespace(title);
+
+  if (!title || isEvidencePlaceholder(title)) {
     return null;
   }
+
+  let source = canonicaliseEvidenceSource(sourceCandidate);
+  if (!source) {
+    source = canonicaliseEvidenceSource(bracketMatch?.[1]);
+  }
+  if (!source && labelledMatch?.[1]) {
+    source = canonicaliseEvidenceSource(labelledMatch[1]);
+  }
+  if (!source) {
+    source = "Similar Paper";
+  }
+
+  if (relevanceRaw) {
+    relevanceRaw = collapseWhitespace(relevanceRaw);
+  }
+
+  const relevance = relevanceRaw && !isEvidencePlaceholder(relevanceRaw) ? relevanceRaw : "";
 
   return {
     source,
     title,
-    ...(relevanceRaw ? { relevance: relevanceRaw } : {})
+    ...(relevance ? { relevance } : {})
   };
 }
 
@@ -699,7 +793,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Model did not return any verified claims notes." }, { status: 502 });
     }
 
-    const cleanupPrompt = buildCleanupPrompt();
+    const cleanupPrompt = buildCleanupPrompt(discoveryText);
 
     const controller2 = new AbortController();
     const timeoutId2 = setTimeout(() => {

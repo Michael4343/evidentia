@@ -204,8 +204,116 @@ function buildCleanupPrompt(discoveryNotes: string): string {
   return `${CLEANUP_PROMPT_HEADER}\n\nAnalyst's patent research notes:\n\n${discoveryNotes}`;
 }
 
+/**
+ * Execute a single OpenAI API call with timeout and error handling
+ */
+async function callOpenAI(
+  prompt: string,
+  options: {
+    apiKey: string;
+    timeout?: number;
+    maxTokens?: number;
+    useWebSearch?: boolean;
+  }
+): Promise<string> {
+  const { apiKey, timeout = 600_000, maxTokens = 8_192, useWebSearch = false } = options;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const requestBody: any = {
+      model: "gpt-5-mini-2025-08-07",
+      reasoning: { effort: "low" },
+      input: prompt,
+      max_output_tokens: maxTokens
+    };
+
+    if (useWebSearch) {
+      requestBody.tools = [{ type: "web_search", search_context_size: "medium" }];
+      requestBody.tool_choice = "auto";
+    }
+
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal
+    });
+
+    if (!response.ok) {
+      let message = "OpenAI request failed.";
+      try {
+        const errorPayload = await response.json();
+        if (typeof errorPayload?.error === "string") {
+          message = errorPayload.error;
+        } else if (typeof errorPayload?.message === "string") {
+          message = errorPayload.message;
+        }
+      } catch {
+        // Ignore parse errors
+      }
+      throw new Error(message);
+    }
+
+    const payload = await response.json();
+    let outputText = typeof payload?.output_text === "string" ? payload.output_text.trim() : "";
+
+    if (!outputText && Array.isArray(payload?.output)) {
+      outputText = payload.output
+        .filter((item: any) => item && item.type === "message" && Array.isArray(item.content))
+        .flatMap((item: any) =>
+          item.content
+            .filter((part: any) => part?.type === "output_text" && typeof part.text === "string")
+            .map((part: any) => part.text)
+        )
+        .join("\n")
+        .trim();
+    }
+
+    if (payload?.status === "incomplete" && payload?.incomplete_details?.reason) {
+      if (outputText) {
+        outputText = `${outputText}\n\n[Note: Response truncated because the model hit its output limit.]`;
+      } else {
+        throw new Error(
+          payload.incomplete_details.reason === "max_output_tokens"
+            ? "Request hit the output limit before completing."
+            : `Request ended early: ${payload.incomplete_details.reason}`
+        );
+      }
+    }
+
+    if (!outputText) {
+      throw new Error("Model did not return any text.");
+    }
+
+    return outputText;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Request timed out.");
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 function stripMarkdownFences(payload: string): string {
   return payload.replace(/^```json\s*\n?|\n?```\s*$/g, "").trim();
+}
+
+function sanitizeJsonString(input: string): string {
+  return input
+    .replace(/[\u2018\u2019\u201A\u201B]/g, "'")   // curly single quotes → ASCII '
+    .replace(/[\u201C\u201D\u201E\u201F]/g, '"')   // curly double quotes → ASCII "
+    .replace(/[\u2013\u2014\u2015\u2212]/g, "-")   // em-dash, en-dash → ASCII -
+    .replace(/\u2026/g, "...")                     // ellipsis → ...
+    .replace(/\u00A0/g, " ")                       // non-breaking space → space
+    .replace(/[\u200B-\u200F\uFEFF]/g, "")         // zero-width spaces → remove
+    .trim();
 }
 
 export async function POST(request: Request) {
@@ -251,189 +359,55 @@ export async function POST(request: Request) {
 
     const discoveryPrompt = buildPatentDiscoveryPrompt(paper, claims);
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => {
-      console.warn("[patents] Discovery request timed out after 600 seconds");
-      controller.abort();
-    }, 600_000);
-
-    let discoveryResponse: Response;
-
+    let discoveryText: string;
     try {
-      discoveryResponse = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: "gpt-5-mini-2025-08-07",
-          reasoning: { effort: "low" },
-          input: discoveryPrompt,
-          max_output_tokens: 6_144
-        }),
-        signal: controller.signal
+      discoveryText = await callOpenAI(discoveryPrompt, {
+        apiKey,
+        timeout: 600_000,
+        maxTokens: 6_144,
+        useWebSearch: true
       });
     } catch (error) {
-      clearTimeout(timeoutId);
-      const message = error instanceof Error ? error.message : String(error);
-      console.error("[patents] Discovery fetch failed", message);
-      throw error;
-    } finally {
-      clearTimeout(timeoutId);
-    }
-
-    if (!discoveryResponse.ok) {
-      let message = "OpenAI request failed.";
-      try {
-        const errorPayload = await discoveryResponse.json();
-        console.error("[patents] Discovery error payload", errorPayload);
-        if (typeof errorPayload?.error === "string") {
-          message = errorPayload.error;
-        } else if (typeof errorPayload?.message === "string") {
-          message = errorPayload.message;
-        }
-      } catch (parseError) {
-        console.warn("[patents] Failed to parse discovery error payload", parseError);
-      }
-      return NextResponse.json({ error: message }, { status: discoveryResponse.status });
-    }
-
-    let discoveryPayload: any;
-
-    try {
-      discoveryPayload = await discoveryResponse.json();
-    } catch (parseError) {
-      console.error("[patents] Failed to parse discovery response", parseError);
-      return NextResponse.json({ error: "Failed to read patent discovery response." }, { status: 502 });
-    }
-
-    let discoveryText = typeof discoveryPayload?.output_text === "string" ? discoveryPayload.output_text.trim() : "";
-
-    if (!discoveryText && Array.isArray(discoveryPayload?.output)) {
-      discoveryText = discoveryPayload.output
-        .filter((item: any) => item && item.type === "message" && Array.isArray(item.content))
-        .flatMap((item: any) =>
-          item.content
-            .filter((part: any) => part?.type === "output_text" && typeof part.text === "string")
-            .map((part: any) => part.text)
-        )
-        .join("\n")
-        .trim();
-    }
-
-    if (discoveryPayload?.status === "incomplete" && discoveryPayload?.incomplete_details?.reason) {
-      console.warn("[patents] Discovery response incomplete", discoveryPayload.incomplete_details);
-      if (discoveryText) {
-        discoveryText = `${discoveryText}\n\n[Note: Response truncated because the model hit its output limit. Consider rerunning if key details are missing.]`;
-      } else {
-        return NextResponse.json(
-          {
-            error:
-              discoveryPayload.incomplete_details.reason === "max_output_tokens"
-                ? "Patent search hit the output limit before completing. Try again in a moment."
-                : `Patent search ended early: ${discoveryPayload.incomplete_details.reason}`
-          },
-          { status: 502 }
-        );
-      }
-    }
-
-    if (!discoveryText) {
-      console.error("[patents] Empty discovery response", discoveryPayload);
-      return NextResponse.json({ error: "Model did not return any patent notes." }, { status: 502 });
+      const message = error instanceof Error ? error.message : "Discovery request failed.";
+      console.error("[patents] Discovery failed:", error);
+      return NextResponse.json({ error: `Patent discovery failed: ${message}` }, { status: 502 });
     }
 
     const cleanupPrompt = buildCleanupPrompt(discoveryText);
 
-    const controller2 = new AbortController();
-    const timeoutId2 = setTimeout(() => {
-      console.warn("[patents] Cleanup request timed out after 600 seconds");
-      controller2.abort();
-    }, 600_000);
-
-    let cleanupResponse: Response;
-
+    let cleanupText: string;
     try {
-      cleanupResponse = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: "gpt-5-mini-2025-08-07",
-          reasoning: { effort: "low" },
-          input: cleanupPrompt,
-          max_output_tokens: 8_192
-        }),
-        signal: controller2.signal
+      cleanupText = await callOpenAI(cleanupPrompt, {
+        apiKey,
+        timeout: 600_000,
+        maxTokens: 16_384,
+        useWebSearch: false
       });
     } catch (error) {
-      clearTimeout(timeoutId2);
-      const message = error instanceof Error ? error.message : String(error);
-      console.error("[patents] Cleanup fetch failed", message);
-      throw error;
-    } finally {
-      clearTimeout(timeoutId2);
+      const message = error instanceof Error ? error.message : "Cleanup request failed.";
+      console.error("[patents] Cleanup failed:", error);
+      return NextResponse.json({ error: `Patent cleanup failed: ${message}` }, { status: 502 });
     }
 
-    if (!cleanupResponse.ok) {
-      let message = "OpenAI cleanup request failed.";
-      try {
-        const errorPayload = await cleanupResponse.json();
-        console.error("[patents] Cleanup error payload", errorPayload);
-        if (typeof errorPayload?.error === "string") {
-          message = errorPayload.error;
-        } else if (typeof errorPayload?.message === "string") {
-          message = errorPayload.message;
-        }
-      } catch (parseError) {
-        console.warn("[patents] Failed to parse cleanup error payload", parseError);
-      }
-      return NextResponse.json({ error: message }, { status: cleanupResponse.status });
-    }
-
-    let cleanupPayload: any;
-
-    try {
-      cleanupPayload = await cleanupResponse.json();
-    } catch (parseError) {
-      console.error("[patents] Failed to parse cleanup response", parseError);
-      return NextResponse.json({ error: "Failed to read patent cleanup response." }, { status: 502 });
-    }
-
-    let cleanupText = typeof cleanupPayload?.output_text === "string" ? cleanupPayload.output_text.trim() : "";
-
-    if (!cleanupText && Array.isArray(cleanupPayload?.output)) {
-      cleanupText = cleanupPayload.output
-        .filter((item: any) => item && item.type === "message" && Array.isArray(item.content))
-        .flatMap((item: any) =>
-          item.content
-            .filter((part: any) => part?.type === "output_text" && typeof part.text === "string")
-            .map((part: any) => part.text)
-        )
-        .join("\n")
-        .trim();
-    }
-
-    if (!cleanupText) {
-      console.error("[patents] Empty cleanup response", cleanupPayload);
-      return NextResponse.json({ error: "Model did not return cleanup JSON." }, { status: 502 });
-    }
+    console.log("[patents] Cleanup raw length", cleanupText.length);
+    console.log("[patents] Cleanup preview", cleanupText.slice(0, 1200));
 
     let structured: PatentStructuredPayload | null = null;
     try {
       const cleaned = stripMarkdownFences(cleanupText);
-      const parsed = JSON.parse(cleaned);
+      const sanitized = sanitizeJsonString(cleaned);
+      const parsed = JSON.parse(sanitized);
       if (parsed && typeof parsed === "object") {
         structured = parsed as PatentStructuredPayload;
       }
     } catch (parseError) {
       console.error("[patents] Failed to parse structured patent JSON", parseError);
       console.error("[patents] Raw cleanup output:", cleanupText);
-      // Fall back to returning just the discovery text
-      return NextResponse.json({ text: discoveryText, structured: null });
+      // Return error instead of silent fallback
+      return NextResponse.json(
+        { error: "Failed to parse patent results. The JSON response was malformed or truncated." },
+        { status: 502 }
+      );
     }
 
     return NextResponse.json({
