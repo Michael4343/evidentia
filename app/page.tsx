@@ -741,7 +741,7 @@ function normalizePatentsStructured(raw: unknown): PatentsStructured | undefined
         : [];
 
   const patents = patentsArray
-    .map((entry) => normalizePatentEntry(entry))
+    .map((entry: any) => normalizePatentEntry(entry))
     .filter((entry): entry is PatentEntry => Boolean(entry));
 
   if (patents.length === 0 && !promptNotes) {
