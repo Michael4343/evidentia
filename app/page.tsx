@@ -8151,7 +8151,7 @@ export default function LandingPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-slate-100 via-white to-slate-100 text-slate-900">
+    <div className="flex min-h-screen flex-col bg-gradient-to-br from-slate-100 via-white to-slate-100 text-slate-900 md:flex-row">
       <input
         ref={fileInputRef}
         type="file"
@@ -8178,7 +8178,7 @@ export default function LandingPage() {
         onDeletePaper={handleDeletePaper}
         isLoading={isFetchingLibrary}
       />
-      <div className="flex flex-1 flex-col">
+      <div className="flex w-full flex-1 flex-col">
         <main
           className="flex flex-1 flex-col"
           data-has-uploads={uploadedPapers.length > 0 ? "true" : "false"}
@@ -8226,8 +8226,8 @@ export default function LandingPage() {
           <div
             className={
               isPaperViewerActive
-                ? "flex flex-1 overflow-hidden"
-                : "flex-1 overflow-y-auto px-2 pb-8 pt-2"
+                ? "flex flex-1 flex-col overflow-hidden"
+                : "flex-1 overflow-y-auto px-4 pb-8 pt-4 sm:px-6"
             }
           >
             {renderActiveTab()}

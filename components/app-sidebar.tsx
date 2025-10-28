@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 
 import { useAuthModal } from "@/components/auth-modal-provider";
@@ -8,6 +8,7 @@ import { listMockLibraryEntryIds } from "@/lib/mock-library";
 
 const MOCK_ENTRY_IDS = listMockLibraryEntryIds();
 const MOCK_ENTRY_ID_SET = new Set(MOCK_ENTRY_IDS);
+const DESKTOP_BREAKPOINT = 768;
 
 interface SidebarPaperItem {
   id: string;
@@ -38,7 +39,21 @@ export function AppSidebar({
   onDeletePaper,
   isLoading = false
 }: AppSidebarProps) {
-  const isCollapsed = collapsed;
+  const [isDesktop, setIsDesktop] = useState(false);
+  useEffect(() => {
+    const updateViewport = () => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      setIsDesktop(window.innerWidth >= DESKTOP_BREAKPOINT);
+    };
+
+    updateViewport();
+    window.addEventListener("resize", updateViewport);
+    return () => window.removeEventListener("resize", updateViewport);
+  }, []);
+
+  const isCollapsed = isDesktop && collapsed;
   const activeId = activePaperId;
   const hasPapers = papers.length > 0;
   const { open, user, signOut, isAuthReady } = useAuthModal();
@@ -72,16 +87,18 @@ export function AppSidebar({
     onShowUpload?.();
   };
 
+  const containerPadding = isCollapsed ? "px-4 md:px-4" : "px-4 sm:px-6 md:px-6";
+
   return (
     <aside
-      className={`relative flex min-h-screen flex-col border-r border-slate-200 bg-white/95 pb-4 pt-4 shadow-sm transition-all duration-300 ${
-        isCollapsed ? "w-20 px-4" : "w-64 px-6"
-      }`}
+      className={`relative flex w-full flex-col border-b border-slate-200 bg-white/95 pb-4 pt-4 shadow-sm transition-all duration-300 md:min-h-screen md:flex-shrink-0 md:border-b-0 md:border-r ${
+        isCollapsed ? "md:w-20" : "md:w-64"
+      } ${containerPadding}`}
     >
       <button
         type="button"
         onClick={onToggle}
-        className="absolute -right-3 top-4 inline-flex h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-base font-semibold text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-900"
+        className="absolute -right-3 top-4 hidden h-8 w-8 items-center justify-center rounded-full border border-slate-200 bg-white text-base font-semibold text-slate-500 shadow-sm transition hover:border-slate-300 hover:text-slate-900 md:inline-flex"
         aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
       >
         <span aria-hidden="true">{isCollapsed ? "›" : "‹"}</span>

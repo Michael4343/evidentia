@@ -21,7 +21,7 @@ export function PaperTabNav({
 }: PaperTabNavProps) {
   const isVertical = variant === "vertical";
 
-  const alignmentClasses = align === "start" ? "justify-start" : "justify-center";
+  const alignmentClasses = align === "start" ? "justify-start" : "justify-start md:justify-center";
 
   const navClasses = isVertical
     ? "flex flex-col gap-2"

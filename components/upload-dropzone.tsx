@@ -53,7 +53,7 @@ export function UploadDropzone({
 
   return (
     <div
-      className={`w-full ${
+      className={`w-full px-4 sm:px-6 ${
         isCompact
           ? "flex flex-col items-center justify-center gap-4 text-center"
           : "mx-auto flex min-h-[40vh] max-w-3xl flex-col items-center justify-center gap-4 text-center"
@@ -61,7 +61,7 @@ export function UploadDropzone({
     >
       {!isCompact && (
         <header className="space-y-2">
-          <h1 className="text-3xl font-semibold text-slate-900 sm:text-4xl">
+          <h1 className="text-2xl font-semibold text-slate-900 sm:text-3xl md:text-4xl">
             Validate Publication
           </h1>
           <p className="text-base text-slate-600">
