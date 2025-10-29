@@ -3207,7 +3207,10 @@ function ResearcherThesesPanel({
     );
   }
 
-  if (!hasResearchGroups) {
+  if (
+    !hasResearchGroups &&
+    (!state || state.status !== "success" || state.researchers.length === 0)
+  ) {
     return <PipelineStagePlaceholder stageId="theses" waitingForStageId="researchGroups" />;
   }
 
@@ -3442,6 +3445,116 @@ function ResearcherThesesPanel({
     );
   }
 
+  const authorsPapers = Array.isArray(structuredGroups)
+    ? structuredGroups
+        .map((entry) => {
+          if (entry && typeof entry === "object" && "authors" in entry) {
+            const authors = Array.isArray((entry as any).authors)
+              ? (entry as any).authors
+                  .map((author: any) => {
+                    if (!author || typeof author !== "object") {
+                      return null;
+                    }
+                    const rawName = typeof author.name === "string" && author.name.trim().length > 0 ? author.name.trim() : null;
+                    const email = typeof author.email === "string" && author.email.trim().length > 0 ? author.email.trim() : null;
+                    if (!rawName && !email) {
+                      return null;
+                    }
+                    const role = typeof author.role === "string" && author.role.trim().length > 0 ? author.role.trim() : null;
+                    const orcid = typeof author.orcid === "string" && author.orcid.trim().length > 0 ? author.orcid.trim() : null;
+                    const profiles = Array.isArray(author.profiles)
+                      ? author.profiles
+                          .map((profile: any) => {
+                            if (!profile || typeof profile !== "object") {
+                              return null;
+                            }
+                            const platform = typeof profile.platform === "string" && profile.platform.trim().length > 0 ? profile.platform.trim() : null;
+                            const url = typeof profile.url === "string" && profile.url.trim().length > 0 ? profile.url.trim() : null;
+                            if (!platform || !url) {
+                              return null;
+                            }
+                            return { platform, url };
+                          })
+                          .filter(Boolean)
+                      : [];
+                    return {
+                      name: rawName ?? email ?? "Unnamed researcher",
+                      email,
+                      role,
+                      orcid,
+                      profiles
+                    } satisfies AuthorEntry;
+                  })
+                  .filter((authorEntry: AuthorEntry | null): authorEntry is AuthorEntry => Boolean(authorEntry))
+              : [];
+
+            if (!authors.length) {
+              return null;
+            }
+
+            return {
+              title: typeof (entry as any).title === "string" ? (entry as any).title : "Untitled paper",
+              identifier: typeof (entry as any).identifier === "string" ? (entry as any).identifier : null,
+              authors
+            } satisfies AuthorContactsPaperEntry;
+          }
+
+          if (entry && typeof entry === "object" && "groups" in entry && Array.isArray((entry as any).groups)) {
+            const dedupe = new Map<string, AuthorEntry>();
+
+            (entry as any).groups.forEach((group: any) => {
+              const groupName = typeof group?.name === "string" ? group.name : null;
+              const researchers = Array.isArray(group?.researchers) ? group.researchers : [];
+
+              researchers.forEach((person: any) => {
+                if (!person || typeof person !== "object") {
+                  return;
+                }
+                const rawName = typeof person.name === "string" && person.name.trim().length > 0 ? person.name.trim() : null;
+                const rawEmail = typeof person.email === "string" && person.email.trim().length > 0 ? person.email.trim() : null;
+                if (!rawName && !rawEmail) {
+                  return;
+                }
+
+                const key = (rawEmail ?? rawName ?? Math.random().toString(36)).toLowerCase();
+                if (dedupe.has(key)) {
+                  return;
+                }
+
+                const role = typeof person.role === "string" && person.role.trim().length > 0
+                  ? person.role.trim()
+                  : groupName
+                    ? `${groupName}${person.role ? ` — ${person.role}` : ""}`
+                    : null;
+
+                dedupe.set(key, {
+                  name: rawName ?? rawEmail ?? "Unnamed researcher",
+                  email: rawEmail,
+                  role,
+                  orcid: null,
+                  profiles: []
+                });
+              });
+            });
+
+            const authors = Array.from(dedupe.values());
+
+            if (!authors.length) {
+              return null;
+            }
+
+            return {
+              title: typeof (entry as any).title === "string" ? (entry as any).title : "Untitled paper",
+              identifier: typeof (entry as any).identifier === "string" ? (entry as any).identifier : null,
+              authors
+            } satisfies AuthorContactsPaperEntry;
+          }
+
+          return null;
+        })
+        .filter((paper): paper is AuthorContactsPaperEntry => Boolean(paper))
+    : [];
+
   const flatList = (
     <ol className="space-y-5">
       {researchers.map((researcher, index) => {
@@ -3451,7 +3564,7 @@ function ResearcherThesesPanel({
     </ol>
   );
 
-  if (!structuredGroups || structuredGroups.length === 0) {
+  if (!structuredGroups || structuredGroups.length === 0 || authorsPapers.length === 0) {
     return (
       <div className="flex-1 overflow-auto">
         <section className="space-y-6 px-6 py-6">
@@ -3492,11 +3605,6 @@ function ResearcherThesesPanel({
       </div>
     );
   }
-
-  // Filter to only papers with new .authors format (AuthorContactsPaperEntry)
-  const authorsPapers = structuredGroups.filter((paper): paper is AuthorContactsPaperEntry => {
-    return "authors" in paper && Array.isArray((paper as any).authors);
-  });
 
   function formatTimestamp(value: string | null | undefined) {
     if (!value) {
@@ -5025,6 +5133,18 @@ export default function LandingPage() {
   const activeResearchGroupState = activePaper ? researchGroupsStates[activePaper.id] : undefined;
   const activeResearchContactsState = activePaper ? researchContactsStates[activePaper.id] : undefined;
   const activeResearchThesesState = activePaper ? researchThesesStates[activePaper.id] : undefined;
+  const structuredGroupsForPanel =
+    activeResearchGroupState?.status === "success"
+      ? activeResearchGroupState.structured
+      : isActivePaperMock
+        ? MOCK_AUTHOR_CONTACTS_STRUCTURED
+        : undefined;
+  const deepDiveDataForPanel =
+    activeResearchThesesState?.status === "success" && Array.isArray(activeResearchThesesState.deepDives)
+      ? activeResearchThesesState.deepDives
+      : isActivePaperMock
+        ? MOCK_RESEARCH_THESES_DEEP_DIVES
+        : undefined;
   const supabase = useMemo(() => getSupabaseBrowserClient(), []);
   const isPaperViewerActive = activeTab === "paper" && Boolean(activePaper);
   const dropzoneHelperText = !user
@@ -8164,22 +8284,10 @@ export default function LandingPage() {
       return (
         <ResearcherThesesPanel
           state={activeResearchThesesState}
-          hasResearchGroups={Boolean(activeResearchGroupState && activeResearchGroupState.status === "success")}
+          hasResearchGroups={Boolean(structuredGroupsForPanel && structuredGroupsForPanel.length > 0)}
           isMock={Boolean(isActivePaperMock)}
-          structuredGroups={
-            isActivePaperMock
-              ? MOCK_AUTHOR_CONTACTS_STRUCTURED
-              : activeResearchGroupState?.status === "success"
-                ? activeResearchGroupState.structured
-                : undefined
-          }
-          deepDives={
-            isActivePaperMock
-              ? MOCK_RESEARCH_THESES_DEEP_DIVES
-              : activeResearchThesesState?.status === "success"
-                ? activeResearchThesesState.deepDives
-                : undefined
-          }
+          structuredGroups={structuredGroupsForPanel}
+          deepDives={deepDiveDataForPanel}
           countdown={pipelineCountdown}
           onRetry={handleRetryTheses}
         />

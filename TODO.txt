@@ -1,12 +1,11 @@
 CODEX
-chekcbox in claims
-make all papers link to source
-make all patents link to source
+Optimise verificaition claims
+Fix bug with PhD theses workflow
 
 Add LLM evals and tracking
 
 CLAUDE
-fix build
+
 
 
 
