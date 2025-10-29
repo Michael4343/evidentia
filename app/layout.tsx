@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthModalProvider } from "@/components/auth-modal-provider";
 import { MobileDesktopModal } from "@/components/mobile-desktop-modal";
+import { TutorialModal } from "@/components/tutorial-modal";
 import { PostHogProvider } from "@/lib/posthog-provider";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
@@ -28,6 +29,7 @@ export default function RootLayout({
       <body className="bg-gradient-to-br from-slate-100 via-white to-slate-100 text-slate-900">
         <PostHogProvider>
           <MobileDesktopModal />
+          <TutorialModal />
           <AuthModalProvider>{children}</AuthModalProvider>
         </PostHogProvider>
       </body>
