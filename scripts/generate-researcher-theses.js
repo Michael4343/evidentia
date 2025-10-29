@@ -74,6 +74,64 @@ const CURLY_QUOTES_TO_ASCII = [
   [/\u0000|\u0001|\u0002|\u0003|\u0004|\u0005|\u0006|\u0007|\u0008|\u0009|\u000A|\u000B|\u000C|\u000D/g, " "]
 ];
 
+const STRING_CLOSERS = new Set([",", "}", "]", ":"]);
+
+function findNextNonWhitespace(str, startIndex) {
+  for (let index = startIndex; index < str.length; index += 1) {
+    const char = str[index];
+    if (char && !/\s/.test(char)) {
+      return char;
+    }
+  }
+  return null;
+}
+
+function escapeDanglingQuotes(jsonStr) {
+  let result = "";
+  let inString = false;
+
+  for (let index = 0; index < jsonStr.length; index += 1) {
+    const char = jsonStr[index];
+
+    if (char === '"') {
+      const prevChar = jsonStr[index - 1];
+      if (prevChar !== "\\") {
+        inString = !inString;
+        if (!inString) {
+          const nextChar = findNextNonWhitespace(jsonStr, index + 1);
+          if (nextChar && !STRING_CLOSERS.has(nextChar)) {
+            result += "\\\"";
+            continue;
+          }
+        }
+      }
+    }
+
+    result += char;
+  }
+
+  return result;
+}
+
+function sanitiseJsonInput(raw) {
+  if (typeof raw !== "string" || raw.trim().length === 0) {
+    return "";
+  }
+
+  let cleaned = raw.replace(/\r\n/g, "\n");
+
+  for (const [pattern, replacement] of CURLY_QUOTES_TO_ASCII) {
+    cleaned = cleaned.replace(pattern, replacement);
+  }
+
+  cleaned = cleaned.replace(/^```json\s*/gim, "");
+  cleaned = cleaned.replace(/^```\s*/gim, "");
+
+  cleaned = escapeDanglingQuotes(cleaned);
+
+  return cleaned.trim();
+}
+
 function cleanPlainText(input) {
   if (typeof input !== "string") {
     return input;
@@ -664,11 +722,13 @@ async function runResearcherTheses(options = {}) {
 
     let cleanedPayload;
     try {
-      cleanedPayload = JSON.parse(cleanedJsonRaw);
+      const sanitisedJson = sanitiseJsonInput(cleanedJsonRaw);
+      cleanedPayload = JSON.parse(sanitisedJson);
     } catch (error) {
       console.error("\n❌ Failed to parse the researcher theses JSON. Ensure the cleanup agent returns valid JSON only.");
       console.error("Raw snippet preview:");
-      console.error(cleanedJsonRaw.slice(0, 200));
+      const preview = sanitiseJsonInput(cleanedJsonRaw).slice(0, 200);
+      console.error(preview.length ? preview : "(empty)");
       throw new Error(`Failed to parse researcher theses JSON: ${error instanceof Error ? error.message : String(error)}`);
     }
 
@@ -681,7 +741,7 @@ async function runResearcherTheses(options = {}) {
       text: formattedText,
       structured: {
         researchers: normalised.researchers,
-        promptNotes: normalised.promptNotes
+        ...(normalised.promptNotes ? { promptNotes: normalised.promptNotes } : {})
       }
     };
 

@@ -19,6 +19,7 @@ import {
 import { useAuthModal } from "@/components/auth-modal-provider";
 import { ReaderTabKey } from "@/lib/reader-tabs";
 import { extractDoiFromPdf } from "@/lib/pdf-doi";
+import { resolvePaperHref, resolveDoiMetadata, resolvePatentHref } from "@/lib/paper-links";
 import { getSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { parseUploadError, validateFileSize } from "@/lib/upload-errors";
 import { deleteUserPaper, fetchUserPapers, persistUserPaper, saveClaimsToStorage, loadClaimsFromStorage, saveSimilarPapersToStorage, loadSimilarPapersFromStorage, savePatentsToStorage, loadPatentsFromStorage, saveVerifiedClaimsToStorage, loadVerifiedClaimsFromStorage, saveResearchGroupsToStorage, loadResearchGroupsFromStorage, saveContactsToStorage, loadContactsFromStorage, saveThesesToStorage, loadThesesFromStorage, type UserPaperRecord } from "@/lib/user-papers";
@@ -2006,6 +2007,29 @@ function ClaimsStructuredView({
   text?: string;
 }) {
   const hasStructured = hasStructuredClaimsContent(structured);
+  const openQuestions = useMemo(
+    () => (Array.isArray(structured?.openQuestions) ? structured.openQuestions : []),
+    [structured?.openQuestions]
+  );
+  const [completedSteps, setCompletedSteps] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setCompletedSteps((prev) => {
+      const next: Record<string, boolean> = {};
+      openQuestions.forEach((question, index) => {
+        const key = `${index}-${question ?? ""}`;
+        next[key] = prev[key] ?? false;
+      });
+      return next;
+    });
+  }, [openQuestions]);
+
+  const toggleStep = useCallback((key: string) => {
+    setCompletedSteps((prev) => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  }, []);
 
   if (!hasStructured && (!text || text.trim().length === 0)) {
     return (
@@ -2177,29 +2201,38 @@ function ClaimsStructuredView({
           )}
 
           {/* Next Steps - Checklist style */}
-          {Array.isArray(structured?.openQuestions) && structured.openQuestions.length > 0 && (
+          {openQuestions.length > 0 && (
             <section className="pt-8 border-t border-slate-200 space-y-4">
               <h3 className="text-base font-semibold text-slate-800">Next Steps</h3>
               <div className="space-y-2">
-                {structured.openQuestions.map((item, index) => (
-                  <div
-                    key={`next-${index}`}
-                    className="flex items-start gap-3 p-3 rounded-lg bg-blue-50/20 border border-blue-100/50 hover:bg-blue-50/30 transition-colors"
-                  >
-                    <div className="flex-shrink-0 mt-0.5">
-                      <svg
-                        className="w-5 h-5 text-blue-500"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                        strokeWidth={2}
-                      >
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                      </svg>
-                    </div>
-                    <p className="text-sm leading-relaxed text-slate-700 flex-1">{item}</p>
-                  </div>
-                ))}
+                {openQuestions.map((item, index) => {
+                  const key = `${index}-${item ?? ""}`;
+                  const isChecked = Boolean(completedSteps[key]);
+                  const inputId = `claims-next-step-${index}`;
+                  const baseClasses = "flex items-start gap-3 p-3 rounded-lg border transition-colors";
+                  const stateClasses = isChecked
+                    ? "bg-blue-100/40 border-blue-300"
+                    : "bg-blue-50/20 border-blue-100/50 hover:bg-blue-50/30";
+
+                  return (
+                    <label
+                      key={`next-${index}`}
+                      htmlFor={inputId}
+                      className={`${baseClasses} ${stateClasses} cursor-pointer`}
+                    >
+                      <input
+                        id={inputId}
+                        type="checkbox"
+                        className="mt-1 h-5 w-5 rounded border-blue-200 text-blue-600 focus:ring-blue-500"
+                        checked={isChecked}
+                        onChange={() => toggleStep(key)}
+                      />
+                      <span className="text-sm leading-relaxed text-slate-700 flex-1">
+                        {item}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             </section>
           )}
@@ -2416,6 +2449,7 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
 
   // Build array with source paper first, then similar papers for the table
   type ComparisonPaper = {
+    identifier?: string | null;
     title: string;
     year?: number | null;
     venue?: string | null;
@@ -2433,6 +2467,7 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
 
   const comparisonPapers: ComparisonPaper[] = [
     {
+      identifier: null,
       title: displayTitle,
       year: sourceYear as number | null | undefined,
       venue: undefined,
@@ -2471,7 +2506,11 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
             <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
               <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-slate-500">Method dimension</th>
               {comparisonPapers.map((paper, index) => {
-                const paperUrl = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
+                const paperUrl = resolvePaperHref({
+                  url: paper.url,
+                  doi: paper.doi,
+                  identifier: paper.identifier
+                });
                 return (
                   <th key={index} className="px-4 py-3 text-slate-600">
                     <div className="space-y-0.5">
@@ -2522,7 +2561,12 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
       {/* Similar papers cards */}
       <div className="space-y-6">
         {dedupedSimilarPapers.map((paper, index) => {
-          const paperUrl = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
+          const paperUrl = resolvePaperHref({
+            url: paper.url,
+            doi: paper.doi,
+            identifier: typeof paper.identifier === "string" ? paper.identifier : null
+          });
+          const doiMeta = resolveDoiMetadata(paper.doi);
           return (
             <article
               key={paper.identifier ?? index}
@@ -2625,11 +2669,11 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
             )}
 
             {/* Links */}
-            {(paper.url || paper.doi) && (
+            {(paperUrl || doiMeta) && (
               <div className="flex flex-wrap items-center gap-3 text-sm pt-2">
-                {paper.url && (
+                {paperUrl && (
                   <a
-                    href={paper.url}
+                    href={paperUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="inline-flex items-center rounded-full border border-blue-600 px-4 py-1.5 font-semibold text-blue-600 transition hover:bg-blue-50"
@@ -2637,14 +2681,14 @@ function SimilarPapersStructuredView({ structured, sourceTitle, sourceYear, sour
                     View paper
                   </a>
                 )}
-                {paper.doi && !paper.url && (
+                {doiMeta && (
                   <a
-                    href={`https://doi.org/${paper.doi}`}
+                    href={doiMeta.href}
                     target="_blank"
                     rel="noreferrer"
                     className="text-sm text-slate-500 underline-offset-4 hover:underline"
                   >
-                    DOI: {paper.doi}
+                    DOI: {doiMeta.doi}
                   </a>
                 )}
               </div>
@@ -3782,6 +3826,10 @@ function ResearcherThesesPanel({
           const key = patent.patentNumber || patent.title || `patent-${index}`;
           const claimIds = patent.overlapWithPaper?.claimIds ?? [];
           const overlapSummary = patent.overlapWithPaper?.summary;
+          const patentHref = resolvePatentHref({
+            url: patent.url,
+            patentNumber: patent.patentNumber
+          });
 
           return (
             <article
@@ -3796,7 +3844,18 @@ function ResearcherThesesPanel({
                       {patent.patentNumber ?? "Patent"}
                     </p>
                     <h3 className="text-base font-semibold text-slate-900 leading-snug">
-                      {patent.title ?? "Untitled patent"}
+                      {patentHref ? (
+                        <a
+                          href={patentHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="hover:underline"
+                        >
+                          {patent.title ?? "Untitled patent"}
+                        </a>
+                      ) : (
+                        patent.title ?? "Untitled patent"
+                      )}
                     </h3>
                   </div>
 
@@ -3812,10 +3871,10 @@ function ResearcherThesesPanel({
                     <p className="text-sm leading-relaxed text-slate-700">{patent.abstract}</p>
                   )}
 
-                  {patent.url && (
+                  {patentHref && (
                     <div className="pt-2">
                       <a
-                        href={patent.url}
+                        href={patentHref}
                         target="_blank"
                         rel="noreferrer"
                         className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary transition hover:text-primary/80"
@@ -4654,6 +4713,9 @@ function VerifiedClaimsPanel({
 }
 
 function ExpertNetworkPanel({ paper, isMock }: { paper: UploadedPaper | null; isMock: boolean }) {
+  const [ndaRequired, setNdaRequired] = useState(false);
+  const [shareProjectContext, setShareProjectContext] = useState(false);
+
   if (!paper && !isMock) {
     return (
       <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center">
@@ -4756,12 +4818,22 @@ function ExpertNetworkPanel({ paper, isMock }: { paper: UploadedPaper | null; is
             </div>
 
             <div className="flex gap-6">
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" disabled className="cursor-not-allowed rounded" />
+              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+                  checked={ndaRequired}
+                  onChange={(event) => setNdaRequired(event.target.checked)}
+                />
                 NDA required
               </label>
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input type="checkbox" disabled className="cursor-not-allowed rounded" />
+              <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-primary focus:ring-primary"
+                  checked={shareProjectContext}
+                  onChange={(event) => setShareProjectContext(event.target.checked)}
+                />
                 Share project context with expert
               </label>
             </div>

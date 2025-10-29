@@ -163,7 +163,56 @@ function extractEntries(library: RawMockLibrary): MockLibraryEntrySummary[] {
   return [fallbackEntry];
 }
 
-export const MOCK_LIBRARY_ENTRIES: MockLibraryEntrySummary[] = extractEntries(MOCK_SIMILAR_PAPERS_LIBRARY);
+const BASE_MOCK_LIBRARY_ENTRIES: MockLibraryEntrySummary[] = extractEntries(MOCK_SIMILAR_PAPERS_LIBRARY);
+
+const ADDITIONAL_RAW_ENTRIES: RawMockLibraryEntry[] = [
+  {
+    id: "companion-dog-ageing",
+    label: "An open science study of ageing in companion dogs",
+    sourcePdf: {
+      path: "An open science study of ageing in companion dogs.pdf",
+      publicPath: "/mock-papers/an-open-science-study-of-ageing-in-companion-dog.pdf",
+      title: "An open science study of ageing in companion dogs"
+    },
+    sourcePaper: {
+      title: "An open science study of ageing in companion dogs",
+      summary:
+        "Overview of the Dog Aging Project cohort design, key biomarkers, and early insights into longevity signals.",
+      keyMethodSignals: [
+        "Longitudinal cohort",
+        "Open science data release",
+        "Companion animal genomics"
+      ]
+    }
+  },
+  {
+    id: "soil-structure-microbiome",
+    label: "Soil structure and microbiome functions in agroecosystems",
+    sourcePdf: {
+      path: "Soil structure and microbiome functions in agroecosystems.pdf",
+      publicPath: "/mock-papers/soil-structure-and-microbiomefunctions-in-agroec.pdf",
+      title: "Soil structure and microbiome functions in agroecosystems"
+    },
+    sourcePaper: {
+      title: "Soil structure and microbiome functions in agroecosystems",
+      summary: "Narrative review of how soil architecture shapes microbial community metabolism and crop outcomes.",
+      keyMethodSignals: [
+        "Soil physics",
+        "Microbial ecology",
+        "Conservation agriculture"
+      ]
+    }
+  }
+];
+
+const ADDITIONAL_MOCK_LIBRARY_ENTRIES = ADDITIONAL_RAW_ENTRIES.map((entry, index) =>
+  coerceEntry(entry, `${FALLBACK_ENTRY_ID}-extra-${index + 1}`)
+);
+
+export const MOCK_LIBRARY_ENTRIES: MockLibraryEntrySummary[] = [
+  ...BASE_MOCK_LIBRARY_ENTRIES,
+  ...ADDITIONAL_MOCK_LIBRARY_ENTRIES
+];
 
 export const MOCK_LIBRARY_ENTRIES_BY_ID = new Map<string, MockLibraryEntrySummary>(
   MOCK_LIBRARY_ENTRIES.map((entry) => [entry.id, entry])

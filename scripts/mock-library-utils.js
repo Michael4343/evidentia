@@ -5,7 +5,7 @@ const LIBRARY_PATH = path.join(__dirname, "../lib/mock-similar-papers.ts");
 const PUBLIC_DIR = path.join(__dirname, "../public");
 const MOCK_PAPERS_DIR = path.join(PUBLIC_DIR, "mock-papers");
 const FALLBACK_ENTRY_ID = "mock-similar-paper";
-const MAX_ENTRIES = 3;
+const MAX_ENTRIES = 5;
 
 function ensureDir(targetDir) {
   if (!fs.existsSync(targetDir)) {

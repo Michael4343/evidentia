@@ -1,6 +1,7 @@
 "use client";
 
 import { listMockLibrarySummaries } from "@/lib/mock-library";
+import { resolvePaperHref, resolveDoiMetadata } from "@/lib/paper-links";
 
 interface MockSimilarPapersShowcaseProps {
   paperId?: string | null;
@@ -150,6 +151,14 @@ export function MockSimilarPapersShowcase({ paperId }: MockSimilarPapersShowcase
     }))
   ];
 
+  const primarySourceHref = sourcePaperEntry
+    ? resolvePaperHref({
+        url: sourcePaperEntry.url,
+        doi: sourcePaperEntry.doi,
+        identifier: sourcePaperEntry.identifier
+      })
+    : null;
+
   const hasRecommendations = comparisonPapers.length > 0;
 
   const getMatrixValue = (paper: ComparisonPaper, key: MethodKey) => {
@@ -163,7 +172,15 @@ export function MockSimilarPapersShowcase({ paperId }: MockSimilarPapersShowcase
   return (
     <section className="w-full space-y-8 px-6 py-8">
       <header className="space-y-2">
-        <h2 className="text-xl font-semibold text-slate-900">{mock.sourcePaper?.title ?? "Untitled"}</h2>
+        <h2 className="text-xl font-semibold text-slate-900">
+          {primarySourceHref ? (
+            <a href={primarySourceHref} target="_blank" rel="noreferrer" className="hover:underline">
+              {mock.sourcePaper?.title ?? "Untitled"}
+            </a>
+          ) : (
+            mock.sourcePaper?.title ?? "Untitled"
+          )}
+        </h2>
         {mock.sourcePaper?.summary && (
           <p className="text-sm leading-relaxed text-slate-600">{mock.sourcePaper.summary}</p>
         )}
@@ -179,7 +196,11 @@ export function MockSimilarPapersShowcase({ paperId }: MockSimilarPapersShowcase
                 <tr className="bg-slate-50 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <th className="sticky left-0 z-10 bg-slate-50 px-4 py-3 text-slate-500">Method dimension</th>
                   {comparisonPapers.map((paper, index) => {
-                    const paperUrl = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
+                    const paperUrl = resolvePaperHref({
+                      url: paper.url,
+                      doi: paper.doi,
+                      identifier: paper.identifier
+                    });
                     return (
                       <th key={paper.identifier ?? index} className="px-4 py-3 text-slate-600">
                         <div className="space-y-0.5">
@@ -231,7 +252,12 @@ export function MockSimilarPapersShowcase({ paperId }: MockSimilarPapersShowcase
             <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Recommended papers</h3>
             <ol className="space-y-6">
               {comparisonPapers.map((paper, index) => {
-                const paperUrl = paper.url || (paper.doi ? `https://doi.org/${paper.doi}` : null);
+                const paperUrl = resolvePaperHref({
+                  url: paper.url,
+                  doi: paper.doi,
+                  identifier: paper.identifier
+                });
+                const doiMeta = resolveDoiMetadata(paper.doi);
                 return (
                   <li
                     key={paper.identifier ?? paper.title ?? index}
@@ -284,11 +310,11 @@ export function MockSimilarPapersShowcase({ paperId }: MockSimilarPapersShowcase
                     </div>
                   )}
 
-                  {(paper.url || paper.doi) && (
+                  {(paperUrl || doiMeta) && (
                     <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-600">
-                      {paper.url && (
+                      {paperUrl && (
                         <a
-                          href={paper.url}
+                          href={paperUrl}
                           target="_blank"
                           rel="noreferrer"
                           className="inline-flex items-center rounded-full border border-primary px-3 py-1 font-semibold text-primary transition hover:bg-primary/5"
@@ -296,14 +322,14 @@ export function MockSimilarPapersShowcase({ paperId }: MockSimilarPapersShowcase
                           Open publication
                         </a>
                       )}
-                      {paper.doi && (
+                      {doiMeta && (
                         <a
-                          href={`https://doi.org/${paper.doi}`}
+                          href={doiMeta.href}
                           target="_blank"
                           rel="noreferrer"
                           className="text-sm text-slate-500 underline-offset-4 hover:underline"
                         >
-                          DOI: {paper.doi}
+                          DOI: {doiMeta.doi}
                         </a>
                       )}
                     </div>
