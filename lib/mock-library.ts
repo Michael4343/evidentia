@@ -29,6 +29,10 @@ export type RawMockLibraryEntry = {
     text?: string;
     structured?: Record<string, unknown>;
   };
+  authorContacts?: {
+    text?: string;
+    structured?: Record<string, unknown>;
+  };
   researcherTheses?: {
     text?: string;
     structured?: {
