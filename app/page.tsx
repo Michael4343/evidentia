@@ -1358,14 +1358,20 @@ function createVerifiedClaimsStateFromRaw(raw: RawMockLibraryEntry): VerifiedCla
 }
 
 function createResearchGroupsStateFromRaw(raw: RawMockLibraryEntry): ResearchGroupsState {
-  const text = typeof raw.researchGroups?.text === "string" ? raw.researchGroups.text : "";
-  const structured = Array.isArray(raw.researchGroups?.structured?.papers)
+  const researchGroupsText = typeof raw.researchGroups?.text === "string" ? raw.researchGroups.text : "";
+  const authorContactsText = typeof raw.authorContacts?.text === "string" ? raw.authorContacts.text : "";
+
+  const researchGroupsStructured = Array.isArray(raw.researchGroups?.structured?.papers)
     ? (raw.researchGroups.structured.papers as ResearchGroupPaperEntry[])
     : undefined;
+  const authorContactsStructured = Array.isArray(raw.authorContacts?.structured?.papers)
+    ? (raw.authorContacts.structured.papers as AuthorContactsPaperEntry[])
+    : undefined;
+
   return {
     status: "success",
-    text,
-    structured
+    text: researchGroupsText || authorContactsText,
+    structured: researchGroupsStructured ?? authorContactsStructured
   };
 }
 

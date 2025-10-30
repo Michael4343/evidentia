@@ -1,6 +1,6 @@
 CODEX
 Optimise verificaition claims
-Fix bug with PhD theses workflow
+Rerun soil stucture example
 
 Add LLM evals and tracking
 

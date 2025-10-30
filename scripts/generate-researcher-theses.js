@@ -154,6 +154,11 @@ function cleanPlainText(input) {
   return value.trim();
 }
 
+function normaliseTitleKey(value) {
+  const cleaned = cleanPlainText(value || "");
+  return cleaned ? cleaned.toLowerCase() : "";
+}
+
 
 function normaliseEmail(input) {
   if (typeof input !== "string") {
@@ -211,11 +216,6 @@ function buildPaperMetaLookup(library) {
     }
   };
 
-  const cleanTitleKey = (value) => {
-    const cleaned = cleanPlainText(value || "");
-    return cleaned ? cleaned.toLowerCase() : "";
-  };
-
   const sourcePaper = library?.sourcePaper || library?.agent?.sourcePaper;
   if (sourcePaper) {
     const sourceMeta = {
@@ -225,7 +225,7 @@ function buildPaperMetaLookup(library) {
       authors: Array.isArray(sourcePaper.authors)
         ? sourcePaper.authors.map((author) => cleanPlainText(author)).filter(Boolean)
         : [],
-      titleKey: cleanTitleKey(sourcePaper.title || "")
+      titleKey: normaliseTitleKey(sourcePaper.title || "")
     };
     register(sourceMeta);
   }
@@ -239,7 +239,7 @@ function buildPaperMetaLookup(library) {
         authors: Array.isArray(paper?.authors)
           ? paper.authors.map((author) => cleanPlainText(author)).filter(Boolean)
           : [],
-        titleKey: cleanTitleKey(paper?.title || "")
+        titleKey: normaliseTitleKey(paper?.title || "")
       };
       register(meta);
     });
@@ -251,7 +251,7 @@ function buildPaperMetaLookup(library) {
       if (doi && byDoi.has(doi)) {
         return byDoi.get(doi);
       }
-      const titleKey = cleanTitleKey(title || "");
+      const titleKey = normaliseTitleKey(title || "");
       if (titleKey && byTitle.has(titleKey)) {
         return byTitle.get(titleKey);
       }
@@ -261,51 +261,134 @@ function buildPaperMetaLookup(library) {
 }
 
 function collectPaperTargets(library) {
-  const papers = library?.authorContacts?.structured?.papers;
-  if (!Array.isArray(papers) || papers.length === 0) {
-    return [];
-  }
-
   const metaLookup = buildPaperMetaLookup(library);
 
-  return papers
-    .map((paper) => {
-      const title = cleanPlainText(paper?.title || "");
-      if (!title) {
-        return null;
+  const buckets = new Map();
+
+  const ensureBucket = (rawTitle, rawIdentifier) => {
+    const title = cleanPlainText(rawTitle || "");
+    if (!title) {
+      return null;
+    }
+
+    const identifier = cleanPlainText(rawIdentifier || "");
+    const meta = metaLookup.resolve(title, identifier) || {};
+    const doi = meta.doi || normaliseDoi(identifier || "") || null;
+    const key = (doi || identifier || normaliseTitleKey(title))?.toLowerCase() || normaliseTitleKey(title);
+
+    if (!key) {
+      return null;
+    }
+
+    if (!buckets.has(key)) {
+      buckets.set(key, {
+        title,
+        identifier: identifier || null,
+        doi,
+        year: typeof meta.year === "number" ? meta.year : null,
+        authors: new Map()
+      });
+    } else {
+      const bucket = buckets.get(key);
+      if (!bucket.doi && doi) {
+        bucket.doi = doi;
       }
+      if (!bucket.identifier && identifier) {
+        bucket.identifier = identifier;
+      }
+      if (bucket.year == null && typeof meta.year === "number") {
+        bucket.year = meta.year;
+      }
+    }
 
-      const identifier = cleanPlainText(paper?.identifier || "");
-      const meta = metaLookup.resolve(title, identifier) || {};
+    return buckets.get(key);
+  };
 
-      // Extract authors directly from the paper
-      const authors = Array.isArray(paper?.authors)
-        ? paper.authors
-            .map((author) => {
-              const name = cleanPlainText(author?.name || "");
-              if (!name) {
-                return null;
-              }
-              const role = cleanPlainText(author?.role || "");
-              const email = cleanPlainText(author?.email || "");
-              return {
-                name,
-                role: role || null,
-                email: email || null
-              };
-            })
-            .filter(Boolean)
-        : [];
+  const addAuthorToBucket = (bucket, author) => {
+    if (!bucket) {
+      return;
+    }
 
-      if (!authors.length) {
+    const rawName = cleanPlainText(author?.name || "");
+    const rawEmail = cleanPlainText(author?.email || "");
+
+    if (!rawName && !rawEmail) {
+      return;
+    }
+
+    const key = (rawEmail || rawName || Math.random().toString(36)).toLowerCase();
+    if (bucket.authors.has(key)) {
+      return;
+    }
+
+    const role = cleanPlainText(author?.role || "");
+    bucket.authors.set(key, {
+      name: rawName || rawEmail || "Unnamed researcher",
+      role: role || null,
+      email: rawEmail || null
+    });
+  };
+
+  const authorContactPapers = Array.isArray(library?.authorContacts?.structured?.papers)
+    ? library.authorContacts.structured.papers
+    : [];
+
+  authorContactPapers.forEach((paper) => {
+    const bucket = ensureBucket(paper?.title, paper?.identifier);
+    if (!bucket) {
+      return;
+    }
+
+    if (Array.isArray(paper?.authors)) {
+      paper.authors.forEach((author) => addAuthorToBucket(bucket, author));
+    }
+  });
+
+  const researchGroupPapers = Array.isArray(library?.researchGroups?.structured?.papers)
+    ? library.researchGroups.structured.papers
+    : [];
+
+  researchGroupPapers.forEach((paper) => {
+    const bucket = ensureBucket(paper?.title, paper?.identifier);
+    if (!bucket) {
+      return;
+    }
+
+    if (Array.isArray(paper?.groups)) {
+      paper.groups.forEach((group) => {
+        const groupName = cleanPlainText(group?.name || "");
+        const groupRolePrefix = groupName ? `${groupName}` : null;
+
+        (Array.isArray(group?.researchers) ? group.researchers : []).forEach((researcher) => {
+          const role = cleanPlainText(researcher?.role || "");
+          const combinedRole = role
+            ? role
+            : groupRolePrefix
+              ? `${groupRolePrefix}${role ? ` — ${role}` : ""}`
+              : null;
+
+          addAuthorToBucket(bucket, {
+            name: researcher?.name,
+            email: researcher?.email,
+            role: combinedRole
+          });
+        });
+      });
+    }
+  });
+
+  return Array.from(buckets.values())
+    .map((bucket) => {
+      const authors = Array.from(bucket.authors.values());
+      if (authors.length === 0) {
         return null;
       }
 
       return {
-        title,
-        identifier: identifier || null,
-        doi: meta.doi || normaliseDoi(identifier || "") || null,
-        year: typeof meta.year === "number" ? meta.year : null,
+        title: bucket.title,
+        identifier: bucket.identifier,
+        doi: bucket.doi,
+        year: bucket.year,
         authors
       };
     })
@@ -574,36 +657,53 @@ function normaliseThesisPayload(payload) {
   };
 }
 
-function formatResearcherTheses(researchers) {
-  return researchers
-    .map((researcher) => {
-      const lines = [
-        `Researcher: ${researcher.name}`,
-        `Email: ${researcher.email || "Not provided"}`,
-        `Data publicly available: ${researcher.data_publicly_available}`
-      ];
+function formatResearcherTheses(researchers, promptNotes = "") {
+  const renderedResearchers = researchers.map((researcher) => {
+    const name = researcher.name || researcher.email || "Unnamed researcher";
+    const lines = [
+      "Researcher",
+      `Name: ${name}`
+    ];
 
-      const pub = researcher.latest_publication || {};
-      lines.push("Latest publication:");
-      lines.push(`  - Title: ${pub.title || "Not found"}`);
-      lines.push(`  - Year: ${typeof pub.year === "number" ? pub.year : "Not found"}`);
-      lines.push(`  - Venue: ${pub.venue || "Not found"}`);
-      lines.push(`  - URL: ${pub.url || "Not found"}`);
+    if (researcher.role) {
+      lines.push(`Role: ${researcher.role}`);
+    }
 
-      if (researcher.phd_thesis) {
-        const thesis = researcher.phd_thesis;
-        lines.push("PhD thesis:");
-        lines.push(`  - Title: ${thesis.title || "Not found"}`);
-        lines.push(`  - Year: ${typeof thesis.year === "number" ? thesis.year : "Not found"}`);
-        lines.push(`  - Institution: ${thesis.institution || "Not found"}`);
-        lines.push(`  - URL: ${thesis.url || "Not found"}`);
-      } else {
-        lines.push("PhD thesis: Not found");
-      }
+    lines.push(`Email: ${researcher.email || "Not provided"}`);
+    lines.push(`Data availability: ${researcher.data_publicly_available || "unknown"}`);
+    lines.push("");
 
-      return lines.join("\n");
-    })
-    .join("\n\n");
+    const publication = researcher.latest_publication || {};
+    lines.push("Latest publication");
+    if (publication.title || publication.venue || publication.url || typeof publication.year === "number") {
+      lines.push(`  Title: ${publication.title || "Not captured"}`);
+      lines.push(`  Venue: ${publication.venue || "Not captured"}`);
+      lines.push(`  Year: ${typeof publication.year === "number" ? publication.year : "Not captured"}`);
+      lines.push(`  Link: ${publication.url || "Not captured"}`);
+    } else {
+      lines.push("  Status: No recent publication captured.");
+    }
+
+    lines.push("");
+    lines.push("PhD thesis");
+    if (researcher.phd_thesis) {
+      const thesis = researcher.phd_thesis;
+      lines.push(`  Title: ${thesis.title || "Not captured"}`);
+      lines.push(`  Institution: ${thesis.institution || "Not captured"}`);
+      lines.push(`  Year: ${typeof thesis.year === "number" ? thesis.year : "Not captured"}`);
+      lines.push(`  Link: ${thesis.url || "Not captured"}`);
+    } else {
+      lines.push("  Status: No confirmed thesis on record.");
+    }
+
+    return lines.join("\n");
+  });
+
+  if (promptNotes && promptNotes.trim().length > 0) {
+    renderedResearchers.push(`Notes\n${promptNotes.trim()}`);
+  }
+
+  return renderedResearchers.join("\n\n---\n\n");
 }
 
 async function runResearcherTheses(options = {}) {
@@ -644,9 +744,12 @@ async function runResearcherTheses(options = {}) {
     }
     existingLibrary = JSON.parse(JSON.stringify(existingLibrary));
 
-    if (!existingLibrary.authorContacts || !existingLibrary.authorContacts.structured) {
+    const hasAuthorContacts = Array.isArray(existingLibrary?.authorContacts?.structured?.papers);
+    const hasGroupContacts = Array.isArray(existingLibrary?.researchGroups?.structured?.papers);
+
+    if (!hasAuthorContacts && !hasGroupContacts) {
       console.error(
-        `\n❌ Author contacts data missing for entry "${entryId}". Run the research groups generator (which creates author contacts) before extracting thesis prompts.`
+        `\n❌ No author contact data found for entry "${entryId}". Run the research groups generator before extracting thesis prompts.`
       );
       return { entryId, status: "skipped" };
     }
@@ -733,7 +836,7 @@ async function runResearcherTheses(options = {}) {
     }
 
     const normalised = normaliseThesisPayload(cleanedPayload);
-    const formattedText = formatResearcherTheses(normalised.researchers);
+    const formattedText = formatResearcherTheses(normalised.researchers, normalised.promptNotes);
 
     const thesisData = {
       maxChars: formattedText.length,
