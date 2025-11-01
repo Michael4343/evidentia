@@ -69,7 +69,7 @@ export function PdfViewer({ fileUrl, fileName, source, storagePath, className }:
 
       const tryFetchDirect = async () => {
         try {
-          const response = await fetch(fileUrl, { credentials: "include" });
+          const response = await fetch(fileUrl);
           if (!response.ok) {
             throw new Error(`Fetch failed with status ${response.status}`);
           }
